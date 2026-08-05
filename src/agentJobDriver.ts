@@ -5,6 +5,8 @@ import {
   type AgentActionOutcome
 } from './agentRuntime.js';
 import { verificationProofLevel, type VerificationReport } from './verification.js';
+import { buildAgentWorkingPlan, buildHypothesisLedger, frameObjective } from './investigationExecutionLoop.js';
+import type { SurveyResult, WorkOrder } from './types.js';
 
 export interface AgentJobCredentials {
   baseUrl: string;
@@ -54,6 +56,18 @@ async function callApi<T>(
     throw new AgentJobHttpError(message, code, response.status, payload);
   }
   return payload as T;
+}
+
+function isSurveyResult(value: unknown): value is SurveyResult {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SurveyResult>;
+  return Boolean(
+    candidate.summary &&
+    typeof candidate.summary.totalFiles === 'number' &&
+    candidate.findings &&
+    Array.isArray(candidate.unknowns) &&
+    Array.isArray(candidate.observations)
+  );
 }
 
 function inferIntent(objective: string, survey: unknown): 'inspect' | 'repair' | 'build' {
@@ -116,7 +130,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             );
           }
           return {
-            statePatch: { objective: job.objective, objectiveRecorded: true },
+            statePatch: { objective: job.objective, objectiveFrame: frameObjective(job.objective), objectiveRecorded: true },
             journals: [{
               kind: 'decision',
               payload: { objective: job.objective, reusedWorkOrder: job.workOrderId || null }
@@ -145,15 +159,25 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
           projectResponse = await callApi(
             credentials, actionKey, 'project-after-inspection', `/api/v1/projects/${job.projectId}`
           );
+          const survey = isSurveyResult(projectResponse.latestSurvey) ? projectResponse.latestSurvey : null;
+          const hypotheses = survey
+            ? buildHypothesisLedger(survey)
+            : {
+                knownFacts: [`Project revision ${Number(projectResponse.project.revision || 0)} is current.`],
+                inferences: [],
+                unknowns: ['No verified survey payload was available to build a hypothesis ledger.']
+              };
           return {
             statePatch: {
               evidenceReady: true,
               surveyEvidenceId,
               projectRevision: Number(projectResponse.project.revision || 0),
               projectStage: String(projectResponse.project.workflowStage || ''),
-              projectPath: String(projectResponse.project.path || '')
+              projectPath: String(projectResponse.project.path || ''),
+              hypotheses
             },
-            evidenceId: surveyEvidenceId
+            evidenceId: surveyEvidenceId,
+            journals: [{ kind: 'decision', payload: { decision: 'evidence_ledger_updated', hypotheses } }]
           };
         },
 
@@ -195,6 +219,11 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             );
             workOrder = draft.workOrder;
           }
+          const planProject = await callApi<{ project: Record<string, any>; latestSurvey?: unknown }>(
+            credentials, actionKey, 'project-for-working-plan', `/api/v1/projects/${job.projectId}`
+          );
+          const planSurvey = isSurveyResult(planProject.latestSurvey) ? planProject.latestSurvey : null;
+          const workingPlan = buildAgentWorkingPlan(workOrder as WorkOrder, planSurvey);
           const planRevision = Number(state.planRevision || 0) + 1;
           const budgets = workOrderBudgets(workOrder);
           return {
@@ -206,7 +235,8 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
                 objective: workOrder.objective,
                 scope: workOrder.scope,
                 acceptance: workOrder.acceptance,
-                risk: workOrder.risk || null
+                risk: workOrder.risk || null,
+                ...workingPlan
               },
               budgets
             },
@@ -219,7 +249,8 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
                   workOrderId: workOrder.id,
                   objective: workOrder.objective,
                   scope: workOrder.scope,
-                  acceptance: workOrder.acceptance
+                  acceptance: workOrder.acceptance,
+                  workingPlan
                 }
               },
               { kind: 'budget', payload: { revision: planRevision, budgets } }

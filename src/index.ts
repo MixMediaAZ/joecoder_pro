@@ -31,6 +31,7 @@ import {
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
 import { runVerification, verificationProofLevel } from './verification.js';
+import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
 import { runJailedInstall } from './installDeps.js';
 import { SOURCE_REPAIR_CAPABILITY, runtimeCapabilities, sourceRepairDeniedPayload } from './capabilities.js';
 import { sealAuthorizationEnvelope, verifyAuthorizationEnvelope } from './authorization.js';
@@ -576,96 +577,108 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
 
       if (wo.execution) wo.execution.phase = 'verifying';
       await saveWorkOrder(wo);
-      const stopVerifyHeartbeat = startProgressHeartbeat(project.id, 'Running the projectÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s build/test verification');
-      let verification;
-      try {
-        verification = await runVerification(project.path, {
-          timeoutMs: Math.min(wo.budgets.maxDurationMs || 120000, 180000),
-          editedRelPaths: applyResult.applied.map((change) => change.relPath),
-          expectedHashes: applyResult.applied.map((change) => ({
-            relPath: change.relPath,
-            expectedHash: change.newHash
-          }))
-        });
-      } finally {
-        stopVerifyHeartbeat();
-      }
-      if (verification.status === 'failed' && Date.now() < deadlineAt - 30000) {
-        if (wo.execution) wo.execution.phase = 'correcting';
-        await saveWorkOrder(wo);
-        await narrateWorkOrder(
-          wo,
-          'repair.correction_started',
-          'The first verification found a real problem, so I am correcting the authorized change automatically.',
-          verification.detail,
-          'I will stay inside the same sealed file scope and remaining line budget, then run verification once more.'
-        );
-        const correctionFiles = await readScopedFiles(project.path, wo.scope.exactPaths);
-        const verificationObservation = verification.items
-          .flatMap((item) => [`${item.command}: ${item.passed ? 'passed' : 'failed'}`, ...item.outputTail])
-          .join('\n')
-          .slice(-6000);
-        const correction = await generateStructured(
-          { generate: (request) => generateWithProvider(provider, request) },
-          {
-            system: EDIT_SYSTEM,
-            prompt: [
-              [buildEditsPrompt(wo.objective, approach, correctionFiles), executionContext].filter(Boolean).join('\n\n'),
-              '',
-              'OBSERVATION FROM THE FIRST VERIFICATION:',
-              verificationObservation,
-              '',
-              'Correct the implementation so the verification failure is resolved. Return complete file blocks only.'
-            ].join('\n'),
-            parse: parseEditBlocks,
-            maxTokens: 8192,
-            timeoutMs: Math.max(30000, Math.min(deadlineAt - Date.now(), 180000)),
-            temperature: 0.1,
-            label: 'verification correction file blocks',
-            maxAttempts: 2,
-            recoveryContext: `Authorized files: ${wo.scope.exactPaths.join(', ')}. The previous verification output is authoritative.`
+      const verificationLoop = await runVerificationCorrectionLoop({
+        maxAttempts: wo.budgets.maxAttempts ?? 3,
+        deadlineAt,
+        verify: async (attempt) => {
+          if (wo.execution) wo.execution.phase = `verifying_${attempt}`;
+          await saveWorkOrder(wo);
+          const stopVerifyHeartbeat = startProgressHeartbeat(project.id, `Running project verification attempt ${attempt}`);
+          try {
+            return await runVerification(project.path, {
+              timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
+              editedRelPaths: applyResult.applied.map((change) => change.relPath),
+              expectedHashes: applyResult.applied.map((change) => ({
+                relPath: change.relPath,
+                expectedHash: change.newHash
+              }))
+            });
+          } finally {
+            stopVerifyHeartbeat();
           }
-        );
-        const correctionEnv = await createEvidenceEnvelope(wo.id, {
-          type: 'repair.correction_generation',
-          workOrderId: wo.id,
-          provider: correction.provider,
-          model: correction.model,
-          durationMs: correction.durationMs,
-          responseHash: createHash('sha256').update(correction.finalText).digest('hex'),
-          triggeredBy: verification
-        });
-        generationEvidenceIds.push(correctionEnv.id);
-        const remainingChangedLines = wo.budgets.maxChangedLines === undefined
-          ? undefined
-          : Math.max(0, wo.budgets.maxChangedLines - applyResult.totalChangedLines);
-        const correctionApply = await applyEdits(project.path, correction.value, {
-          scopeRelPaths: wo.scope.exactPaths,
-          maxFiles: wo.budgets.maxFiles,
-          ...(remainingChangedLines !== undefined ? { maxChangedLines: remainingChangedLines } : {})
-        });
-        const mergedChanges = new Map(applyResult.applied.map((change) => [change.relPath, change]));
-        for (const change of correctionApply.applied) {
-          const previous = mergedChanges.get(change.relPath);
-          mergedChanges.set(change.relPath, previous ? {
-            ...change,
-            action: previous.action,
-            previousHash: previous.previousHash,
-            linesBefore: previous.linesBefore,
-            changedLines: previous.changedLines + change.changedLines
-          } : change);
+        },
+        assess: (candidate) => {
+          const candidateProof = verificationProofLevel(candidate);
+          return {
+            passed: candidateProof !== 'failed',
+            reason: candidate.detail,
+            evidenceFingerprint: createHash('sha256').update(JSON.stringify(candidate)).digest('hex')
+          };
+        },
+        correct: async ({ correctionCycle, failedVerification }) => {
+          if (wo.execution) wo.execution.phase = `correcting_${correctionCycle}`;
+          await saveWorkOrder(wo);
+          await narrateWorkOrder(
+            wo,
+            'repair.correction_started',
+            `Verification attempt ${correctionCycle} found a real problem, so I am correcting it automatically.`,
+            failedVerification.detail,
+            `I will stay inside the same sealed file scope and remaining budgets, then verify again (${correctionCycle} of ${(wo.budgets.maxAttempts ?? 3) - 1} corrections).`
+          );
+          const correctionFiles = await readScopedFiles(project.path, wo.scope.exactPaths);
+          const verificationObservation = failedVerification.items
+            .flatMap((item) => [`${item.command}: ${item.passed ? 'passed' : 'failed'}`, ...item.outputTail])
+            .join('\n')
+            .slice(-6000);
+          const correction = await generateStructured(
+            { generate: (request) => generateWithProvider(provider, request) },
+            {
+              system: EDIT_SYSTEM,
+              prompt: [
+                [buildEditsPrompt(wo.objective, approach, correctionFiles), executionContext].filter(Boolean).join('\n\n'),
+                '',
+                `OBSERVATION FROM VERIFICATION ATTEMPT ${correctionCycle}:`,
+                verificationObservation,
+                '',
+                'Diagnose this fresh evidence and correct the implementation. Return complete file blocks only.'
+              ].join('\n'),
+              parse: parseEditBlocks,
+              maxTokens: 8192,
+              timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
+              temperature: 0.1,
+              label: `verification correction ${correctionCycle} file blocks`,
+              maxAttempts: 2,
+              recoveryContext: `Authorized files: ${wo.scope.exactPaths.join(', ')}. The latest verification output is authoritative.`
+            }
+          );
+          const correctionEnv = await createEvidenceEnvelope(wo.id, {
+            type: 'repair.correction_generation',
+            workOrderId: wo.id,
+            correctionCycle,
+            provider: correction.provider,
+            model: correction.model,
+            durationMs: correction.durationMs,
+            responseHash: createHash('sha256').update(correction.finalText).digest('hex'),
+            triggeredBy: failedVerification
+          });
+          generationEvidenceIds.push(correctionEnv.id);
+          const remainingChangedLines = wo.budgets.maxChangedLines === undefined
+            ? undefined
+            : Math.max(0, wo.budgets.maxChangedLines - applyResult.totalChangedLines);
+          const correctionApply = await applyEdits(project.path, correction.value, {
+            scopeRelPaths: wo.scope.exactPaths,
+            maxFiles: wo.budgets.maxFiles,
+            ...(remainingChangedLines !== undefined ? { maxChangedLines: remainingChangedLines } : {})
+          });
+          const mergedChanges = new Map(applyResult.applied.map((change) => [change.relPath, change]));
+          for (const change of correctionApply.applied) {
+            const previous = mergedChanges.get(change.relPath);
+            mergedChanges.set(change.relPath, previous ? {
+              ...change,
+              action: previous.action,
+              previousHash: previous.previousHash,
+              linesBefore: previous.linesBefore,
+              changedLines: previous.changedLines + change.changedLines
+            } : change);
+          }
+          applyResult = {
+            applied: Array.from(mergedChanges.values()),
+            totalChangedLines: applyResult.totalChangedLines + correctionApply.totalChangedLines
+          };
+          structuredEdits = correction;
         }
-        applyResult = {
-          applied: Array.from(mergedChanges.values()),
-          totalChangedLines: applyResult.totalChangedLines + correctionApply.totalChangedLines
-        };
-        structuredEdits = correction;
-        verification = await runVerification(project.path, {
-          timeoutMs: Math.max(30000, Math.min(deadlineAt - Date.now(), 180000)),
-          editedRelPaths: applyResult.applied.map((change) => change.relPath),
-          expectedHashes: applyResult.applied.map((change) => ({ relPath: change.relPath, expectedHash: change.newHash }))
-        });
-      }
+      });
+      const verification = verificationLoop.verification;
       const proofLevel = verificationProofLevel(verification);
       await narrateWorkOrder(
         wo,
@@ -694,6 +707,17 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         totalChangedLines: applyResult.totalChangedLines,
         install: installResult,
         verification,
+        verificationLoop: {
+          corrections: verificationLoop.corrections,
+          stoppedBy: verificationLoop.stoppedBy,
+          attempts: verificationLoop.attempts.map((attempt) => ({
+            attempt: attempt.attempt,
+            correctionCycle: attempt.correctionCycle,
+            passed: attempt.decision.passed,
+            reason: attempt.decision.reason,
+            evidenceFingerprint: attempt.decision.evidenceFingerprint
+          }))
+        },
         provider: structuredEdits.provider,
         model: structuredEdits.model,
         generationEvidenceIds
@@ -778,6 +802,8 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         workOrder: wo,
         applied: applyResult.applied,
         verification,
+        correctionCycles: verificationLoop.corrections,
+        verificationAttempts: verificationLoop.attempts.length,
         evidenceId: env.id,
         message: proofLevel === 'runtime'
           ? `apply_edits completed: ${applyResult.applied.length} file(s) within authorized scope; runtime checks passed`
@@ -2074,7 +2100,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           objective: grant.objective,
           maxAttempts: grant.maxAttempts,
           grantedAt,
-          boundary: 'One Work Order only. No scope expansion, cloud budget increase, git push, or second mutation attempt.'
+          boundary: 'One Work Order only. No scope expansion, cloud budget increase, git push, or second job. Verification corrections remain inside the sealed attempt budget.'
         });
         automationGrantEvidenceId = grantEvidence.id;
         wo.evidenceIds = Array.from(new Set([...(wo.evidenceIds || []), grantEvidence.id]));
@@ -2417,7 +2443,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             maxFiles: Math.max(plan.files.length, 3),
             maxChangedLines: 800,
             maxDurationMs: 600000,
-            maxAttempts: 1,
+            maxAttempts: 3,
             maxCloudCostUsd: 0
           },
           risk: { level: 'medium' as const, rollbackRequired: true },
