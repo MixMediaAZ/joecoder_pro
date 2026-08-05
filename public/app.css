@@ -1826,3 +1826,20 @@ details.run-completion.compact > summary strong {
     width: 100%;
   }
 }
+/* Definitive Automatic mode: one conversation, one compact durable job account. */
+.agent-mode-switch{display:flex;gap:2px;padding:2px;border:1px solid #cfc8bd;border-radius:8px;background:#f1eee8}
+.agent-mode-switch button{border:0;background:transparent;color:#5b554d;padding:6px 10px;border-radius:6px;font-size:.72rem;font-weight:700}
+.agent-mode-switch button.active{background:#292722;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.automatic-job-card{margin:14px 0 20px;padding:15px 17px;border:1px solid #b8cfbd;border-radius:12px;background:#f2f8f2;color:#242720}
+.automatic-job-card.failed{border-color:#dfa99f;background:#fff5f2}
+.automatic-job-head,.automatic-job-head>div,.automatic-job-actions{display:flex;align-items:center;gap:9px}
+.automatic-job-head{justify-content:space-between;color:#506250;font-size:.8rem}.automatic-job-head strong{font-size:.92rem;color:#20271f}
+.automatic-job-objective{margin:10px 0 12px;font-weight:700;color:#22231f}
+.automatic-job-account{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.automatic-job-account>div{display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:rgba(255,255,255,.7);border-radius:8px}
+.automatic-job-account b{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#706a61}.automatic-job-account span{font-size:.8rem;color:#292722;overflow-wrap:anywhere}
+.automatic-job-actions{justify-content:flex-end;margin-top:11px}.danger-link{color:#9b382b!important;border-color:#ce8f85!important}
+.codex-active-job small{display:block;margin-top:4px;color:#6f6960;font-weight:400}
+#chat-form.codex-composer textarea#chat-input{color:#191714!important;background:#fff!important;caret-color:#191714!important}
+#chat-form.codex-composer textarea#chat-input::placeholder{color:#716b62!important;opacity:1}
+@media(max-width:760px){.agent-mode-switch{width:100%;order:5}.agent-mode-switch button{flex:1}.automatic-job-account{grid-template-columns:1fr}.codex-composer-tools{flex-wrap:wrap}}

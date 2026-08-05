@@ -37,7 +37,7 @@ const state = {
   level: localStorage.getItem('jc_ui_level') || 'guided',
   railCollapsed: localStorage.getItem('jc_ui_rail') === '1',
   activityOpen: localStorage.getItem('jc_ui_activity') !== '0',
-  composerMode: 'ask',
+  composerMode: localStorage.getItem('jc_composer_mode') || 'automatic',
   projects: [],
   currentProject: null,
   latestSurvey: null,
@@ -2752,7 +2752,8 @@ function mapServerJob(job) {
     workOrderId: job.workOrderId || null,
     errorCode: job.errorCode || null,
     errorMessage: job.errorMessage || null,
-    result: job.result || null
+    result: job.result || null,
+    startedAt: job.startedAt || job.createdAt || null
   };
 }
 
@@ -2897,4 +2898,96 @@ bindWorkshopControls = function bindServerJobControls() {
   });
 };
 
+// ---------- Definitive Automatic / Ask / Plan experience ----------
+function renderAutomaticComposer() {
+  if (!state.currentProject) return '';
+  const mode = ['automatic', 'ask', 'plan'].includes(state.composerMode) ? state.composerMode : 'automatic';
+  const options = (state.workshopSettings?.presets || []).map(item =>
+    '<option value="' + escapeHtml(item.id) + '" ' + (item.id === currentPreset().id ? 'selected' : '') + '>' + escapeHtml(item.name) + '</option>'
+  ).join('');
+  const running = Boolean(state.autoJob?.running);
+  const modeHelp = mode === 'automatic'
+    ? (running ? 'Joe is working. Questions remain available; use Stop if your next message would change the job.' : 'One clear request starts one bounded job. Joe inspects, plans, protects, changes, checks, and reports.')
+    : mode === 'ask'
+      ? 'Read-only conversation. No job or file change can start in Ask mode.'
+      : 'Read-only planning. Joe can propose an approach, but cannot start or authorize work.';
+  return '<div class="codex-composer-dock"><form id="chat-form" class="codex-composer">' +
+    '<div class="codex-composer-tools"><button type="button" class="attach-context" data-open-panel="brain" title="Project Brain" aria-label="Open Project Brain">+</button>' +
+    '<select id="composer-preset" aria-label="Job preset">' + (options || '<option>Auto</option>') + '</select>' +
+    '<span class="model-route">' + escapeHtml(presetRouteLabel()) + '</span>' +
+    '<div class="agent-mode-switch" role="tablist" aria-label="Joe mode">' +
+    [['automatic','Automatic'],['ask','Ask'],['plan','Plan']].map(item => '<button type="button" role="tab" aria-selected="' + (mode === item[0]) + '" class="' + (mode === item[0] ? 'active' : '') + '" data-agent-mode="' + item[0] + '">' + item[1] + '</button>').join('') +
+    '</div></div>' +
+    '<textarea id="chat-input" rows="3" maxlength="4000" required aria-label="Message Joe" placeholder="Ask a question or describe the outcome you want..."></textarea>' +
+    '<div class="codex-composer-footer"><span>' + escapeHtml(modeHelp) + '</span><button type="submit" class="codex-send">Send</button></div>' +
+    '</form></div>';
+}
+renderComposer = renderAutomaticComposer;
+
+renderCodexActiveJob = function renderAutomaticLegacyWork(workOrder) {
+  if (!workOrder || state.autoJob?.running) return '';
+  return '<section class="codex-active-job"><div><span>Recorded job - ' + escapeHtml(workOrder.id) + '</span><strong>' +
+    escapeHtml(workOrder.objective || 'Continue the recorded job.') + '</strong><small>Send a clear work request in Automatic mode and Joe will continue only this recorded scope.</small></div>' +
+    '<button type="button" class="secondary" data-open-details>Open proof</button></section>';
+};
+
+const renderStatusBeforeAutomaticCutover = renderAutoJobStatus;
+renderAutoJobStatus = function renderAutomaticJobStatus() {
+  const job = state.autoJob;
+  if (!job?.serverOwned) return renderStatusBeforeAutomaticCutover();
+  const running = job.serverStatus === 'queued' || job.serverStatus === 'running';
+  const interrupted = job.serverStatus === 'interrupted';
+  const failed = job.serverStatus === 'failed' || job.serverStatus === 'cancelled';
+  const startedAt = Number(job.startedAt || 0);
+  const elapsed = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) + 's' : 'starting';
+  const phase = ({ chat: 'Understanding the request', inspect: 'Inspecting without changes', plan: 'Planning the smallest complete job', authorize: 'Protecting the exact job boundary', run: 'Changing only protected files', check: 'Checking the result' })[job.stage] || 'Working';
+  const narration = state.narration || {};
+  const files = (job.result?.applied || []).map(item => item.relPath || item.path).filter(Boolean);
+  return '<section class="automatic-job-card ' + (failed ? 'failed' : '') + '" aria-live="polite">' +
+    '<div class="automatic-job-head"><div><span class="activity-dot"></span><strong>' + escapeHtml(interrupted ? 'Interrupted safely' : failed ? 'Stopped safely' : phase) + '</strong></div><span>' + escapeHtml(elapsed) + '</span></div>' +
+    '<p class="automatic-job-objective">' + escapeHtml(job.objective) + '</p>' +
+    '<div class="automatic-job-account"><div><b>Doing now</b><span>' + escapeHtml(job.errorMessage || job.message || narration.what || phase) + '</span></div>' +
+    (narration.meaning ? '<div><b>Why it matters</b><span>' + escapeHtml(narration.meaning) + '</span></div>' : '') +
+    (files.length ? '<div><b>Files touched</b><span>' + files.map(escapeHtml).join(', ') + '</span></div>' : '') +
+    '<div><b>Next</b><span>' + escapeHtml(narration.next || (running ? 'Continue inside the recorded boundary.' : 'Review the recorded result.')) + '</span></div></div>' +
+    '<div class="automatic-job-actions">' +
+    (running ? '<button type="button" class="secondary danger-link" data-stop-server-job="' + escapeHtml(job.id) + '">Stop</button>' : '') +
+    (interrupted ? '<button type="button" data-resume-server-job="' + escapeHtml(job.id) + '">Resume</button>' : '') +
+    '</div></section>';
+};
+
+runChat = async function runModeAwareChat(content) {
+  const request = String(content || '').trim();
+  if (!request) return;
+  const mode = ['automatic', 'ask', 'plan'].includes(state.composerMode) ? state.composerMode : 'automatic';
+  if (mode !== 'automatic') return runThreadChat(request);
+  if (state.autoJob?.running) {
+    if (shouldAutoHandle(request)) {
+      showNotice('Joe is already completing the current bounded job. Stop it before replacing the objective; questions can still be sent now.');
+      return;
+    }
+    return runThreadChat(request);
+  }
+  return shouldAutoHandle(request) ? runAutomatedJob(request, activeProjectWorkOrder()?.id || null) : runThreadChat(request);
+};
+
+const bindControlsBeforeAutomaticCutover = bindWorkshopControls;
+bindWorkshopControls = function bindAutomaticControls() {
+  bindControlsBeforeAutomaticCutover();
+  document.querySelectorAll('[data-agent-mode]').forEach(button => button.addEventListener('click', () => {
+    state.composerMode = button.dataset.agentMode;
+    localStorage.setItem('jc_composer_mode', state.composerMode);
+    render();
+    requestAnimationFrame(() => document.getElementById('chat-input')?.focus());
+  }));
+  document.querySelector('[data-stop-server-job]')?.addEventListener('click', async event => {
+    const id = event.currentTarget.dataset.stopServerJob;
+    try {
+      const data = await api('/api/v1/agent-jobs/' + id + '/stop', { method: 'POST', body: '{}' });
+      state.autoJob = mapServerJob(data.job);
+      beginNarration('I received your stop request.', 'I will stop at the next safe boundary so an atomic file write is never torn in half.', 'Wait for the cancelled receipt.');
+      render();
+    } catch (error) { showError(formatError(error)); }
+  });
+};
 boot();

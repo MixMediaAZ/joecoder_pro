@@ -470,3 +470,18 @@ test('smart dispatch treats questions as chat and clear commands as bounded work
   assert.equal(classify('proceed'), true);
   assert.equal(classify('continue'), true);
 });
+
+test('Automatic is the default while Ask and Plan remain explicit read-only modes', () => {
+  assert.ok(ui.includes("composerMode: localStorage.getItem('jc_composer_mode') || 'automatic'"));
+  assert.ok(ui.includes("[['automatic','Automatic'],['ask','Ask'],['plan','Plan']]"));
+  assert.ok(ui.includes("if (mode !== 'automatic') return runThreadChat(request)"));
+  assert.ok(ui.includes('One clear request starts one bounded job'));
+});
+
+test('active durable jobs expose only safe Stop and interrupted jobs expose Resume', () => {
+  assert.ok(ui.includes('data-stop-server-job'));
+  assert.ok(ui.includes("'/api/v1/agent-jobs/' + id + '/stop'"));
+  assert.ok(ui.includes("interrupted ? '<button type=\"button\" data-resume-server-job"));
+  assert.ok(ui.includes('Changing only protected files'));
+  assert.ok(styles.includes('.automatic-job-card'));
+});
