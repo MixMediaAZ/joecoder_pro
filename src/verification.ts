@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { discoverStackProfiles, profilesForEditedFiles, type StackProfile, type StackVerificationCommand } from './stackProfiles.js';
 
@@ -56,6 +57,8 @@ function sha256(content: Buffer | string): string {
 }
 
 /** Minimal env: enough for npm/node, no inherited secrets or home expansion surprises. */
+let jailedEnvironmentSequence = 0;
+
 function jailedEnv(): NodeJS.ProcessEnv {
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
   const pathVal = process.env[pathKey] || process.env.PATH || '';
@@ -67,7 +70,9 @@ function jailedEnv(): NodeJS.ProcessEnv {
     NODE_ENV: process.env.NODE_ENV || 'test',
     npm_config_yes: 'true',
     npm_config_audit: 'false',
-    npm_config_fund: 'false'
+    npm_config_fund: 'false',
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONPYCACHEPREFIX: path.join(os.tmpdir(), 'jc-python-fresh-cache', `${process.pid}-${++jailedEnvironmentSequence}`)
   };
 }
 

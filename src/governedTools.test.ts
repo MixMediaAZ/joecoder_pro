@@ -68,7 +68,7 @@ test('governed registry declares every required safety property and tool family'
     'evidence.read', 'git.inspect', 'process.inspect', 'files.create', 'files.apply_exact_patch',
     'files.move', 'files.delete', 'config.update_json', 'project.run_check', 'project.format_check',
     'project.launch', 'project.stop', 'health.query', 'recovery.checkpoint', 'recovery.restore',
-    'visual.capture', 'visual.inspect', 'visual.interact', 'visual.responsive', 'visual.compare'
+    'visual.capture', 'visual.inspect', 'visual.interact', 'visual.responsive', 'visual.accessibility', 'visual.compare'
   ]) assert.ok(names.has(required), `missing ${required}`);
   for (const tool of tools) {
     assert.ok(tool.timeoutMs > 0);
@@ -204,7 +204,7 @@ test('real browser tools capture, inspect, interact, check responsive layout, an
   const { root, context } = await fixture();
   const server = createServer((_req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.end('<!doctype html><title>Joe Tool Fixture</title><button id="change" onclick="document.body.dataset.changed=\'yes\';this.textContent=\'Changed\'">Change</button><script>console.log("fixture loaded")</script>');
+    res.end('<!doctype html><html lang="en"><title>Joe Tool Fixture</title><button id="change" onclick="document.body.dataset.changed=\'yes\';this.textContent=\'Changed\'">Change</button><script>console.log("fixture loaded")</script>');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -232,6 +232,12 @@ test('real browser tools capture, inspect, interact, check responsive layout, an
     }, context);
     assert.equal(responsive.ok, true, responsive.ok ? '' : responsive.error);
     if (responsive.ok) assert.equal((responsive.summary as any).results.length, 2);
+
+    const accessibility = await executeGovernedTool({
+      name: 'visual.accessibility', input: { url, width: 800, height: 600 }
+    }, context);
+    assert.equal(accessibility.ok, true, accessibility.ok ? '' : accessibility.error);
+    if (accessibility.ok) assert.equal((accessibility.summary as any).passed, true);
 
     const relativeCapture = path.relative(context.artifactsRoot, capturePath).replace(/\\/g, '/');
     const compared = await executeGovernedTool({

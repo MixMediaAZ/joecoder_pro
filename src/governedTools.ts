@@ -5,7 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { inspectEvidenceById } from './evidence.js';
 import { getProjectBrain } from './database/database.js';
-import { comparePngWithBrowser, observeBrowserPage } from './browserAutomation.js';
+import { auditBrowserAccessibility, comparePngWithBrowser, observeBrowserPage } from './browserAutomation.js';
 import {
   applyEdits,
   resolveJailedPath,
@@ -601,6 +601,12 @@ const definitions: AnyDefinition[] = [
       }
       return { url: input.url, results };
     },
+    summarize: (output) => output
+  },
+  {
+    metadata: metadata({ name: 'visual.accessibility', title: 'Check basic browser accessibility', authority: 'read_only', operation: null, readsPaths: false, writesPaths: false, timeoutMs: 45_000, maxOutputBytes: 128_000, costClass: 'network_loopback', reversibility: 'not_applicable', idempotent: true }),
+    schema: z.object({ url: loopbackUrlSchema, width: z.number().int().min(320).max(3840).optional().default(1440), height: z.number().int().min(240).max(2160).optional().default(900) }).strict(),
+    execute: (input) => auditBrowserAccessibility(input),
     summarize: (output) => output
   },
   {

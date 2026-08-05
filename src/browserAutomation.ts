@@ -267,6 +267,29 @@ export async function observeBrowserPage(input: {
   }, input.interactions));
 }
 
+export async function auditBrowserAccessibility(input: {
+  url: string; width: number; height: number;
+}): Promise<{ url: string; passed: boolean; issues: Array<{ rule: string; selector: string; detail: string }> }> {
+  return withPage(async (cdp) => {
+    const observed = await navigate(cdp, input.url, { width: input.width, height: input.height, deviceScaleFactor: 1 });
+    const result = await cdp.send<Record<string, any>>('Runtime.evaluate', {
+      expression: `(() => {
+        const issues=[];
+        const selector=(el)=>el.id?'#'+CSS.escape(el.id):el.tagName.toLowerCase();
+        if(!document.documentElement.lang) issues.push({rule:'document-language',selector:'html',detail:'The document has no language.'});
+        document.querySelectorAll('img').forEach(el=>{if(!el.hasAttribute('alt'))issues.push({rule:'image-alt',selector:selector(el),detail:'Image is missing alt text.'});});
+        document.querySelectorAll('button,a[href],[role="button"]').forEach(el=>{const name=(el.getAttribute('aria-label')||el.textContent||'').trim();if(!name)issues.push({rule:'accessible-name',selector:selector(el),detail:'Interactive control has no accessible name.'});});
+        document.querySelectorAll('input,select,textarea').forEach(el=>{const id=el.id;const labelled=el.getAttribute('aria-label')||el.getAttribute('aria-labelledby')||(id&&document.querySelector('label[for="'+CSS.escape(id)+'"]'));if(!labelled)issues.push({rule:'form-label',selector:selector(el),detail:'Form control has no label.'});});
+        const headings=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].map(el=>Number(el.tagName.slice(1)));for(let i=1;i<headings.length;i++){if(headings[i]>headings[i-1]+1)issues.push({rule:'heading-order',selector:'h'+headings[i],detail:'Heading level is skipped.'});}
+        return issues;
+      })()`, returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(`ACCESSIBILITY_AUDIT_FAILED: ${result.exceptionDetails.text || 'unknown'}`);
+    const issues = Array.isArray(result.result?.value) ? result.result.value : [];
+    return { url: observed.url, passed: issues.length === 0, issues };
+  });
+}
+
 export async function comparePngWithBrowser(
   baseline: Buffer,
   actual: Buffer,
