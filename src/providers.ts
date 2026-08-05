@@ -311,6 +311,7 @@ function mockGenerate(request: ModelRequest): ModelResponse {
       if (!files.length) files.push('src/lib.js');
     }
     text = JSON.stringify({
+      schemaVersion: 1,
       files,
       approach: 'Mock plan: minimal scoped change for offline certification.',
       risks: ['Mock model — replace with real local model for production use']

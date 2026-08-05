@@ -1,4 +1,5 @@
 import type { SurveyResult, WorkOrder } from './types.js';
+import { detectNoProgress } from './structuredControl.js';
 
 export interface ObjectiveFrame {
   objective: string;
@@ -40,7 +41,7 @@ export interface CorrectionLoopResult<TVerification> {
   verification: TVerification;
   attempts: VerificationAttempt<TVerification>[];
   corrections: number;
-  stoppedBy: 'success' | 'attempt_limit' | 'time_limit';
+  stoppedBy: 'success' | 'attempt_limit' | 'time_limit' | 'no_progress';
 }
 
 export function frameObjective(request: string): ObjectiveFrame {
@@ -156,6 +157,21 @@ export async function runVerificationCorrectionLoop<TVerification>(options: {
         attempts,
         corrections,
         stoppedBy: 'success'
+      };
+    }
+    const progress = detectNoProgress(attempts.map((item) => ({
+      action: 'verify',
+      evidenceFingerprint: item.decision.evidenceFingerprint,
+      outcome: item.decision.passed ? 'progress' as const : 'failure' as const
+    })));
+    if (progress.blocked) {
+      return {
+        passed: false,
+        reason: progress.reason || decision.reason,
+        verification,
+        attempts,
+        corrections,
+        stoppedBy: 'no_progress'
       };
     }
     if (attempt === maxAttempts) {

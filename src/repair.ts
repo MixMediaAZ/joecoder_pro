@@ -10,14 +10,23 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 import type { SurveyResult } from './types.js';
 import { resolveJailedPath, type ProposedEdit } from './mutation.js';
 
 export interface RepairPlan {
+  schemaVersion: 1;
   files: string[];
   approach: string;
   risks: string[];
 }
+
+const RepairPlanSchema = z.object({
+  schemaVersion: z.literal(1),
+  files: z.array(z.string().trim().min(1)).min(1).max(10),
+  approach: z.string().trim().min(1).max(2000),
+  risks: z.array(z.string().trim().min(1).max(500)).max(10)
+}).strict();
 
 const MAX_PLAN_FILES = 10;
 const MAX_FILE_READ_BYTES = 48 * 1024;
@@ -26,7 +35,7 @@ const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
   'You are given a read-only survey of a project and a repair objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
-  '{"files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
+  '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
   'Rules: list ONLY the files that must be modified or created to meet the objective;',
   'use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; prefer the smallest correct file set (1-10 files).'
@@ -36,7 +45,7 @@ const BUILD_SYSTEM = [
   'You are Joe, a careful greenfield app planner inside an evidence-governed tool.',
   'The target folder is empty or nearly empty. Propose the minimal file set to meet the objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
-  '{"files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
+  '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
   'Rules: use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; prefer the smallest correct starter set (1-10 files);',
   'include package.json when a Node app is implied; do not invent unrelated features.'
@@ -117,34 +126,21 @@ export function buildPlanPrompt(projectName: string, objective: string, survey: 
 }
 
 export function parsePlanResponse(text: string): RepairPlan {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) throw new Error('PLAN_PARSE_FAILED: no JSON object in model response');
-  let parsed: unknown;
+  let candidate: z.infer<typeof RepairPlanSchema>;
   try {
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    throw new Error('PLAN_PARSE_FAILED: model response was not valid JSON');
+    candidate = RepairPlanSchema.parse(JSON.parse(text.trim()));
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`PLAN_PARSE_FAILED: response must be one strict schemaVersion=1 JSON object (${reason})`);
   }
-  const record = parsed as { files?: unknown; approach?: unknown; risks?: unknown };
-  const files = Array.isArray(record.files)
-    ? record.files.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : [];
-  if (!files.length) throw new Error('PLAN_PARSE_FAILED: plan listed no target files');
   const cleaned: string[] = [];
-  for (const raw of files.slice(0, MAX_PLAN_FILES)) {
+  for (const raw of candidate.files.slice(0, MAX_PLAN_FILES)) {
     const rel = raw.replace(/\\/g, '/').replace(/^\.\//, '').trim();
-    if (path.isAbsolute(rel) || rel.includes('..')) throw new Error(`PLAN_REJECTED: unsafe path '${raw}'`);
+    if (path.isAbsolute(rel) || rel.split('/').includes('..')) throw new Error(`PLAN_REJECTED: unsafe path '${raw}'`);
     if (/(^|\/)(node_modules|\.git|\.jc)(\/|$)/.test(rel)) throw new Error(`PLAN_REJECTED: protected path '${raw}'`);
     if (!cleaned.includes(rel)) cleaned.push(rel);
   }
-  return {
-    files: cleaned,
-    approach: typeof record.approach === 'string' ? record.approach.slice(0, 2000) : 'No approach stated.',
-    risks: Array.isArray(record.risks)
-      ? record.risks.filter((item): item is string => typeof item === 'string').slice(0, 10)
-      : []
-  };
+  return { schemaVersion: 1, files: cleaned, approach: candidate.approach, risks: candidate.risks };
 }
 
 export interface ScopedFileContent {
@@ -276,15 +272,6 @@ export function buildPlanRecoveryContext(objective: string, survey: SurveyResult
   ].join('\n');
 }
 
-export function buildDeterministicFallbackPlan(objective: string, survey: SurveyResult): RepairPlan {
-  const files = rankPlanCandidates(objective, survey, 6);
-  if (!files.length) throw new Error('PLAN_RECOVERY_FAILED: no safe source-file candidates were discovered');
-  return {
-    files,
-    approach: 'Joe recovered a bounded candidate scope from the verified inventory after the model failed to return usable target files. The edit step must change only files actually needed for the objective.',
-    risks: ['The model planning response was unusable; the recovered scope may be broader than the final edit set. Snapshot, path jail, budgets, verification, and rollback remain mandatory.']
-  };
-}
 export { PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM };
 
 /** Max temperature allowed for any structured plan/edit call. */
@@ -316,14 +303,14 @@ export interface StructuredSuccess<T> {
   provider: string;
   model: string;
   durationMs: number;
-  recoveredBy: 'model' | 'deterministic_fallback';
-  fallbackReason?: string;
+  recoveredBy: 'model';
+
 }
 
 export interface StructuredAttemptUpdate {
   attempt: number;
   maxAttempts: number;
-  phase: 'requesting' | 'rejected' | 'accepted' | 'fallback';
+  phase: 'requesting' | 'rejected' | 'accepted';
   error?: string;
 }
 
@@ -345,7 +332,6 @@ export async function generateStructured<T>(
     label: string;
     maxAttempts?: number;
     recoveryContext?: string;
-    fallback?: (attempts: StructuredAttempt[]) => T;
     onAttempt?: (update: StructuredAttemptUpdate) => void | Promise<void>;
   }
 ): Promise<StructuredSuccess<T>> {
@@ -353,7 +339,7 @@ export async function generateStructured<T>(
     typeof options.temperature === 'number' ? options.temperature : STRUCTURED_MAX_TEMPERATURE,
     STRUCTURED_MAX_TEMPERATURE
   );
-  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 2, 4));
+  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 2, 2));
   const attempts: StructuredAttempt[] = [];
   let previousError = '';
   let previousText = '';
@@ -367,9 +353,7 @@ export async function generateStructured<T>(
           '',
           'PREVIOUS RESPONSE WAS INVALID AND WAS REJECTED.',
           `Parse error: ${previousError}`,
-          ...(attempt >= 3 && options.recoveryContext
-            ? ['', 'Additional deterministic project context:', options.recoveryContext]
-            : []),
+          ...(options.recoveryContext ? ['', 'Additional verified project context:', options.recoveryContext] : []),
           '',
           `Rejected response excerpt: ${previousText.slice(0, 2000)}`,
           `Return ONLY the required structured format for ${options.label}. No prose, no markdown fences, no apology.`
@@ -407,23 +391,6 @@ export async function generateStructured<T>(
       record.parseError = previousError;
       await options.onAttempt?.({ attempt, maxAttempts, phase: 'rejected', error: previousError });
     }
-  }
-
-  if (options.fallback) {
-    const value = options.fallback(attempts);
-    await options.onAttempt?.({ attempt: maxAttempts, maxAttempts, phase: 'fallback', error: previousError });
-    const last = attempts[attempts.length - 1];
-    if (!last) throw new Error(`STRUCTURED_PARSE_FAILED (${options.label}): no model response was produced`);
-    return {
-      value,
-      attempts,
-      finalText: JSON.stringify(value),
-      provider: last.provider,
-      model: last.model,
-      durationMs: attempts.reduce((sum, item) => sum + item.durationMs, 0),
-      recoveredBy: 'deterministic_fallback',
-      fallbackReason: previousError
-    };
   }
 
   throw new Error(

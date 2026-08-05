@@ -27,11 +27,12 @@ import { resolveProvider, generateWithProvider, providerStatus, warmLocalModel }
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
   parsePlanResponse, buildEditsPrompt, parseEditBlocks, readScopedFiles,
-  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, buildDeterministicFallbackPlan
+  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
 import { runVerification, verificationProofLevel } from './verification.js';
 import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
+import { compactEvidenceLinkedHistory } from './structuredControl.js';
 import { runJailedInstall } from './installDeps.js';
 import { SOURCE_REPAIR_CAPABILITY, runtimeCapabilities, sourceRepairDeniedPayload } from './capabilities.js';
 import { sealAuthorizationEnvelope, verifyAuthorizationEnvelope } from './authorization.js';
@@ -1643,11 +1644,19 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     if (!job) return res.status(404).json({ error: 'Agent job not found', code: 'AGENT_JOB_NOT_FOUND' });
     const after = Number.parseInt(String(req.query.after ?? '-1'), 10);
     const afterJournal = Number.parseInt(String(req.query.afterJournal ?? '-1'), 10);
+    const fullJournal = listAgentJobJournal(job.id);
+    const historySummary = compactEvidenceLinkedHistory(fullJournal.map((entry) => ({
+      sequence: entry.ordinal,
+      kind: entry.kind,
+      payload: entry.payload,
+      evidenceId: entry.evidenceId
+    })));
     res.json({
       ok: true,
       job,
       events: listAgentJobEvents(job.id, Number.isFinite(after) ? after : -1),
-      journal: listAgentJobJournal(job.id, Number.isFinite(afterJournal) ? afterJournal : -1)
+      journal: fullJournal.filter((entry) => entry.ordinal > (Number.isFinite(afterJournal) ? afterJournal : -1)),
+      historySummary
     });
   });
 
@@ -2360,23 +2369,18 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
               timeoutMs: 180000,
               temperature: 0.2,
               label: intent === 'build' ? 'build plan JSON' : 'repair plan JSON',
-              maxAttempts: 4,
+              maxAttempts: 2,
               recoveryContext: buildPlanRecoveryContext(objective, surveyResult),
-              ...(intent === 'repair'
-                ? { fallback: () => buildDeterministicFallbackPlan(objective, surveyResult) }
-                : {}),
               onAttempt: async (update) => {
-                if (!surveyProject || (update.phase !== 'rejected' && update.phase !== 'fallback')) return;
+                if (!surveyProject || update.phase !== 'rejected') return;
                 await narrateProject(
                   surveyProject.id,
-                  update.phase === 'fallback' ? 'repair.plan_scope_recovered' : 'repair.plan_refining',
-                  update.phase === 'fallback'
-                    ? 'The model did not return a usable file list, so I recovered a bounded candidate scope from the verified project inventory.'
-                    : `The proposed plan was incomplete on attempt ${update.attempt}; I am correcting it with more project context.`,
-                  'No files have been changed. Path boundaries, snapshots, budgets, verification, and rollback still apply.',
-                  update.phase === 'fallback'
-                    ? 'I will create a reviewable bounded job and let the edit step touch only files actually needed.'
-                    : `I will retry automatically (${update.attempt} of ${update.maxAttempts}) instead of stopping the job.`
+                  'repair.plan_refining',
+                  `The proposed plan failed strict schema validation on attempt ${update.attempt}; I rejected it before authorization.`,
+                  'No files have changed. The model receives one repair request with verified project context; Joe never guesses target files.',
+                  update.attempt < update.maxAttempts
+                    ? 'I will make the single bounded schema-repair attempt now.'
+                    : 'I will stop safely because no valid evidence-backed plan exists.'
                 ).catch(() => {});
               }
             }
@@ -2396,7 +2400,6 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           model: structuredPlan.model,
           durationMs: structuredPlan.durationMs,
           recoveredBy: structuredPlan.recoveredBy,
-          fallbackReason: structuredPlan.fallbackReason || null,
           responseHash: createHash('sha256').update(structuredPlan.finalText).digest('hex'),
           parseAttempts: structuredPlan.attempts.map((a) => ({
             attempt: a.attempt,
@@ -2450,7 +2453,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           evidenceIds: [surveyId, ...planEvidenceIds],
           linkedSurveyId: surveyId,
           taskSpecific: {
-assumptions: [`${structuredPlan.recoveredBy === 'model' ? 'Model plan' : 'Deterministically recovered scope'} (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`],
+            assumptions: [`Model plan (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`],
             constraints: ['Writes confined to the exactPaths scope; snapshot + rollback on verification failure'],
             risks: plan.risks,
             evidenceArtifacts: planEvidenceIds

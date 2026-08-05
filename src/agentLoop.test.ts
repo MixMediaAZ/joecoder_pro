@@ -5,7 +5,6 @@ import path from 'node:path';
 import test from 'node:test';
 import { discoverStackProfiles, profilesForEditedFiles } from './stackProfiles.js';
 import {
-  buildDeterministicFallbackPlan,
   buildPlanRecoveryContext,
   generateStructured,
   parsePlanResponse,
@@ -77,7 +76,7 @@ test('planning loop observes invalid output, expands context, and self-corrects'
       generate: async () => {
         calls += 1;
         return {
-          text: calls < 3 ? '{"files":[]}' : '{"files":["lib/player.dart"],"approach":"repair audio","risks":[]}',
+          text: calls < 2 ? '{"schemaVersion":1,"files":[]}' : '{"schemaVersion":1,"files":["lib/player.dart"],"approach":"repair audio","risks":[]}',
           provider: 'test', model: 'small-local', durationMs: 1
         };
       }
@@ -89,27 +88,26 @@ test('planning loop observes invalid output, expands context, and self-corrects'
     }
   );
   assert.equal(result.recoveredBy, 'model');
-  assert.equal(result.attempts.length, 3);
+  assert.equal(result.attempts.length, 2);
   assert.deepEqual(result.value.files, ['lib/player.dart']);
-  assert.ok(updates.includes('2:rejected'));
+  assert.ok(updates.includes('1:rejected'));
+  assert.ok(updates.includes('2:accepted'));
 });
 
-test('planning fallback derives a bounded reviewable scope after repeated malformed responses', async () => {
+test('verified file ranking may guide schema repair but never substitutes a guessed plan', async () => {
   const survey = surveyFixture();
   const ranked = rankPlanCandidates('repair audio player', survey);
   assert.equal(ranked[0], 'lib/player.dart');
-  const result = await generateStructured(
-    {
-      generate: async () => ({ text: 'I cannot format this plan', provider: 'test', model: 'small-local', durationMs: 1 })
-    },
-    {
-      system: 'test', prompt: 'plan', parse: parsePlanResponse, label: 'repair plan JSON', maxAttempts: 4,
-      recoveryContext: buildPlanRecoveryContext('repair audio player', survey),
-      fallback: () => buildDeterministicFallbackPlan('repair audio player', survey)
-    }
+  await assert.rejects(
+    generateStructured(
+      {
+        generate: async () => ({ text: 'I cannot format this plan', provider: 'test', model: 'small-local', durationMs: 1 })
+      },
+      {
+        system: 'test', prompt: 'plan', parse: parsePlanResponse, label: 'repair plan JSON', maxAttempts: 4,
+        recoveryContext: buildPlanRecoveryContext('repair audio player', survey)
+      }
+    ),
+    /STRUCTURED_PARSE_FAILED after 2 attempts/
   );
-  assert.equal(result.recoveredBy, 'deterministic_fallback');
-  assert.equal(result.attempts.length, 4);
-  assert.ok(result.value.files.includes('lib/player.dart'));
-  assert.ok(result.fallbackReason?.includes('PLAN_PARSE_FAILED'));
 });

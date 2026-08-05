@@ -162,14 +162,15 @@ test('rollback reports missing snapshot data instead of claiming success', async
   assert.ok(server.includes("rollbackComplete ? 'rolled_back' : 'failed'"));
   assert.ok(server.includes("'ROLLBACK_INCOMPLETE'"));
 });
-test('plan parsing is strict and rejects unsafe paths', () => {
-  const plan = parsePlanResponse('Some preamble {"files": ["src/x.js", ".\\\\src\\\\y.js"], "approach": "fix", "risks": ["r1"]} trailing');
+test('plan parsing requires one strict versioned object and rejects unsafe paths', () => {
+  const plan = parsePlanResponse('{"schemaVersion":1,"files":["src/x.js",".\\\\src\\\\y.js"],"approach":"fix","risks":["r1"]}');
   assert.deepEqual(plan.files, ['src/x.js', 'src/y.js']);
   assert.equal(plan.approach, 'fix');
   assert.throws(() => parsePlanResponse('no json here'), /PLAN_PARSE_FAILED/);
-  assert.throws(() => parsePlanResponse('{"files": []}'), /PLAN_PARSE_FAILED/);
-  assert.throws(() => parsePlanResponse('{"files": ["../etc/passwd"]}'), /PLAN_REJECTED/);
-  assert.throws(() => parsePlanResponse('{"files": ["node_modules/x.js"]}'), /PLAN_REJECTED/);
+  assert.throws(() => parsePlanResponse('preamble {"schemaVersion":1,"files":["src/x.js"],"approach":"fix","risks":[]}'), /PLAN_PARSE_FAILED/);
+  assert.throws(() => parsePlanResponse('{"schemaVersion":1,"files":[],"approach":"fix","risks":[]}'), /PLAN_PARSE_FAILED/);
+  assert.throws(() => parsePlanResponse('{"schemaVersion":1,"files":["../etc/passwd"],"approach":"fix","risks":[]}'), /PLAN_REJECTED/);
+  assert.throws(() => parsePlanResponse('{"schemaVersion":1,"files":["node_modules/x.js"],"approach":"fix","risks":[]}'), /PLAN_REJECTED/);
 });
 
 test('edit block parsing extracts complete files and fails closed otherwise', () => {
