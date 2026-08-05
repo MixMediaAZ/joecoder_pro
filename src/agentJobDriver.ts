@@ -7,6 +7,7 @@ import {
 import { verificationProofLevel, type VerificationReport } from './verification.js';
 import { buildAgentWorkingPlan, buildHypothesisLedger, frameObjective } from './investigationExecutionLoop.js';
 import type { SurveyResult, WorkOrder } from './types.js';
+import { appendAgentJobMemory } from './database/database.js';
 
 export interface AgentJobCredentials {
   baseUrl: string;
@@ -167,6 +168,12 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
                 inferences: [],
                 unknowns: ['No verified survey payload was available to build a hypothesis ledger.']
               };
+          for (const fact of hypotheses.knownFacts.slice(0, 5)) appendAgentJobMemory({
+            jobId: job.id, kind: 'architecture', content: fact, evidenceIds: surveyEvidenceId ? [surveyEvidenceId] : []
+          });
+          for (const unknown of hypotheses.unknowns.slice(0, 5)) appendAgentJobMemory({
+            jobId: job.id, kind: 'unresolved_risk', content: unknown, evidenceIds: surveyEvidenceId ? [surveyEvidenceId] : []
+          });
           return {
             statePatch: {
               evidenceReady: true,
@@ -328,6 +335,10 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             `/api/v1/work-orders/${workOrderId}/apply`,
             { method: 'POST', body: { action: applyAction } }
           );
+          appendAgentJobMemory({
+            jobId: job.id, kind: 'attempted_fix', content: `${applyAction} completed for ${workOrderId}.`,
+            evidenceIds: result.evidenceId ? [String(result.evidenceId)] : []
+          });
           return {
             statePatch: { executionCompleted: true, executionAction: applyAction, executionResult: result },
             jobPatch: { result },
@@ -344,6 +355,10 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             evidenceId: result.evidenceId || null,
             workOrderStatus: result.workOrder?.status || null
           };
+          appendAgentJobMemory({
+            jobId: job.id, kind: classification.proofLevel === 'runtime' ? 'command_result' : 'unresolved_risk',
+            content: classification.reason, evidenceIds: result.evidenceId ? [String(result.evidenceId)] : []
+          });
           return {
             statePatch: {
               verificationEvaluated: true,

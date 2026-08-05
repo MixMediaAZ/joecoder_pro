@@ -4,7 +4,7 @@ export interface Migration {
   sql: string;
 }
 
-export const DATABASE_SCHEMA_VERSION = 5;
+export const DATABASE_SCHEMA_VERSION = 6;
 export const INITIAL_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -474,8 +474,48 @@ ALTER TABLE idempotency_records ADD COLUMN response_json TEXT
 ALTER TABLE idempotency_records ADD COLUMN completed_at INTEGER;
 CREATE UNIQUE INDEX idempotency_records_global_key_idx ON idempotency_records(key_hash);
 `
-    }
-];
+    },
+    {
+        version: 6,
+        name: 'evidence_aware_project_and_job_memory',
+        sql: `
+ALTER TABLE project_brain ADD COLUMN rejected_approaches TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE project_memory_records (
+  id TEXT PRIMARY KEY CHECK(id GLOB 'mem-*'),
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  category TEXT NOT NULL CHECK(category IN (
+    'purpose','preferences','environment','architecture','constraints','decisions',
+    'rejected_approaches','known_issues','verified_truth'
+  )),
+  version INTEGER NOT NULL CHECK(version > 0),
+  content TEXT NOT NULL CHECK(length(trim(content)) > 0),
+  status TEXT NOT NULL CHECK(status IN ('active','stale','contradicted','superseded')),
+  evidence_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_ids_json)),
+  freshness_at INTEGER,
+  contradicted_by_evidence_id TEXT,
+  source TEXT NOT NULL CHECK(source IN ('user','agent','migration')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(project_id, category, version),
+  CHECK(category <> 'verified_truth' OR status <> 'active' OR (freshness_at IS NOT NULL AND json_array_length(evidence_ids_json) > 0))
+) STRICT;
+CREATE INDEX project_memory_project_category_idx
+  ON project_memory_records(project_id, category, version DESC);
+
+CREATE TABLE agent_job_memory (
+  id TEXT PRIMARY KEY CHECK(id GLOB 'jmem-*'),
+  job_id TEXT NOT NULL REFERENCES agent_jobs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'architecture','reproduced_defect','attempted_fix','command_result','unresolved_risk'
+  )),
+  content TEXT NOT NULL CHECK(length(trim(content)) > 0),
+  evidence_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_ids_json)),
+  created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX agent_job_memory_job_created_idx ON agent_job_memory(job_id, created_at);
+`
+    }];
 export const REQUIRED_TABLES = [
     'schema_migrations',
     'runtime_metadata',
@@ -505,5 +545,7 @@ export const REQUIRED_TABLES = [
     'agent_jobs',
     'agent_job_events',
     'agent_job_journal',
-    'agent_job_checkpoints'
+    'agent_job_checkpoints',
+    'project_memory_records',
+    'agent_job_memory'
 ] as const;

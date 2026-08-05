@@ -434,6 +434,18 @@ export function upsertEvidenceRecord(record: EvidenceDatabaseRecord): void {
   );
 }
 
+export function getEvidenceDatabaseRecord(evidenceId: string): EvidenceDatabaseRecord | null {
+  const row = requiredDatabase().prepare('SELECT * FROM evidence_records WHERE id=?').get(evidenceId);
+  if (!row) return null;
+  return {
+    id: String(row.id), projectId: row.project_id == null ? null : String(row.project_id),
+    workOrderId: row.work_order_id == null ? null : String(row.work_order_id), type: String(row.evidence_type),
+    filePath: String(row.file_path), contentHash: row.content_hash == null ? null : String(row.content_hash),
+    integrityState: String(row.integrity_state) as EvidenceDatabaseRecord['integrityState'], payloadSizeBytes: Number(row.payload_size_bytes),
+    createdAt: Number(row.created_at), observedAt: Number(row.observed_at)
+  };
+}
+
 export function insertEventRecord(record: EventDatabaseRecord): void {
   requiredDatabase().prepare(`
     INSERT OR IGNORE INTO event_log(
@@ -649,6 +661,35 @@ export interface ProjectThread {
   lastMessageAt: number | null;
 }
 
+export type ProjectMemoryCategory =
+  | 'purpose' | 'preferences' | 'environment' | 'architecture' | 'constraints' | 'decisions'
+  | 'rejected_approaches' | 'known_issues' | 'verified_truth';
+export type ProjectMemoryStatus = 'active' | 'stale' | 'contradicted' | 'superseded';
+
+export interface ProjectMemoryRecord {
+  id: string;
+  projectId: string;
+  category: ProjectMemoryCategory;
+  version: number;
+  content: string;
+  status: ProjectMemoryStatus;
+  evidenceIds: string[];
+  freshnessAt: number | null;
+  contradictedByEvidenceId: string | null;
+  source: 'user' | 'agent' | 'migration';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentJobMemoryRecord {
+  id: string;
+  jobId: string;
+  kind: 'architecture' | 'reproduced_defect' | 'attempted_fix' | 'command_result' | 'unresolved_risk';
+  content: string;
+  evidenceIds: string[];
+  createdAt: number;
+}
+
 export interface ProjectBrain {
   projectId: string;
   guidancePresetId: string;
@@ -658,12 +699,16 @@ export interface ProjectBrain {
   architecture: string;
   constraints: string;
   decisions: string;
+  rejectedApproaches: string;
   knownIssues: string;
   verifiedTruth: string;
   evidenceIds: string[];
   freshnessAt: number | null;
   updatedAt: number;
+  records: ProjectMemoryRecord[];
 }
+
+export type SaveProjectBrainInput = Omit<ProjectBrain, 'projectId' | 'updatedAt' | 'records'>;
 
 export interface ModelPreset {
   id: string;
@@ -847,49 +892,118 @@ export function replaceThreadConversation(threadId: string, messages: ChatMessag
   });
 }
 
-export function getProjectBrain(projectId: string): ProjectBrain {
-  const row = requiredDatabase().prepare('SELECT * FROM project_brain WHERE project_id=?').get(projectId);
-  if (!row) {
-    const now = Date.now();
-    requiredDatabase().prepare('INSERT INTO project_brain(project_id,updated_at) VALUES(?,?)').run(projectId, now);
-    return getProjectBrain(projectId);
-  }
+const PROJECT_MEMORY_FIELDS: Array<{ category: ProjectMemoryCategory; column: string; key: keyof SaveProjectBrainInput }> = [
+  { category: 'purpose', column: 'purpose', key: 'purpose' },
+  { category: 'preferences', column: 'preferences', key: 'preferences' },
+  { category: 'environment', column: 'environment', key: 'environment' },
+  { category: 'architecture', column: 'architecture', key: 'architecture' },
+  { category: 'constraints', column: 'constraints_text', key: 'constraints' },
+  { category: 'decisions', column: 'decisions', key: 'decisions' },
+  { category: 'rejected_approaches', column: 'rejected_approaches', key: 'rejectedApproaches' },
+  { category: 'known_issues', column: 'known_issues', key: 'knownIssues' },
+  { category: 'verified_truth', column: 'verified_truth', key: 'verifiedTruth' }
+];
+
+function memoryFromRow(row: Record<string, unknown>): ProjectMemoryRecord {
   return {
-    projectId: String(row.project_id),
-    guidancePresetId: String(row.guidance_preset_id || 'brain-preset-exceptional-builder'),
-    purpose: String(row.purpose || ''),
-    preferences: String(row.preferences || ''),
-    environment: String(row.environment || ''),
-    architecture: String(row.architecture || ''),
-    constraints: String(row.constraints_text || ''),
-    decisions: String(row.decisions || ''),
-    knownIssues: String(row.known_issues || ''),
-    verifiedTruth: String(row.verified_truth || ''),
-    evidenceIds: JSON.parse(String(row.evidence_ids_json || '[]')),
-    freshnessAt: row.freshness_at == null ? null : Number(row.freshness_at),
-    updatedAt: Number(row.updated_at)
+    id: String(row.id), projectId: String(row.project_id), category: String(row.category) as ProjectMemoryCategory,
+    version: Number(row.version), content: String(row.content), status: String(row.status) as ProjectMemoryStatus,
+    evidenceIds: JSON.parse(String(row.evidence_ids_json || '[]')), freshnessAt: row.freshness_at == null ? null : Number(row.freshness_at),
+    contradictedByEvidenceId: row.contradicted_by_evidence_id == null ? null : String(row.contradicted_by_evidence_id),
+    source: String(row.source) as ProjectMemoryRecord['source'], createdAt: Number(row.created_at), updatedAt: Number(row.updated_at)
   };
 }
 
-export function saveProjectBrain(projectId: string, brain: Omit<ProjectBrain, 'projectId' | 'updatedAt'>): ProjectBrain {
-  requiredDatabase().prepare(`
-    INSERT INTO project_brain(
-      project_id,guidance_preset_id,purpose,preferences,environment,architecture,constraints_text,
-      decisions,known_issues,verified_truth,evidence_ids_json,freshness_at,updated_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(project_id) DO UPDATE SET
-      guidance_preset_id=excluded.guidance_preset_id,
-      purpose=excluded.purpose,preferences=excluded.preferences,environment=excluded.environment,
-      architecture=excluded.architecture,constraints_text=excluded.constraints_text,
-      decisions=excluded.decisions,known_issues=excluded.known_issues,
-      verified_truth=excluded.verified_truth,evidence_ids_json=excluded.evidence_ids_json,
-      freshness_at=excluded.freshness_at,updated_at=excluded.updated_at
-  `).run(
-    projectId, brain.guidancePresetId, brain.purpose, brain.preferences, brain.environment, brain.architecture,
-    brain.constraints, brain.decisions, brain.knownIssues, brain.verifiedTruth,
-    json(brain.evidenceIds), brain.freshnessAt, Date.now()
+export function listProjectMemoryRecords(projectId: string): ProjectMemoryRecord[] {
+  return requiredDatabase().prepare(`
+    SELECT * FROM project_memory_records WHERE project_id=? ORDER BY category, version DESC
+  `).all(projectId).map(row => memoryFromRow(row as Record<string, unknown>));
+}
+
+function insertMemoryVersion(db: DatabaseSync, projectId: string, category: ProjectMemoryCategory, content: string, options: {
+  evidenceIds?: string[]; freshnessAt?: number | null; status?: ProjectMemoryStatus; source?: ProjectMemoryRecord['source'];
+} = {}): void {
+  const trimmed = content.trim();
+  if (!trimmed) return;
+  const latest = db.prepare('SELECT version,content,status,evidence_ids_json,freshness_at FROM project_memory_records WHERE project_id=? AND category=? ORDER BY version DESC LIMIT 1').get(projectId, category);
+  const evidenceIds = options.evidenceIds || [];
+  const freshnessAt = options.freshnessAt ?? null;
+  const status = options.status || (category === 'verified_truth' && (!freshnessAt || !evidenceIds.length) ? 'stale' : 'active');
+  if (latest && String(latest.content) === trimmed && String(latest.status) === status && String(latest.evidence_ids_json) === json(evidenceIds) && (latest.freshness_at == null ? null : Number(latest.freshness_at)) === freshnessAt) return;
+  db.prepare("UPDATE project_memory_records SET status='superseded',updated_at=? WHERE project_id=? AND category=? AND status='active'").run(Date.now(), projectId, category);
+  const version = Number(latest?.version || 0) + 1;
+  const now = Date.now();
+  db.prepare(`INSERT INTO project_memory_records(id,project_id,category,version,content,status,evidence_ids_json,freshness_at,contradicted_by_evidence_id,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,NULL,?,?,?)`).run(
+    `mem-${randomBytes(12).toString('hex')}`, projectId, category, version, trimmed, status, json(evidenceIds), freshnessAt, options.source || 'user', now, now
   );
+}
+
+function ensureLegacyMemory(projectId: string, row: Record<string, unknown>): void {
+  if (listProjectMemoryRecords(projectId).length) return;
+  transaction(db => {
+    for (const field of PROJECT_MEMORY_FIELDS) {
+      const content = String(row[field.column] || '');
+      insertMemoryVersion(db, projectId, field.category, content, {
+        evidenceIds: field.category === 'verified_truth' ? JSON.parse(String(row.evidence_ids_json || '[]')) : [],
+        freshnessAt: field.category === 'verified_truth' && row.freshness_at != null ? Number(row.freshness_at) : null,
+        source: 'migration'
+      });
+    }
+  });
+}
+
+export function getProjectBrain(projectId: string): ProjectBrain {
+  const row = requiredDatabase().prepare('SELECT * FROM project_brain WHERE project_id=?').get(projectId);
+  if (!row) {
+    requiredDatabase().prepare('INSERT INTO project_brain(project_id,updated_at) VALUES(?,?)').run(projectId, Date.now());
+    return getProjectBrain(projectId);
+  }
+  ensureLegacyMemory(projectId, row);
+  return {
+    projectId: String(row.project_id), guidancePresetId: String(row.guidance_preset_id || 'brain-preset-exceptional-builder'),
+    purpose: String(row.purpose || ''), preferences: String(row.preferences || ''), environment: String(row.environment || ''),
+    architecture: String(row.architecture || ''), constraints: String(row.constraints_text || ''), decisions: String(row.decisions || ''),
+    rejectedApproaches: String(row.rejected_approaches || ''), knownIssues: String(row.known_issues || ''), verifiedTruth: String(row.verified_truth || ''),
+    evidenceIds: JSON.parse(String(row.evidence_ids_json || '[]')), freshnessAt: row.freshness_at == null ? null : Number(row.freshness_at),
+    updatedAt: Number(row.updated_at), records: listProjectMemoryRecords(projectId)
+  };
+}
+
+export function saveProjectBrain(projectId: string, brain: SaveProjectBrainInput): ProjectBrain {
+  if (brain.verifiedTruth.trim() && (!brain.freshnessAt || !brain.evidenceIds.length)) throw new Error('VERIFIED_TRUTH_REQUIRES_FRESH_EVIDENCE');
+  transaction(db => {
+    db.prepare(`
+      INSERT INTO project_brain(project_id,guidance_preset_id,purpose,preferences,environment,architecture,constraints_text,decisions,rejected_approaches,known_issues,verified_truth,evidence_ids_json,freshness_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET
+        guidance_preset_id=excluded.guidance_preset_id,purpose=excluded.purpose,preferences=excluded.preferences,environment=excluded.environment,
+        architecture=excluded.architecture,constraints_text=excluded.constraints_text,decisions=excluded.decisions,rejected_approaches=excluded.rejected_approaches,
+        known_issues=excluded.known_issues,verified_truth=excluded.verified_truth,evidence_ids_json=excluded.evidence_ids_json,freshness_at=excluded.freshness_at,updated_at=excluded.updated_at
+    `).run(projectId, brain.guidancePresetId, brain.purpose, brain.preferences, brain.environment, brain.architecture, brain.constraints, brain.decisions, brain.rejectedApproaches, brain.knownIssues, brain.verifiedTruth, json(brain.evidenceIds), brain.freshnessAt, Date.now());
+    for (const field of PROJECT_MEMORY_FIELDS) insertMemoryVersion(db, projectId, field.category, String(brain[field.key]), {
+      evidenceIds: field.category === 'verified_truth' ? brain.evidenceIds : [], freshnessAt: field.category === 'verified_truth' ? brain.freshnessAt : null
+    });
+  });
   return getProjectBrain(projectId);
+}
+
+export function markProjectMemoryStatus(projectId: string, memoryId: string, status: Exclude<ProjectMemoryStatus, 'active'>, contradictedByEvidenceId: string | null = null): ProjectMemoryRecord | null {
+  requiredDatabase().prepare('UPDATE project_memory_records SET status=?,contradicted_by_evidence_id=?,updated_at=? WHERE id=? AND project_id=?').run(status, contradictedByEvidenceId, Date.now(), memoryId, projectId);
+  const row = requiredDatabase().prepare('SELECT * FROM project_memory_records WHERE id=? AND project_id=?').get(memoryId, projectId);
+  return row ? memoryFromRow(row as Record<string, unknown>) : null;
+}
+
+export function appendAgentJobMemory(input: Omit<AgentJobMemoryRecord, 'id' | 'createdAt'>): AgentJobMemoryRecord {
+  const id = `jmem-${randomBytes(12).toString('hex')}`;
+  const createdAt = Date.now();
+  requiredDatabase().prepare('INSERT INTO agent_job_memory(id,job_id,kind,content,evidence_ids_json,created_at) VALUES(?,?,?,?,?,?)').run(id, input.jobId, input.kind, input.content.trim(), json(input.evidenceIds), createdAt);
+  return { ...input, id, createdAt };
+}
+
+export function listAgentJobMemory(jobId: string): AgentJobMemoryRecord[] {
+  return requiredDatabase().prepare('SELECT * FROM agent_job_memory WHERE job_id=? ORDER BY created_at,id').all(jobId).map(row => ({
+    id: String(row.id), jobId: String(row.job_id), kind: String(row.kind) as AgentJobMemoryRecord['kind'], content: String(row.content),
+    evidenceIds: JSON.parse(String(row.evidence_ids_json || '[]')), createdAt: Number(row.created_at)
+  }));
 }
 
 export function listModelPresets(): ModelPreset[] {

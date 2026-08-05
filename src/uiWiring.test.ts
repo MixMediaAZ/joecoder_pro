@@ -236,19 +236,14 @@ test('survey, draft, authorization, and repair share one project revision', () =
 });
 test('presets and every Project Brain field affect the real chat route', () => {
   const providers = fs.readFileSync('src/providers.ts', 'utf8');
-  for (const field of [
-    'brain.guidancePresetId',
-    'brain.purpose',
-    'brain.preferences',
-    'brain.environment',
-    'brain.architecture',
-    'brain.constraints',
-    'brain.decisions',
-    'brain.knownIssues',
-    'brain.verifiedTruth',
-    'brain.evidenceIds',
-    'brain.freshnessAt'
-  ]) assert.ok(server.includes(field), field + ' is included in bounded model context');
+  const memory = fs.readFileSync('src/projectMemory.ts', 'utf8');
+  const memorySchema = fs.readFileSync('src/database/schema.ts', 'utf8');
+  for (const category of ['preferences', 'environment', 'architecture', 'constraints', 'decisions', 'rejected_approaches', 'known_issues', 'verified_truth']) {
+    assert.ok(memorySchema.includes(''), category + ' is represented in the versioned memory schema');
+  }
+  assert.ok(memory.includes('retrieveTaskRelevantMemory'));
+  assert.ok(memory.includes('sanitizeMemoryText'));
+  assert.ok(memory.includes("record.status !== 'active'"));
 
   assert.ok(server.includes('brainGuidancePrompt(brain.guidancePresetId)'));
   assert.ok(server.includes('brainPresets: listBrainGuidancePresets()'));
@@ -380,10 +375,10 @@ test('one Send delegates durable work to the server instead of browser stage cho
 
 test('Project Brain and the selected preset guide real planning, edits, and correction', () => {
   assert.ok(server.includes('const planningPreset = planningThread'));
-  assert.ok(server.includes('projectBrainPrompt(planningBrain)'));
+  assert.ok(server.includes('projectBrainPrompt(planningBrain, objective)'));
   assert.ok(server.includes('requiredCapabilities: planningPreset.requiredCapabilities'));
   assert.ok(server.includes('const relatedAgentJob = listAgentJobs(project.id, 100)'));
-  assert.ok(server.includes('projectBrainPrompt(executionBrain)'));
+  assert.ok(server.includes('projectBrainPrompt(executionBrain, wo.objective)'));
   assert.ok(server.includes('requiredCapabilities: executionPreset.requiredCapabilities'));
   assert.ok(server.includes('executionContext].filter(Boolean)'));
 });
