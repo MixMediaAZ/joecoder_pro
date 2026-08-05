@@ -4,7 +4,7 @@ export interface Migration {
   sql: string;
 }
 
-export const DATABASE_SCHEMA_VERSION = 4;
+export const DATABASE_SCHEMA_VERSION = 5;
 export const INITIAL_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -422,6 +422,58 @@ CREATE TABLE IF NOT EXISTS agent_job_events (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS agent_job_events_job_ordinal_idx ON agent_job_events(job_id, ordinal);
 `
+    },
+    {
+        version: 5,
+        name: 'journaled_agent_runtime',
+        sql: `
+ALTER TABLE agent_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'mutating'
+  CHECK(mode IN ('mutating','read_only'));
+ALTER TABLE agent_jobs ADD COLUMN terminal_state TEXT
+  CHECK(terminal_state IS NULL OR terminal_state IN (
+    'completed','completed_with_limits','blocked_for_user','failed_safe','cancelled','interrupted'
+  ));
+ALTER TABLE agent_jobs ADD COLUMN runtime_state_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(runtime_state_json));
+ALTER TABLE agent_jobs ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0 CHECK(state_version >= 0);
+ALTER TABLE agent_jobs ADD COLUMN stop_requested INTEGER NOT NULL DEFAULT 0 CHECK(stop_requested IN (0,1));
+ALTER TABLE agent_jobs ADD COLUMN last_heartbeat_at INTEGER;
+
+DROP INDEX IF EXISTS agent_jobs_one_active_per_project;
+CREATE UNIQUE INDEX agent_jobs_one_active_mutating_per_project
+  ON agent_jobs(project_id)
+  WHERE mode='mutating' AND status IN ('queued','running');
+
+CREATE TABLE IF NOT EXISTS agent_job_journal (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL REFERENCES agent_jobs(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+  kind TEXT NOT NULL CHECK(kind IN (
+    'turn','tool_request','tool_result','plan_revision','budget','checkpoint','verification','terminal','decision'
+  )),
+  stage TEXT NOT NULL,
+  action_key TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(payload_json)),
+  evidence_id TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(job_id, ordinal),
+  UNIQUE(job_id, kind, action_key)
+) STRICT;
+CREATE INDEX agent_job_journal_job_ordinal_idx ON agent_job_journal(job_id, ordinal);
+
+CREATE TABLE IF NOT EXISTS agent_job_checkpoints (
+  job_id TEXT PRIMARY KEY REFERENCES agent_jobs(id) ON DELETE CASCADE,
+  state_version INTEGER NOT NULL CHECK(state_version >= 0),
+  state_json TEXT NOT NULL CHECK(json_valid(state_json)),
+  last_completed_action TEXT,
+  committed_at INTEGER NOT NULL
+) STRICT;
+
+ALTER TABLE idempotency_records ADD COLUMN response_json TEXT
+  CHECK(response_json IS NULL OR json_valid(response_json));
+ALTER TABLE idempotency_records ADD COLUMN completed_at INTEGER;
+CREATE UNIQUE INDEX idempotency_records_global_key_idx ON idempotency_records(key_hash);
+`
     }
 ];
 export const REQUIRED_TABLES = [
@@ -451,5 +503,7 @@ export const REQUIRED_TABLES = [
     'provider_profiles',
     'routing_outcomes',
     'agent_jobs',
-    'agent_job_events'
+    'agent_job_events',
+    'agent_job_journal',
+    'agent_job_checkpoints'
 ] as const;

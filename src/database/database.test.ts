@@ -139,7 +139,7 @@ test('SQLite foundation migrates, constrains, imports, backs up, and reopens', a
 
     const initialized = await initializeDatabase(root);
     assert.equal(initialized.available, true);
-    assert.equal(initialized.schemaVersion, 4);
+    assert.equal(initialized.schemaVersion, 5);
     assert.equal(initialized.tableCount, REQUIRED_TABLES.length);
     assert.equal(initialized.integrity, 'ok');
 
@@ -222,8 +222,8 @@ test('SQLite foundation migrates, constrains, imports, backs up, and reopens', a
     const reopened = await initializeDatabase(root);
     assert.equal(reopened.available, true);
     assert.equal(verifyDatabase().ok, true);
-    assert.equal(databaseCounts().schema_migrations, 4);
-    assert.equal(getDatabaseStatus().schemaVersion, 4);
+    assert.equal(databaseCounts().schema_migrations, 5);
+    assert.equal(getDatabaseStatus().schemaVersion, 5);
     assert.equal(getProjectBrain(p.id).guidancePresetId, 'brain-preset-safe-refactor');
   } finally {
     closeDatabase();

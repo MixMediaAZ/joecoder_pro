@@ -47,6 +47,8 @@ import {
   getDatabaseStatus,
   initializeDatabase,
   recordIdempotencyUse,
+  getIdempotencyRecord,
+  completeIdempotencyUse,
   recordRecoveryCheckpoint,
   recordSessionCreated,
   recordSessionEnded,
@@ -63,8 +65,11 @@ import {
   getAgentJob,
   listAgentJobs,
   listAgentJobEvents,
+  listAgentJobJournal,
   appendAgentJobEvent,
   updateAgentJob,
+  requestAgentJobStop,
+  resumeInterruptedAgentJob,
   interruptRunningAgentJobs,
   saveProjectBrain,
   updateProjectThread
@@ -965,28 +970,56 @@ function requireConsequentialRequest(req: express.Request, res: express.Response
   if (!/^[a-zA-Z0-9-]{16,128}$/.test(idempotencyKey)) {
     return res.status(400).json({ error: 'A valid Idempotency-Key is required', code: 'IDEMPOTENCY_KEY_REQUIRED' });
   }
-  const previous = req.jcSession.usedIdempotencyKeys.get(idempotencyKey);
-  if (previous) {
-    return res.status(409).json({ error: 'Idempotency key was already consumed', code: 'IDEMPOTENCY_REPLAY', firstUsedAt: previous });
+  const requestHash = createHash('sha256').update(JSON.stringify(req.body ?? null)).digest('hex');
+  const persisted = getIdempotencyRecord(req.jcSession.id, idempotencyKey);
+  if (persisted) {
+    const sameRequest = persisted.method === req.method && persisted.routePath === req.path &&
+      persisted.requestHash === requestHash;
+    if (!sameRequest) {
+      return res.status(409).json({
+        error: 'The idempotency key belongs to a different request.',
+        code: 'IDEMPOTENCY_CONFLICT'
+      });
+    }
+    if (persisted.completedAt !== null && persisted.responseStatus !== null) {
+      return res.status(persisted.responseStatus).json(persisted.response);
+    }
+    return res.status(409).json({
+      error: 'The original request is still being reconciled; it will not be executed twice.',
+      code: 'IDEMPOTENCY_IN_PROGRESS'
+    });
   }
-  const idempotencyCreatedAt = Date.now();
-  recordIdempotencyUse({
-    sessionId: req.jcSession.id,
-    key: idempotencyKey,
-    method: req.method,
-    routePath: req.path,
-    requestHash: createHash('sha256').update(JSON.stringify(req.body ?? null)).digest('hex'),
-    createdAt: idempotencyCreatedAt,
-    expiresAt: idempotencyCreatedAt + SESSION_IDLE_TTL_MS
-  });
-  req.jcSession.usedIdempotencyKeys.set(idempotencyKey, idempotencyCreatedAt);
-  for (const [key, usedAt] of req.jcSession.usedIdempotencyKeys) {
-    if (Date.now() - usedAt > SESSION_IDLE_TTL_MS) req.jcSession.usedIdempotencyKeys.delete(key);
-  }
-  next();
-}
-
-function createApp(laws: CanonicalLawsBundle) {
+   const idempotencyCreatedAt = Date.now();
+   recordIdempotencyUse({
+     sessionId: req.jcSession.id,
+     key: idempotencyKey,
+     method: req.method,
+     routePath: req.path,
+    requestHash,
+     createdAt: idempotencyCreatedAt,
+     expiresAt: idempotencyCreatedAt + SESSION_IDLE_TTL_MS
+   });
+   req.jcSession.usedIdempotencyKeys.set(idempotencyKey, idempotencyCreatedAt);
+   for (const [key, usedAt] of req.jcSession.usedIdempotencyKeys) {
+     if (Date.now() - usedAt > SESSION_IDLE_TTL_MS) req.jcSession.usedIdempotencyKeys.delete(key);
+   }
+  const originalJson = res.json.bind(res);
+  let responseRecorded = false;
+  res.json = ((body: unknown) => {
+    if (!responseRecorded) {
+      completeIdempotencyUse({
+        sessionId: req.jcSession!.id,
+        key: idempotencyKey,
+        responseStatus: res.statusCode,
+        response: body
+      });
+      responseRecorded = true;
+    }
+    return originalJson(body);
+  }) as typeof res.json;
+   next();
+ }
+ function createApp(laws: CanonicalLawsBundle) {
   const app = express();
 
   app.use(helmet({
@@ -1583,7 +1616,13 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     const job = getAgentJob(req.params.jobId);
     if (!job) return res.status(404).json({ error: 'Agent job not found', code: 'AGENT_JOB_NOT_FOUND' });
     const after = Number.parseInt(String(req.query.after ?? '-1'), 10);
-    res.json({ ok: true, job, events: listAgentJobEvents(job.id, Number.isFinite(after) ? after : -1) });
+    const afterJournal = Number.parseInt(String(req.query.afterJournal ?? '-1'), 10);
+    res.json({
+      ok: true,
+      job,
+      events: listAgentJobEvents(job.id, Number.isFinite(after) ? after : -1),
+      journal: listAgentJobJournal(job.id, Number.isFinite(afterJournal) ? afterJournal : -1)
+    });
   });
 
   app.post('/api/v1/projects/:id/threads/:threadId/agent-jobs', (req, res) => {
@@ -1638,10 +1677,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
       }
       const competing = getActiveAgentJob(job.projectId);
       if (competing) return res.status(409).json({ error: `Joe is already handling ${competing.id}.`, code: 'AGENT_JOB_ACTIVE' });
-      const queued = updateAgentJob(job.id, {
-        status: 'queued', stage: job.workOrderId ? 'authorize' : 'understand',
-        message: 'Joe is resuming the recorded job.', errorCode: null, errorMessage: null, finishedAt: null
-      });
+      const queued = resumeInterruptedAgentJob(job.id);
       appendAgentJobEvent({
         jobId: job.id, stage: queued.stage, kind: 'decision',
         what: 'I am resuming the recorded job.',
@@ -1657,6 +1693,28 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     }
   });
 
+  app.post('/api/v1/agent-jobs/:jobId/stop', (req, res) => {
+    try {
+      const job = getAgentJob(req.params.jobId);
+      if (!job) return res.status(404).json({ error: 'Agent job not found', code: 'AGENT_JOB_NOT_FOUND' });
+      if (!['queued', 'running'].includes(job.status)) {
+        return res.status(409).json({ error: `Job ${job.id} is already ${job.status}.`, code: 'AGENT_JOB_NOT_STOPPABLE' });
+      }
+      const stopping = requestAgentJobStop(job.id);
+      appendAgentJobEvent({
+        jobId: job.id,
+        stage: stopping.stage,
+        kind: 'decision',
+        what: 'I received the stop request.',
+        meaning: 'Joe will stop at the next committed safety boundary rather than interrupting an atomic write.',
+        next: 'Wait for the cancelled terminal receipt.',
+        payload: { requestedAt: Date.now() }
+      });
+      res.status(202).json({ ok: true, job: stopping });
+    } catch (error: unknown) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error), code: 'AGENT_JOB_STOP_FAILED' });
+    }
+  });
   // Project-scoped guarded conversation. Chat captures intent and suggests
   // allowed workflow actions; it never grants authorization or mutates source.
   app.get('/api/v1/projects/:id/chat', async (req, res) => {

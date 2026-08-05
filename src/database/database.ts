@@ -518,6 +518,58 @@ export function recordIdempotencyUse(input: {
   );
 }
 
+export interface IdempotencyRecord {
+  sessionId: string;
+  keyHash: string;
+  method: string;
+  routePath: string;
+  requestHash: string;
+  responseStatus: number | null;
+  response: unknown | null;
+  completedAt: number | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export function getIdempotencyRecord(sessionId: string, key: string): IdempotencyRecord | null {
+  const row = requiredDatabase().prepare(`
+    SELECT * FROM idempotency_records WHERE key_hash=? ORDER BY created_at DESC LIMIT 1
+  `).get(sha256(key));
+  if (!row) return null;
+  return {
+    sessionId: String(row.session_id),
+    keyHash: String(row.key_hash),
+    method: String(row.method),
+    routePath: String(row.route_path),
+    requestHash: String(row.request_hash),
+    responseStatus: row.response_status == null ? null : Number(row.response_status),
+    response: row.response_json == null ? null : JSON.parse(String(row.response_json)),
+    completedAt: row.completed_at == null ? null : Number(row.completed_at),
+    createdAt: Number(row.created_at),
+    expiresAt: Number(row.expires_at)
+  };
+}
+
+export function completeIdempotencyUse(input: {
+  sessionId: string;
+  key: string;
+  responseStatus: number;
+  response: unknown;
+}): void {
+  const responseJson = json(input.response);
+  const result = requiredDatabase().prepare(`
+    UPDATE idempotency_records SET response_status=?,response_hash=?,response_json=?,completed_at=?
+    WHERE session_id=? AND key_hash=?
+  `).run(
+    input.responseStatus,
+    sha256(responseJson),
+    responseJson,
+    Date.now(),
+    input.sessionId,
+    sha256(input.key)
+  );
+  if (Number(result.changes) !== 1) throw new Error('IDEMPOTENCY_RECORD_NOT_FOUND');
+}
 export function recordRecoveryCheckpoint(input: {
   workOrderId: string | null;
   phase: string;
@@ -873,7 +925,25 @@ export function listProviderProfiles(): Array<Record<string, unknown>> {
 }
 
 export type AgentJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
+export type AgentJobTerminalState =
+  | 'completed'
+  | 'completed_with_limits'
+  | 'blocked_for_user'
+  | 'failed_safe'
+  | 'cancelled'
+  | 'interrupted';
+export type AgentJobMode = 'mutating' | 'read_only';
 export type AgentJobStage = 'understand' | 'inspect' | 'plan' | 'authorize' | 'run' | 'verify' | 'complete' | 'blocked';
+export type AgentJobJournalKind =
+  | 'turn'
+  | 'tool_request'
+  | 'tool_result'
+  | 'plan_revision'
+  | 'budget'
+  | 'checkpoint'
+  | 'verification'
+  | 'terminal'
+  | 'decision';
 
 export interface AgentJobRecord {
   id: string;
@@ -882,12 +952,18 @@ export interface AgentJobRecord {
   objective: string;
   status: AgentJobStatus;
   stage: AgentJobStage;
+  mode: AgentJobMode;
+  terminalState: AgentJobTerminalState | null;
   intent: 'inspect' | 'repair' | 'build' | 'export' | null;
   workOrderId: string | null;
   message: string;
   result: unknown | null;
   errorCode: string | null;
   errorMessage: string | null;
+  runtimeState: Record<string, unknown>;
+  stateVersion: number;
+  stopRequested: boolean;
+  lastHeartbeatAt: number | null;
   resumeCount: number;
   createdAt: number;
   updatedAt: number;
@@ -908,6 +984,26 @@ export interface AgentJobEventRecord {
   createdAt: number;
 }
 
+export interface AgentJobJournalRecord {
+  id: number;
+  jobId: string;
+  ordinal: number;
+  kind: AgentJobJournalKind;
+  stage: string;
+  actionKey: string | null;
+  payload: unknown;
+  evidenceId: string | null;
+  createdAt: number;
+}
+
+export interface AgentJobCheckpointRecord {
+  jobId: string;
+  stateVersion: number;
+  state: Record<string, unknown>;
+  lastCompletedAction: string | null;
+  committedAt: number;
+}
+
 function mapAgentJob(row: Record<string, unknown>): AgentJobRecord {
   return {
     id: String(row.id),
@@ -916,12 +1012,18 @@ function mapAgentJob(row: Record<string, unknown>): AgentJobRecord {
     objective: String(row.objective),
     status: String(row.status) as AgentJobStatus,
     stage: String(row.stage) as AgentJobStage,
+    mode: String(row.mode || 'mutating') as AgentJobMode,
+    terminalState: row.terminal_state == null ? null : String(row.terminal_state) as AgentJobTerminalState,
     intent: row.intent == null ? null : String(row.intent) as AgentJobRecord['intent'],
     workOrderId: row.work_order_id == null ? null : String(row.work_order_id),
     message: String(row.message || ''),
     result: row.result_json == null ? null : JSON.parse(String(row.result_json)),
     errorCode: row.error_code == null ? null : String(row.error_code),
     errorMessage: row.error_message == null ? null : String(row.error_message),
+    runtimeState: JSON.parse(String(row.runtime_state_json || '{}')),
+    stateVersion: Number(row.state_version || 0),
+    stopRequested: Boolean(row.stop_requested),
+    lastHeartbeatAt: row.last_heartbeat_at == null ? null : Number(row.last_heartbeat_at),
     resumeCount: Number(row.resume_count),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -930,14 +1032,34 @@ function mapAgentJob(row: Record<string, unknown>): AgentJobRecord {
   };
 }
 
-export function createAgentJob(input: { projectId: string; threadId: string; objective: string }): AgentJobRecord {
+function mapAgentJobJournal(row: Record<string, unknown>): AgentJobJournalRecord {
+  return {
+    id: Number(row.id),
+    jobId: String(row.job_id),
+    ordinal: Number(row.ordinal),
+    kind: String(row.kind) as AgentJobJournalKind,
+    stage: String(row.stage),
+    actionKey: row.action_key == null ? null : String(row.action_key),
+    payload: JSON.parse(String(row.payload_json || '{}')),
+    evidenceId: row.evidence_id == null ? null : String(row.evidence_id),
+    createdAt: Number(row.created_at)
+  };
+}
+
+export function createAgentJob(input: {
+  projectId: string;
+  threadId: string;
+  objective: string;
+  mode?: AgentJobMode;
+}): AgentJobRecord {
   const id = `job-${randomBytes(12).toString('hex')}`;
   const now = Date.now();
   requiredDatabase().prepare(`
     INSERT INTO agent_jobs(
-      id,project_id,thread_id,objective,status,stage,message,created_at,updated_at
-    ) VALUES(?,?,?,?, 'queued','understand',?,?,?)
-  `).run(id, input.projectId, input.threadId, input.objective.trim(), 'Queued for Joe.', now, now);
+      id,project_id,thread_id,objective,status,stage,mode,message,runtime_state_json,
+      state_version,stop_requested,created_at,updated_at
+    ) VALUES(?,?,?,?, 'queued','understand',?,?,'{}',0,0,?,?)
+  `).run(id, input.projectId, input.threadId, input.objective.trim(), input.mode || 'mutating', 'Queued for Joe.', now, now);
   return getAgentJob(id)!;
 }
 
@@ -954,26 +1076,38 @@ export function listAgentJobs(projectId: string, limit = 20): AgentJobRecord[] {
 
 export function getActiveAgentJob(projectId: string): AgentJobRecord | null {
   const row = requiredDatabase().prepare(`
-    SELECT * FROM agent_jobs WHERE project_id=? AND status IN ('queued','running')
+    SELECT * FROM agent_jobs
+    WHERE project_id=? AND mode='mutating' AND status IN ('queued','running')
     ORDER BY updated_at DESC LIMIT 1
   `).get(projectId);
   return row ? mapAgentJob(row) : null;
 }
 
+export function listActiveReadOnlyAgentJobs(projectId: string): AgentJobRecord[] {
+  return requiredDatabase().prepare(`
+    SELECT * FROM agent_jobs
+    WHERE project_id=? AND mode='read_only' AND status IN ('queued','running')
+    ORDER BY updated_at
+  `).all(projectId).map(mapAgentJob);
+}
+
 export function updateAgentJob(id: string, patch: Partial<Pick<AgentJobRecord,
-  'status' | 'stage' | 'intent' | 'workOrderId' | 'message' | 'result' |
-  'errorCode' | 'errorMessage' | 'resumeCount' | 'startedAt' | 'finishedAt'
+  'status' | 'stage' | 'mode' | 'terminalState' | 'intent' | 'workOrderId' | 'message' | 'result' |
+  'errorCode' | 'errorMessage' | 'runtimeState' | 'stateVersion' | 'stopRequested' |
+  'lastHeartbeatAt' | 'resumeCount' | 'startedAt' | 'finishedAt'
 >>): AgentJobRecord {
   const current = getAgentJob(id);
   if (!current) throw new Error(`AGENT_JOB_NOT_FOUND: ${id}`);
   const next = { ...current, ...patch, updatedAt: Date.now() };
   requiredDatabase().prepare(`
-    UPDATE agent_jobs SET status=?,stage=?,intent=?,work_order_id=?,message=?,result_json=?,
-      error_code=?,error_message=?,resume_count=?,updated_at=?,started_at=?,finished_at=? WHERE id=?
+    UPDATE agent_jobs SET status=?,stage=?,mode=?,terminal_state=?,intent=?,work_order_id=?,message=?,result_json=?,
+      error_code=?,error_message=?,runtime_state_json=?,state_version=?,stop_requested=?,last_heartbeat_at=?,
+      resume_count=?,updated_at=?,started_at=?,finished_at=? WHERE id=?
   `).run(
-    next.status, next.stage, next.intent, next.workOrderId, next.message,
-    next.result == null ? null : json(next.result), next.errorCode, next.errorMessage,
-    next.resumeCount, next.updatedAt, next.startedAt, next.finishedAt, id
+    next.status, next.stage, next.mode, next.terminalState, next.intent, next.workOrderId, next.message,
+    next.result == null ? null : json(next.result), next.errorCode, next.errorMessage, json(next.runtimeState),
+    next.stateVersion, next.stopRequested ? 1 : 0, next.lastHeartbeatAt, next.resumeCount, next.updatedAt,
+    next.startedAt, next.finishedAt, id
   );
   return getAgentJob(id)!;
 }
@@ -1010,11 +1144,147 @@ export function listAgentJobEvents(jobId: string, afterOrdinal = -1): AgentJobEv
   }));
 }
 
+export function appendAgentJobJournal(input: {
+  jobId: string;
+  kind: AgentJobJournalKind;
+  stage: string;
+  actionKey?: string | null;
+  payload?: unknown;
+  evidenceId?: string | null;
+}): AgentJobJournalRecord {
+  return transaction((db) => {
+    if (input.actionKey) {
+      const existing = db.prepare(`
+        SELECT * FROM agent_job_journal WHERE job_id=? AND kind=? AND action_key=?
+      `).get(input.jobId, input.kind, input.actionKey);
+      if (existing) return mapAgentJobJournal(existing);
+    }
+    const ordinal = Number(db.prepare(`
+      SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal FROM agent_job_journal WHERE job_id=?
+    `).get(input.jobId)?.ordinal || 0);
+    const createdAt = Date.now();
+    const result = db.prepare(`
+      INSERT INTO agent_job_journal(job_id,ordinal,kind,stage,action_key,payload_json,evidence_id,created_at)
+      VALUES(?,?,?,?,?,?,?,?)
+    `).run(
+      input.jobId, ordinal, input.kind, input.stage, input.actionKey || null,
+      json(input.payload ?? {}), input.evidenceId || null, createdAt
+    );
+    return mapAgentJobJournal(db.prepare('SELECT * FROM agent_job_journal WHERE id=?').get(Number(result.lastInsertRowid))!);
+  });
+}
+
+export function getAgentJobJournalEntry(
+  jobId: string,
+  kind: AgentJobJournalKind,
+  actionKey: string
+): AgentJobJournalRecord | null {
+  const row = requiredDatabase().prepare(`
+    SELECT * FROM agent_job_journal WHERE job_id=? AND kind=? AND action_key=?
+  `).get(jobId, kind, actionKey);
+  return row ? mapAgentJobJournal(row) : null;
+}
+
+export function listAgentJobJournal(jobId: string, afterOrdinal = -1): AgentJobJournalRecord[] {
+  return requiredDatabase().prepare(`
+    SELECT * FROM agent_job_journal WHERE job_id=? AND ordinal>? ORDER BY ordinal
+  `).all(jobId, afterOrdinal).map(mapAgentJobJournal);
+}
+
+export function getAgentJobCheckpoint(jobId: string): AgentJobCheckpointRecord | null {
+  const row = requiredDatabase().prepare('SELECT * FROM agent_job_checkpoints WHERE job_id=?').get(jobId);
+  if (!row) return null;
+  return {
+    jobId: String(row.job_id),
+    stateVersion: Number(row.state_version),
+    state: JSON.parse(String(row.state_json)),
+    lastCompletedAction: row.last_completed_action == null ? null : String(row.last_completed_action),
+    committedAt: Number(row.committed_at)
+  };
+}
+
+export function commitAgentJobCheckpoint(input: {
+  jobId: string;
+  state: Record<string, unknown>;
+  lastCompletedAction: string;
+  patch?: Partial<Pick<AgentJobRecord,
+    'status' | 'stage' | 'terminalState' | 'intent' | 'workOrderId' | 'message' | 'result' |
+    'errorCode' | 'errorMessage' | 'stopRequested' | 'lastHeartbeatAt' | 'finishedAt'
+  >>;
+}): AgentJobRecord {
+  return transaction((db) => {
+    const row = db.prepare('SELECT * FROM agent_jobs WHERE id=?').get(input.jobId);
+    if (!row) throw new Error(`AGENT_JOB_NOT_FOUND: ${input.jobId}`);
+    const current = mapAgentJob(row);
+    const version = current.stateVersion + 1;
+    const now = Date.now();
+    const next = {
+      ...current,
+      ...(input.patch || {}),
+      runtimeState: input.state,
+      stateVersion: version,
+      lastHeartbeatAt: now,
+      updatedAt: now
+    };
+    db.prepare(`
+      UPDATE agent_jobs SET status=?,stage=?,terminal_state=?,intent=?,work_order_id=?,message=?,result_json=?,
+        error_code=?,error_message=?,runtime_state_json=?,state_version=?,stop_requested=?,last_heartbeat_at=?,
+        updated_at=?,finished_at=? WHERE id=?
+    `).run(
+      next.status, next.stage, next.terminalState, next.intent, next.workOrderId, next.message,
+      next.result == null ? null : json(next.result), next.errorCode, next.errorMessage, json(next.runtimeState),
+      version, next.stopRequested ? 1 : 0, now, now, next.finishedAt, input.jobId
+    );
+    db.prepare(`
+      INSERT INTO agent_job_checkpoints(job_id,state_version,state_json,last_completed_action,committed_at)
+      VALUES(?,?,?,?,?)
+      ON CONFLICT(job_id) DO UPDATE SET state_version=excluded.state_version,state_json=excluded.state_json,
+        last_completed_action=excluded.last_completed_action,committed_at=excluded.committed_at
+    `).run(input.jobId, version, json(input.state), input.lastCompletedAction, now);
+    const ordinal = Number(db.prepare(`
+      SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal FROM agent_job_journal WHERE job_id=?
+    `).get(input.jobId)?.ordinal || 0);
+    db.prepare(`
+      INSERT INTO agent_job_journal(job_id,ordinal,kind,stage,action_key,payload_json,evidence_id,created_at)
+      VALUES(?,?, 'checkpoint',?,?,?,?,?)
+      ON CONFLICT(job_id,kind,action_key) DO NOTHING
+    `).run(
+      input.jobId, ordinal, next.stage, input.lastCompletedAction,
+      json({ stateVersion: version, lastCompletedAction: input.lastCompletedAction }), null, now
+    );
+    return mapAgentJob(db.prepare('SELECT * FROM agent_jobs WHERE id=?').get(input.jobId)!);
+  });
+}
+
+export function requestAgentJobStop(jobId: string): AgentJobRecord {
+  return updateAgentJob(jobId, {
+    stopRequested: true,
+    message: 'Joe will stop at the next committed safety boundary.'
+  });
+}
+
+export function resumeInterruptedAgentJob(jobId: string): AgentJobRecord {
+  const job = getAgentJob(jobId);
+  if (!job) throw new Error(`AGENT_JOB_NOT_FOUND: ${jobId}`);
+  if (job.status !== 'interrupted') throw new Error(`AGENT_JOB_NOT_INTERRUPTED: ${job.status}`);
+  return updateAgentJob(jobId, {
+    status: 'queued',
+    terminalState: null,
+    stage: job.workOrderId ? 'authorize' : 'understand',
+    message: 'Joe is resuming from the last committed checkpoint.',
+    errorCode: null,
+    errorMessage: null,
+    stopRequested: false,
+    finishedAt: null,
+    resumeCount: job.resumeCount + 1
+  });
+}
+
 export function interruptRunningAgentJobs(): number {
   const now = Date.now();
   const result = requiredDatabase().prepare(`
-    UPDATE agent_jobs SET status='interrupted',stage='blocked',
-      message='JoeCoder restarted before this job reached a terminal result. Resume it from the same project.',
+    UPDATE agent_jobs SET status='interrupted',terminal_state='interrupted',stage='blocked',
+      message='JoeCoder restarted before this job reached a terminal result. Resume it from the last committed checkpoint.',
       error_code='SERVICE_RESTARTED',error_message='The service restarted during this job.',
       updated_at=?,finished_at=? WHERE status IN ('queued','running')
   `).run(now, now);
