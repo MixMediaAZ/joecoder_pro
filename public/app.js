@@ -2774,8 +2774,29 @@ async function refreshServerJob(jobId, projectId) {
     const events = data.events || [];
     if (events.length) {
       serverJobLastOrdinal = events[events.length - 1].ordinal;
+      const seen = new Set(state.events.map(eventKey));
+      for (const event of events) {
+        const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+        const recorded = {
+          id: 'job:' + job.id + ':' + event.ordinal,
+          ts: event.createdAt,
+          type: 'agent.' + event.kind,
+          stage: event.stage,
+          category: payload.category || null,
+          what: event.what,
+          meaning: event.meaning,
+          next: event.next,
+          evidenceId: payload.evidenceId || null,
+          files: Array.isArray(payload.files) ? payload.files : [],
+          persisted: true
+        };
+        if (!seen.has(eventKey(recorded))) state.events.push(recorded);
+      }
+      state.events.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+      if (state.events.length > 160) state.events.splice(0, state.events.length - 160);
       const latest = events[events.length - 1];
       beginNarration(latest.what, latest.meaning, latest.next);
+      speakJoe([latest.what, latest.meaning].filter(Boolean).join(' '));
     }
     state.busy = job.status === 'queued' || job.status === 'running';
     state.chatBusy = state.busy;
@@ -2989,5 +3010,53 @@ bindWorkshopControls = function bindAutomaticControls() {
       render();
     } catch (error) { showError(formatError(error)); }
   });
+};
+// ---------- Joe Live: persisted work account ----------
+function joeLiveCategory(event) {
+  if (event.category) return event.category;
+  if (event.kind === 'failure' || /blocked|failed|cancel|needs/i.test(event.type || event.what || '')) return 'Needs you';
+  if (event.stage === 'run' || /changed|wrote|repair|execution/i.test(event.what || event.type || '')) return 'Changed';
+  if (event.stage === 'verify' || event.stage === 'complete' || /checked|verified|completed/i.test(event.what || event.type || '')) return 'Checked';
+  if (event.stage === 'inspect' || /found|survey|inspect/i.test(event.what || event.type || '')) return 'Found';
+  return 'Doing now';
+}
+
+liveEvents = function trustworthyLiveEvents() {
+  const all = [...state.events].filter(event => event && (event.persisted || event.id || event.hash)).reverse();
+  const selected = ['found', 'changed', 'checked', 'needs'].includes(state.liveTab) ? state.liveTab : 'live';
+  if (selected === 'live') return all.slice(0, 20);
+  const label = ({ found: 'Found', changed: 'Changed', checked: 'Checked', needs: 'Needs you' })[selected];
+  return all.filter(event => joeLiveCategory(event) === label);
+};
+
+liveItem = function trustworthyLiveItem(event) {
+  const category = joeLiveCategory(event);
+  const evidence = event.evidenceId
+    ? '<a class="live-proof-link" href="/api/v1/evidence/' + encodeURIComponent(event.evidenceId) + '" target="_blank" rel="noopener">Open proof</a>'
+    : '';
+  const files = Array.isArray(event.files) && event.files.length
+    ? '<div class="live-entry-links">' + event.files.map(file => '<button type="button" data-explorer-file="' + escapeHtml(file) + '">' + escapeHtml(file) + '</button>').join('') + '</div>'
+    : '';
+  return '<article class="live-entry"><div class="live-entry-meta"><span class="live-category">' + escapeHtml(category) + '</span>' +
+    (event.ts ? new Date(event.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : 'Recorded') + evidence + '</div>' +
+    '<div class="live-entry-title">' + escapeHtml(event.what || event.type || 'Recorded update') + '</div>' +
+    (state.narrationDetail !== 'quiet' && event.meaning ? '<div class="live-entry-meaning">' + escapeHtml(event.meaning) + '</div>' : '') +
+    (state.narrationDetail === 'detailed' && event.next ? '<div class="live-entry-next"><strong>Next:</strong> ' + escapeHtml(event.next) + '</div>' : '') + files + '</article>';
+};
+
+renderVoice = function renderTrustworthyJoeLive() {
+  if (!state.currentProject) return '';
+  const items = liveEvents();
+  const current = items[0] || { what: 'Joe is ready.', meaning: 'Nothing is running. The project remains read-only.', next: 'Tell Joe the outcome you want.' };
+  const tabs = [['live','Live'],['found','Found'],['changed','Changed'],['checked','Checked'],['needs','Needs you']];
+  return '<aside id="voice" class="' + (state.activityOpen ? '' : 'hidden') + '"><div class="voice-head live-head"><div><h3>Joe Live</h3>' +
+    '<span class="voice-sub">Recorded work account, not private chain-of-thought.</span></div><div><button class="icon-btn" id="btn-detach-live">&#8599;</button><button class="icon-btn" data-activity-toggle>&times;</button></div></div>' +
+    '<div class="live-controls"><button class="speech-toggle ' + (state.speechEnabled ? 'active' : '') + '" id="btn-speech">' + (state.speechEnabled ? 'Voice on' : 'Voice off') + '</button>' +
+    '<select id="narration-detail">' + ['quiet','normal','detailed'].map(value => '<option value="' + value + '" ' + (state.narrationDetail === value ? 'selected' : '') + '>' + value[0].toUpperCase() + value.slice(1) + '</option>').join('') + '</select></div>' +
+    '<nav class="live-tabs">' + tabs.map(tab => '<button data-live-tab="' + tab[0] + '" class="' + ((state.liveTab || 'live') === tab[0] ? 'active' : '') + '">' + tab[1] + '</button>').join('') + '</nav>' +
+    '<section class="activity-card ' + (state.autoJob?.running ? 'working' : '') + '" aria-live="polite"><div class="activity-status"><span class="activity-dot"></span><strong>' + escapeHtml(joeLiveCategory(current)) + '</strong></div>' +
+    '<div class="activity-what">' + escapeHtml(current.what) + '</div>' + (state.narrationDetail !== 'quiet' && current.meaning ? '<div class="activity-meaning">' + escapeHtml(current.meaning) + '</div>' : '') +
+    (current.next ? '<div class="activity-next"><strong>Next:</strong> ' + escapeHtml(current.next) + '</div>' : '') + '</section>' +
+    '<div class="voice-log">' + (items.length ? items.map(liveItem).join('') : '<div class="voice-empty">No recorded events in this category.</div>') + '</div></aside>';
 };
 boot();

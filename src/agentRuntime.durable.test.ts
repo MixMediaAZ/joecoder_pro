@@ -15,6 +15,7 @@ import {
   interruptRunningAgentJobs,
   listActiveReadOnlyAgentJobs,
   listAgentJobJournal,
+  listAgentJobEvents,
   resumeInterruptedAgentJob,
   upsertProject
 } from './database/database.js';
@@ -59,10 +60,10 @@ function deterministicDriver(calls: Map<AgentRuntimeAction, number>): AgentRunti
             journals: [{ kind: 'decision', payload: { objectiveAccepted: true } }]
           };
         case 'establish_evidence':
-          return { statePatch: { evidenceReady: true, surveyEvidenceId: 'EVC-runtime-test' } };
+          return { statePatch: { evidenceReady: true, surveyEvidenceId: 'EVC-runtime-test' }, evidenceId: 'EVC-runtime-test' };
         case 'produce_plan':
           return {
-            statePatch: { planRevision: 1, workOrderId: 'JC20-M2-999', budgets: { maxFiles: 3 } },
+            statePatch: { planRevision: 1, workOrderId: 'JC20-M2-999', budgets: { maxFiles: 3 }, plan: { objective: 'Repair the fixture.', scope: { exactPaths: ['src/fix.ts'], operations: ['edit_files'] } } },
             jobPatch: { workOrderId: null, intent: 'repair' },
             journals: [
               { kind: 'plan_revision', payload: { revision: 1, files: ['src/fix.ts'] } },
@@ -75,7 +76,7 @@ function deterministicDriver(calls: Map<AgentRuntimeAction, number>): AgentRunti
             journals: [{ kind: 'decision', payload: { authorization: 'sealed' } }]
           };
         case 'execute_change':
-          return { statePatch: { executionResult: { changed: ['src/fix.ts'] } } };
+          return { statePatch: { executionResult: { changed: ['src/fix.ts'], evidenceId: 'EVC-runtime-verified' } }, evidenceId: 'EVC-runtime-verified' };
         case 'evaluate_verification':
           return {
             statePatch: {
@@ -137,6 +138,14 @@ test('durable runtime resumes after every transition without repeating an action
       'checkpoint', 'verification', 'terminal', 'decision'
     ]) assert.ok(kinds.has(kind as never), `journal is missing ${kind}`);
     assert.equal(new Set(journal.map((entry) => entry.ordinal)).size, journal.length);
+    const events = listAgentJobEvents(job.id);
+    assert.ok(events.some(event => (event.payload as { category?: string }).category === 'Found'));
+    assert.ok(events.some(event => (event.payload as { category?: string }).category === 'Changed'));
+    assert.ok(events.some(event => (event.payload as { category?: string }).category === 'Checked'));
+    const authorization = events.find(event => event.what.startsWith('Automatic authorization:'));
+    assert.match(authorization?.meaning || '', /only in 1 named file/);
+    const completion = events.find(event => /completed/i.test(event.what));
+    assert.equal((completion?.payload as { evidenceId?: string }).evidenceId, 'EVC-runtime-verified');
   } finally {
     closeDatabase();
     await fs.rm(root, { recursive: true, force: true });

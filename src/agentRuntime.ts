@@ -73,44 +73,44 @@ const ACTION_PRESENTATION: Record<AgentRuntimeAction, {
 }> = {
   capture_objective: {
     stage: 'understand',
-    what: 'I am fixing the requested outcome as one bounded job.',
-    meaning: 'The conversation supplies the objective; it does not bypass safety controls.',
+    what: 'I am understanding the outcome you want.',
+    meaning: 'Your request defines one bounded job; it does not silently expand.',
     next: 'Establish current project evidence.'
   },
   establish_evidence: {
     stage: 'inspect',
-    what: 'I am establishing current project evidence without changing files.',
-    meaning: 'Planning must use observed project truth rather than assumptions.',
+    what: 'I am inspecting the project without changing files.',
+    meaning: 'The plan must start from what is actually present.',
     next: 'Produce the smallest evidence-backed plan.'
   },
   produce_plan: {
     stage: 'plan',
-    what: 'I am producing a bounded working plan.',
-    meaning: 'Paths, operations, limits, rollback, and checks must be reviewable before writes.',
+    what: 'I am planning the smallest complete job.',
+    meaning: 'I am identifying the affected files, protection, limits, and checks.',
     next: 'Seal the exact authorization envelope.'
   },
   seal_authorization: {
     stage: 'authorize',
-    what: 'I am sealing the exact one-job authorization.',
-    meaning: 'The job cannot widen its paths, operations, limits, or objective after this point.',
+    what: 'I am protecting the exact job boundary.',
+    meaning: 'The objective, affected files, allowed actions, and limits cannot widen silently.',
     next: 'Execute the smallest coherent change.'
   },
   execute_change: {
     stage: 'run',
-    what: 'I am executing only the sealed work.',
-    meaning: 'Writes remain snapshotted, atomic, budgeted, logged, and reversible.',
+    what: 'I am changing only the protected files.',
+    meaning: 'The original files are protected and every change is recorded and reversible.',
     next: 'Evaluate the recorded verification proof.'
   },
   evaluate_verification: {
     stage: 'verify',
-    what: 'I am evaluating what the checks actually proved.',
-    meaning: 'Failed, skipped, and inconclusive checks cannot become success.',
+    what: 'I am checking the result.',
+    meaning: 'A failed or inconclusive check cannot be reported as success.',
     next: 'Record the truthful terminal result.'
   },
   finalize: {
     stage: 'complete',
-    what: 'I am recording the terminal result.',
-    meaning: 'The final status must be backed by the durable journal and evidence.',
+    what: 'I am preparing the truthful result.',
+    meaning: 'The final status must be backed by recorded checks and proof.',
     next: 'Return control to the conversation.'
   }
 };
@@ -176,6 +176,42 @@ function terminalMessage(terminal: AgentJobTerminalState): string {
   return messages[terminal];
 }
 
+function evidenceIdFromState(state: AgentRuntimeSnapshot, outcome?: AgentActionOutcome): string | null {
+  if (outcome?.evidenceId) return outcome.evidenceId;
+  const execution = state.executionResult as { evidenceId?: unknown } | undefined;
+  return typeof execution?.evidenceId === 'string' ? execution.evidenceId : null;
+}
+
+function committedActionEvent(action: AgentRuntimeAction, state: AgentRuntimeSnapshot, outcome: AgentActionOutcome): {
+  what: string; meaning: string; next: string; payload: Record<string, unknown>;
+} | null {
+  const evidenceId = evidenceIdFromState(state, outcome);
+  const plan = state.plan as { objective?: unknown; scope?: { exactPaths?: unknown; operations?: unknown }; verificationCommands?: unknown } | undefined;
+  const files = Array.isArray(plan?.scope?.exactPaths) ? plan.scope.exactPaths.map(String) : [];
+  const operations = Array.isArray(plan?.scope?.operations) ? plan.scope.operations.map(String) : [];
+  const objective = String(plan?.objective || state.objective || 'complete the requested outcome');
+  const common = { action, category: 'Doing now', evidenceId, files };
+  if (action === 'capture_objective') return {
+    what: 'I understood the requested outcome.', meaning: 'I recorded it as one bounded job.', next: 'Inspect the current project without changing it.', payload: common
+  };
+  if (action === 'establish_evidence') return {
+    what: 'I found the current project state.', meaning: 'The read-only inspection is recorded as evidence.', next: 'Plan the smallest complete job.', payload: { ...common, category: 'Found' }
+  };
+  if (action === 'produce_plan') return {
+    what: 'I decided on the smallest evidence-backed plan.', meaning: `${files.length} file(s) are in the maximum affected area.`, next: 'Protect that exact boundary before any write.', payload: { ...common, category: 'Found', operations }
+  };
+  if (action === 'seal_authorization') return {
+    what: `Automatic authorization: ${objective}.`, meaning: `Joe may ${operations.join(', ') || 'perform the recorded work'} only in ${files.length} named file(s), within the recorded time, file, line, and cost limits.`, next: 'Make the protected change.', payload: { ...common, category: 'Doing now', operations }
+  };
+  if (action === 'execute_change') return {
+    what: 'I changed the protected files.', meaning: 'The writes completed inside the sealed boundary and were recorded.', next: 'Run and evaluate the available checks.', payload: { ...common, category: 'Changed' }
+  };
+  if (action === 'evaluate_verification') return {
+    what: 'I checked what the result actually proves.', meaning: String(state.requestedTerminalReason || 'The available verification was recorded.'), next: 'Record the truthful result.', payload: { ...common, category: 'Checked' }
+  };
+  return null;
+}
+
 function recordTerminal(
   job: AgentJobRecord,
   state: AgentRuntimeSnapshot,
@@ -183,6 +219,10 @@ function recordTerminal(
   reason: string,
   action: AgentRuntimeAction | 'runtime'
 ): AgentJobRecord {
+  if ((terminal === 'completed' || terminal === 'completed_with_limits') && !evidenceIdFromState(state)) {
+    terminal = 'failed_safe';
+    reason = 'Joe could not link the completion claim to verification evidence.';
+  }
   const key = `${job.id}-terminal-${terminal}`;
   appendAgentJobJournal({
     jobId: job.id,
@@ -198,7 +238,15 @@ function recordTerminal(
     what: terminalMessage(terminal),
     meaning: reason,
     next: terminal === 'interrupted' ? 'Resume this job from its last checkpoint.' : 'Review the recorded result.',
-    payload: { terminal, reason }
+    payload: {
+      terminal,
+      reason,
+      category: terminal === 'completed' || terminal === 'completed_with_limits' ? 'Checked' : 'Needs you',
+      evidenceId: evidenceIdFromState(state),
+      files: Array.isArray((state.plan as { scope?: { exactPaths?: unknown } } | undefined)?.scope?.exactPaths)
+        ? ((state.plan as { scope: { exactPaths: unknown[] } }).scope.exactPaths).map(String)
+        : []
+    }
   });
   return updateAgentJob(job.id, {
     status: coarseStatus(terminal),
@@ -343,6 +391,11 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
     state: nextState,
     lastCompletedAction: key,
     patch
+  });
+  const committedEvent = committedActionEvent(action, nextState, outcome);
+  if (committedEvent) appendAgentJobEvent({
+    jobId, stage: presentation.stage, kind: action === 'execute_change' || action === 'evaluate_verification' ? 'result' : 'decision',
+    what: committedEvent.what, meaning: committedEvent.meaning, next: committedEvent.next, payload: committedEvent.payload
   });
   if (terminal) {
     job = recordTerminal(job, nextState, terminal, String(nextState.terminalReason || terminalMessage(terminal)), action);
