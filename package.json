@@ -1,0 +1,47 @@
+{
+  "name": "joecoder-pro-20.1",
+  "version": "20.1.0-repair-certified",
+  "description": "JoeCoder Pro 20.1 \u2014 certified source repair, jailed verification, structured routing, job pipeline UI.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && npm run test:browser-assets && node --test dist/*.test.js dist/database/*.test.js",
+    "dev": "tsx watch src/index.ts",
+    "prestart": "npm run build",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist .jc",
+    "test:browser-assets": "node tools/check-browser-assets.mjs",
+    "db:verify": "npm run build && node dist/databaseCli.js verify",
+    "db:backup": "npm run build && node dist/databaseCli.js backup",
+    "certify:mutation": "node tools/certify-mutation.mjs --self",
+    "certify:verification": "node tools/certify-verification.mjs",
+    "certify:routing": "node tools/certify-routing.mjs",
+    "verify:full-loop": "node tools/verify-full-loop.mjs",
+    "verify:governance": "node tools/verify-governance.mjs",
+    "certify:survey-samples": "node tools/certify-survey-samples.mjs",
+    "certify:install": "node tools/certify-install.mjs",
+    "certify:build-intent": "node tools/certify-build-intent.mjs",
+    "e2e:live": "node tools/e2e-live.mjs",
+    "verify:release": "node tools/verify-full-loop.mjs && node tools/e2e-live.mjs",
+    "test:unit": "node tools/run-unit-tests.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "volta": {
+    "node": "22.23.1",
+    "npm": "10.8.2"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

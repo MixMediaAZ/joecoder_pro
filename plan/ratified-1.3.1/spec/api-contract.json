@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.3.0",
+  "basePath": "/api/v1",
+  "binding": "127.0.0.1 allocated port",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/session/exchange",
+      "purpose": "Consume one-time bootstrap token and establish session",
+      "consequential": false
+    },
+    {
+      "method": "POST",
+      "path": "/session/refresh",
+      "purpose": "Rotate active session and CSRF values",
+      "consequential": true
+    },
+    {
+      "method": "POST",
+      "path": "/session/logout",
+      "purpose": "Invalidate session",
+      "consequential": true
+    },
+    {
+      "method": "GET",
+      "path": "/session/status",
+      "purpose": "Report current session state",
+      "consequential": false
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "purpose": "Process and declared dependency health",
+      "consequential": false
+    },
+    {
+      "method": "GET",
+      "path": "/capabilities",
+      "purpose": "Measured capability inventory",
+      "consequential": false
+    },
+    {
+      "method": "GET",
+      "path": "/configuration/status",
+      "purpose": "Redacted value and policy provenance",
+      "consequential": false
+    },
+    {
+      "method": "POST",
+      "path": "/system/shutdown",
+      "purpose": "Graceful local shutdown",
+      "consequential": true
+    }
+  ],
+  "consequentialRequirements": [
+    "session cookie",
+    "X-JC-CSRF",
+    "Origin",
+    "Host",
+    "content type",
+    "body limit",
+    "idempotency key",
+    "current action capability"
+  ]
+}

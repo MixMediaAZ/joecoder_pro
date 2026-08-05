@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "1.3.0",
+  "planVersion": "1.3.1",
+  "id": "JC19-M0-001",
+  "projectId": "joecoder-pro-1.9",
+  "projectVersion": "0000000000000000000000000000000000000000000000000000000000000000",
+  "sourcePlanHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "sourceDetailHash": "2222222222222222222222222222222222222222222222222222222222222222",
+  "sourceTraceabilityHash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "intent": "build",
+  "governanceMode": "bootstrap_external",
+  "roles": {
+    "owner": "platform-foundation",
+    "implementer": "assigned-builder",
+    "verifier": "deterministic-test-harness",
+    "reviewer": "independent-reviewer",
+    "approver": null
+  },
+  "objective": "Create only the root npm workspace and exact runtime policy.",
+  "deliverables": [
+    "Root workspace metadata",
+    "Runtime policy test",
+    "Evidence envelope"
+  ],
+  "nonGoals": [
+    "schema tooling",
+    "orchestrator",
+    "UI",
+    "native broker",
+    "providers"
+  ],
+  "assumptions": [
+    "Ratified plan hash matches."
+  ],
+  "constraints": [
+    "No scope expansion."
+  ],
+  "dependencies": [],
+  "ruleIds": [
+    "JC-QA-002",
+    "JC-DELIV-001"
+  ],
+  "testIds": [
+    "T-JC19-M0-001",
+    "TN-JC19-M0-001"
+  ],
+  "fixtureIds": [
+    "FX-BUILD-010"
+  ],
+  "scope": {
+    "paths": [
+      "package.json",
+      "package-lock.json",
+      ".npmrc",
+      ".nvmrc",
+      "README.md",
+      "scripts/runtime-policy.mjs",
+      "scripts/runtime-policy.test.mjs"
+    ],
+    "operations": [
+      "read",
+      "create",
+      "update",
+      "execute"
+    ],
+    "commands": [
+      "npm ci"
+    ],
+    "network": [],
+    "providers": [],
+    "secrets": []
+  },
+  "plan": [
+    {
+      "id": "S1",
+      "action": "Verify source snapshot and create the bounded root workspace files.",
+      "preconditions": [
+        "Approved scope hash is current."
+      ],
+      "expectedOutcome": "Only declared files differ.",
+      "acceptanceIds": [
+        "AC-JC19-M0-001-01"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-JC19-M0-001-01",
+      "criterion": "Pinned runtime metadata and workspace files match the approved plan.",
+      "mandatory": true,
+      "verifier": "T-JC19-M0-001",
+      "status": "pending",
+      "evidenceRefs": []
+    },
+    {
+      "id": "AC-JC19-M0-001-02",
+      "criterion": "Clean npm.cmd ci succeeds from a path containing spaces.",
+      "mandatory": true,
+      "verifier": "T-JC19-M0-001",
+      "status": "pending",
+      "evidenceRefs": []
+    },
+    {
+      "id": "AC-JC19-M0-001-03",
+      "criterion": "Unsupported runtime and documentation drift are rejected.",
+      "mandatory": true,
+      "verifier": "TN-JC19-M0-001",
+      "status": "pending",
+      "evidenceRefs": []
+    }
+  ],
+  "risk": {
+    "level": "medium",
+    "flags": [
+      "bootstrap construction"
+    ],
+    "mitigations": [
+      "external scope enforcement",
+      "pre/post tree hashes",
+      "verified source snapshot"
+    ],
+    "isolationRequired": "native_constrained"
+  },
+  "authorization": {
+    "status": "not_requested",
+    "grantIds": [],
+    "approvedScopeHash": null,
+    "expiresAt": null
+  },
+  "budgets": {
+    "maxFiles": 12,
+    "maxChangedLines": 500,
+    "maxAttempts": 2,
+    "maxDurationMs": 600000,
+    "maxProcesses": 4,
+    "maxMemoryMb": 1024,
+    "maxOutputBytes": 10485760,
+    "maxToolCalls": 20,
+    "maxCloudCostUsd": 0
+  },
+  "rollback": {
+    "strategy": "version_pointer",
+    "sourceVersion": "0000000000000000000000000000000000000000000000000000000000000000",
+    "snapshotId": null,
+    "restorationEvidenceRefs": []
+  },
+  "routing": {
+    "privacy": "local_only",
+    "preferredProvider": "none",
+    "selectedProvider": null,
+    "selectedModel": null,
+    "fallbacks": [],
+    "decisionEvidenceRef": null
+  },
+  "status": "planned",
+  "timestamps": {
+    "createdAt": "2026-07-12T00:00:00Z"
+  },
+  "evidenceRefs": [],
+  "waivers": []
+}

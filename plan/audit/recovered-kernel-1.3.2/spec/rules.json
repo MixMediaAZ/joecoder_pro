@@ -1,0 +1,630 @@
+{
+  "specVersion": "1.3.2",
+  "source": "joecoder-20.1-kernel",
+  "note": "Kernel law pack derived from enforced modules in 20.1. Replaces missing original prospectus registry.",
+  "rules": [
+    {
+      "id": "JC-COMMS-001",
+      "title": "Chat is not authorization",
+      "category": "comms",
+      "requirement": "Conversation must never grant write, install, or apply permission.",
+      "enforcement": [
+        "chat.ts",
+        "ui"
+      ],
+      "verification": [
+        "unit",
+        "live"
+      ]
+    },
+    {
+      "id": "JC-COMMS-002",
+      "title": "Narration is not completion",
+      "category": "comms",
+      "requirement": "Progress narration must not claim completion without evidence-derived status.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-COMMS-003",
+      "title": "No unsafe model claims",
+      "category": "comms",
+      "requirement": "Model output must not claim files were changed unless apply evidence exists.",
+      "enforcement": [
+        "chat.ts"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-SESS-001",
+      "title": "Bootstrap single use",
+      "category": "session",
+      "requirement": "Bootstrap token is single-use and time-limited.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-SESS-002",
+      "title": "CSRF on mutations",
+      "category": "session",
+      "requirement": "Mutating API calls require matching CSRF token.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-SESS-003",
+      "title": "Idempotency keys",
+      "category": "session",
+      "requirement": "Mutating API calls require a unique Idempotency-Key.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-SESS-004",
+      "title": "Origin boundary",
+      "category": "session",
+      "requirement": "Requests must pass host/origin validation.",
+      "enforcement": [
+        "sessionSecurity.ts"
+      ],
+      "verification": [
+        "unit",
+        "live"
+      ]
+    },
+    {
+      "id": "JC-WO-001",
+      "title": "One active mutating WO",
+      "category": "workflow",
+      "requirement": "At most one draft/authorized/executing mutating work order per project.",
+      "enforcement": [
+        "workOrder.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-WO-002",
+      "title": "Authorize before apply",
+      "category": "workflow",
+      "requirement": "Apply requires status authorized and sealed envelope.",
+      "enforcement": [
+        "authorization.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-WO-003",
+      "title": "Envelope immutability",
+      "category": "workflow",
+      "requirement": "Scope/budget/objective changes invalidate envelope hash.",
+      "enforcement": [
+        "authorization.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-WO-004",
+      "title": "Survey required for draft",
+      "category": "workflow",
+      "requirement": "from-survey drafts require verified survey evidence.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-WO-005",
+      "title": "Completion is derived",
+      "category": "workflow",
+      "requirement": "Completion is computed from acceptance checks, never declared by chat.",
+      "enforcement": [
+        "completion.ts"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-FS-001",
+      "title": "Path jail",
+      "category": "safety",
+      "requirement": "All file reads/writes resolve under project root without escape.",
+      "enforcement": [
+        "mutation.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-FS-002",
+      "title": "Forbidden segments",
+      "category": "safety",
+      "requirement": "Writes under node_modules, .git, .jc are rejected.",
+      "enforcement": [
+        "mutation.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-FS-003",
+      "title": "Transactional apply",
+      "category": "safety",
+      "requirement": "Partial apply rolls back to pre-write snapshot.",
+      "enforcement": [
+        "mutation.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-FS-004",
+      "title": "Snapshot before write",
+      "category": "safety",
+      "requirement": "Scoped files are snapshotted before mutation.",
+      "enforcement": [
+        "mutation.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-FS-005",
+      "title": "Export containment",
+      "category": "safety",
+      "requirement": "Export artifacts remain under .jc/exports.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-MUT-001",
+      "title": "Capability gate",
+      "category": "mutation",
+      "requirement": "Repair/build apply requires SOURCE_REPAIR_CAPABILITY.enabled.",
+      "enforcement": [
+        "capabilities.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-MUT-002",
+      "title": "Scope exactPaths",
+      "category": "mutation",
+      "requirement": "Only authorized exactPaths may be written.",
+      "enforcement": [
+        "mutation.ts",
+        "completion.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-MUT-003",
+      "title": "Budget ceilings",
+      "category": "mutation",
+      "requirement": "File and line budgets are enforced at apply.",
+      "enforcement": [
+        "mutation.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-MUT-004",
+      "title": "Structured parse fail-closed",
+      "category": "mutation",
+      "requirement": "Malformed plan/edit output aborts after at most one re-prompt.",
+      "enforcement": [
+        "repair.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-MUT-005",
+      "title": "Temperature clamp",
+      "category": "mutation",
+      "requirement": "Structured generation temperature is forced ≤ 0.2.",
+      "enforcement": [
+        "repair.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-VER-001",
+      "title": "Jailed verification",
+      "category": "verification",
+      "requirement": "npm scripts run shell:false with sanitized env and timeout.",
+      "enforcement": [
+        "verification.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-VER-002",
+      "title": "Integrity fallback",
+      "category": "verification",
+      "requirement": "When scripts cannot run, file-integrity may be used and must be labeled.",
+      "enforcement": [
+        "verification.ts",
+        "completion.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-VER-003",
+      "title": "Failed verify rolls back",
+      "category": "verification",
+      "requirement": "Failed verification triggers snapshot rollback.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-INST-001",
+      "title": "Install requires scope op",
+      "category": "install",
+      "requirement": "npm install runs only when install_dependencies is authorized.",
+      "enforcement": [
+        "installDeps.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-INST-002",
+      "title": "Ignore scripts",
+      "category": "install",
+      "requirement": "Install always uses --ignore-scripts.",
+      "enforcement": [
+        "installDeps.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-INST-003",
+      "title": "Install cwd jail",
+      "category": "install",
+      "requirement": "Install cwd is project root only.",
+      "enforcement": [
+        "installDeps.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-BLD-001",
+      "title": "Build near-empty only",
+      "category": "build",
+      "requirement": "Build intent requires empty or near-empty folder.",
+      "enforcement": [
+        "repair.ts",
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-BLD-002",
+      "title": "Repair for existing code",
+      "category": "build",
+      "requirement": "Existing codebases use repair intent, not build.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-EV-001",
+      "title": "Evidence hash verify",
+      "category": "evidence",
+      "requirement": "Evidence envelopes are content-hash verified on read.",
+      "enforcement": [
+        "evidence.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-EV-002",
+      "title": "Apply evidence recorded",
+      "category": "evidence",
+      "requirement": "Successful and failed applies record evidence including verification.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "live"
+      ]
+    },
+    {
+      "id": "JC-EV-003",
+      "title": "Survey samples read-only",
+      "category": "evidence",
+      "requirement": "Content samples are bounded and never write paths.",
+      "enforcement": [
+        "survey.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-MOD-001",
+      "title": "Local first",
+      "category": "model",
+      "requirement": "Ollama is preferred; cloud requires budget.",
+      "enforcement": [
+        "providers.ts"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-MOD-002",
+      "title": "Mock labeled",
+      "category": "model",
+      "requirement": "JC_MOCK_MODEL must be explicit and reported in health.",
+      "enforcement": [
+        "providers.ts"
+      ],
+      "verification": [
+        "cert"
+      ]
+    },
+    {
+      "id": "JC-UI-001",
+      "title": "Capability-gated controls",
+      "category": "ui",
+      "requirement": "Repair/build controls disabled when capability is off.",
+      "enforcement": [
+        "public/app.js"
+      ],
+      "verification": [
+        "unit"
+      ]
+    },
+    {
+      "id": "JC-UI-002",
+      "title": "Inactive stages labeled",
+      "category": "ui",
+      "requirement": "Unavailable stages must not appear as executable.",
+      "enforcement": [
+        "public/app.js"
+      ],
+      "verification": [
+        "manual"
+      ]
+    },
+    {
+      "id": "JC-KER-001",
+      "title": "Kernel invariant 1",
+      "category": "workflow",
+      "requirement": "Preserve fail-closed defaults for invariant 1; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-002",
+      "title": "Kernel invariant 2",
+      "category": "safety",
+      "requirement": "Preserve fail-closed defaults for invariant 2; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-003",
+      "title": "Kernel invariant 3",
+      "category": "evidence",
+      "requirement": "Preserve fail-closed defaults for invariant 3; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-004",
+      "title": "Kernel invariant 4",
+      "category": "model",
+      "requirement": "Preserve fail-closed defaults for invariant 4; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-005",
+      "title": "Kernel invariant 5",
+      "category": "ui",
+      "requirement": "Preserve fail-closed defaults for invariant 5; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-006",
+      "title": "Kernel invariant 6",
+      "category": "core",
+      "requirement": "Preserve fail-closed defaults for invariant 6; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-007",
+      "title": "Kernel invariant 7",
+      "category": "workflow",
+      "requirement": "Preserve fail-closed defaults for invariant 7; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-008",
+      "title": "Kernel invariant 8",
+      "category": "safety",
+      "requirement": "Preserve fail-closed defaults for invariant 8; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-009",
+      "title": "Kernel invariant 9",
+      "category": "evidence",
+      "requirement": "Preserve fail-closed defaults for invariant 9; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-010",
+      "title": "Kernel invariant 10",
+      "category": "model",
+      "requirement": "Preserve fail-closed defaults for invariant 10; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-011",
+      "title": "Kernel invariant 11",
+      "category": "ui",
+      "requirement": "Preserve fail-closed defaults for invariant 11; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-012",
+      "title": "Kernel invariant 12",
+      "category": "core",
+      "requirement": "Preserve fail-closed defaults for invariant 12; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-013",
+      "title": "Kernel invariant 13",
+      "category": "workflow",
+      "requirement": "Preserve fail-closed defaults for invariant 13; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    },
+    {
+      "id": "JC-KER-014",
+      "title": "Kernel invariant 14",
+      "category": "safety",
+      "requirement": "Preserve fail-closed defaults for invariant 14; no silent privilege expansion.",
+      "enforcement": [
+        "index.ts"
+      ],
+      "verification": [
+        "review"
+      ]
+    }
+  ]
+}

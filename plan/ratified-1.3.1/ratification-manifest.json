@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.3.1",
+  "algorithm": "sha256",
+  "planRootHash": "39d9d5333f47f88f207f3d9dc94788f26fc1ab0dbb95d02d1b2561234c465d60",
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "90a114ac8f14213bc3840294f8cf76b47c76a06b5e6f971201190478067101ff"
+    },
+    {
+      "path": "audit/audit-index.json",
+      "sha256": "42bc3a99a956afb3d41ba56660000be7324385df773986691beb4eafd7232b5c"
+    },
+    {
+      "path": "audit/README.md",
+      "sha256": "3e42c109b9dc8a9f750403353fb6c4eacedb236afa0efed322c69e820d9753c6"
+    },
+    {
+      "path": "BOOTSTRAP_CONSTRUCTION_PROTOCOL.md",
+      "sha256": "7e408b52484b83cdbd941963d75b82b38cc723c9d753324c0d076684bfeb1d86"
+    },
+    {
+      "path": "contracts/ARCHITECTURE_QUALIFICATION.md",
+      "sha256": "62ae6dc0a02e14d8a40f07eed2e708aa997d9f5f9077934ec120892a7ead2016"
+    },
+    {
+      "path": "contracts/CONFIGURATION_AND_POLICY.md",
+      "sha256": "9c631a9368df1d58520fb0227246a5b5de3168985810f3671a9de66fee261c35"
+    },
+    {
+      "path": "contracts/FAILURE_OWNERSHIP.md",
+      "sha256": "e8cb8577239c0292d408281f064b60a86e2a446eac0500259f902b9363a0f630"
+    },
+    {
+      "path": "contracts/LOCAL_SESSION.md",
+      "sha256": "e9647c36d459f9302d4c62fd0811a57cc1b88b15bfb30dafd591634feada5c65"
+    },
+    {
+      "path": "contracts/UX_FOUNDATION.md",
+      "sha256": "909ab4ffd24fc44fea7c83b82a3e5fd33f3274b6ee1203f45ffc4f121f0847c4"
+    },
+    {
+      "path": "fixtures/contracts/invalid/bad-dependency-state.json",
+      "sha256": "4bb865f1ad08430c1c70546f61ba5243a39e383672715dca2c084df4e2400c7d"
+    },
+    {
+      "path": "fixtures/contracts/invalid/bad-id.json",
+      "sha256": "123482d555e2989ad3253546e18e1596728aca0505e0b529c738649c9636f2ac"
+    },
+    {
+      "path": "fixtures/contracts/invalid/empty-scope.json",
+      "sha256": "fbe0b4848dee56121b5bd3d48d4d218d6221f0519dc85e9571244be546c96847"
+    },
+    {
+      "path": "fixtures/contracts/invalid/missing-source-plan-hash.json",
+      "sha256": "994911ea17f9fed1b4ca3952b8aab5eba9948a626409c209b326d1a2ccdb5700"
+    },
+    {
+      "path": "fixtures/contracts/invalid/shell-string-command.json",
+      "sha256": "f4534d0fa81dbc23eeecbd5b36998cf016f37216c7cf8f18600e92d574f58aac"
+    },
+    {
+      "path": "fixtures/contracts/invalid/unknown-field.json",
+      "sha256": "f222ced5e06fa54f5624f2cc1aec1e1fb698ea52c26511af1b523d4e9fe71748"
+    },
+    {
+      "path": "fixtures/contracts/valid-work-order.json",
+      "sha256": "01b7d80eddd88ceb25143e0e10248ff006d6b992f96f279891142e2c7759e1be"
+    },
+    {
+      "path": "PLAN_AMENDMENT_1.3.1.md",
+      "sha256": "5ea06cbc7af9be96dbe2f04d34f36854de02945d697887565b83dde60660fbd8"
+    },
+    {
+      "path": "PLAN_AMENDMENT_1.3.md",
+      "sha256": "7fb09b563357bcf66dcbf738ae3b595decf120acbe1caa8aed1797c4fbadba7d"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d4910823f0e38c2a442420f8882aeb0ac871446ada38298cf53b673ea670ab2d"
+    },
+    {
+      "path": "schemas/configuration-status.schema.json",
+      "sha256": "023ba6340f7b75d4b82ae9f74aff65b8c77f491091eb415ea56875e4a2f79424"
+    },
+    {
+      "path": "schemas/evidence-envelope.schema.json",
+      "sha256": "2d2f5cc3c983657a8e256c9f1f4287a7e4ef4da4e68cb8b7dbe16d4826b2da6c"
+    },
+    {
+      "path": "schemas/failure-ownership.schema.json",
+      "sha256": "9fd0673f7c8be8096265a2f71fde57c63e03e3b643c1ad4c071a21d8731d9921"
+    },
+    {
+      "path": "schemas/policy-decision.schema.json",
+      "sha256": "1e72b658d8597be69f60f1726670d70b9cb01f8b68b29242c3e9492f29431356"
+    },
+    {
+      "path": "schemas/rule-registry.schema.json",
+      "sha256": "135deed9a3b87c396efbba4a454315b7bde22a76e16da3d03ed4163c1097075f"
+    },
+    {
+      "path": "schemas/session.schema.json",
+      "sha256": "17ec5cc8f18e6dfdfaa39f2ac677318b82a6bfeff5cfab99a81ab8a2ae1b22aa"
+    },
+    {
+      "path": "schemas/work-order.schema.json",
+      "sha256": "d7d336dfdb568081c0b11478ce0f4cd5397cf116f3282c74bf51b84e58fcf1d3"
+    },
+    {
+      "path": "scripts/validate-plan.mjs",
+      "sha256": "2ae16b132d8ceb1a2e0383330dfa961f9b35b6e9fb027563265f23806dd19880"
+    },
+    {
+      "path": "source-manifest.json",
+      "sha256": "6dd79bf0a38d465a86b52e408b2e7a32def6e8329b02c74a8322ec019801e9f4"
+    },
+    {
+      "path": "spec/api-contract.json",
+      "sha256": "12558506538d8dd232593892ad4e54b03bc6f6ab2deb5a610c6dc7c049656530"
+    },
+    {
+      "path": "spec/architecture-qualification.json",
+      "sha256": "1e934020cfaccbbb6e71017182304aedaedc595e97794d4257bb3fb117c9e7fb"
+    },
+    {
+      "path": "spec/build-plan.json",
+      "sha256": "c2fccd0028beb3ba08ee9a21af00b4d43a2faf5af1e7c58386cccf9b655341d7"
+    },
+    {
+      "path": "spec/configuration-keys.json",
+      "sha256": "4d8a4ff97b2f3a65641fe84fe661d4cd834d43f089176d4ca091dbaf5ca239d6"
+    },
+    {
+      "path": "spec/fixture-contracts.json",
+      "sha256": "7a5da54f935d3633d1df8a2fbbe4b6bc7b6f9cdd3b78367bf550d4d5c1df0bed"
+    },
+    {
+      "path": "spec/operation-map.json",
+      "sha256": "292c0457a1f1b2c2a31c1921b6843edd4eac4bf7e8a47daa0e705bf278b96fda"
+    },
+    {
+      "path": "spec/plan-status.json",
+      "sha256": "fa0b9bff6c25e0b08eb94d66b970384b5455d0d4a238666f50eb12f6ec805bfe"
+    },
+    {
+      "path": "spec/rollback-strategy-map.json",
+      "sha256": "75553aa04c2a02182a1d65aded374068f6fda3251d11071a71d775a96a81f1e9"
+    },
+    {
+      "path": "spec/rules.json",
+      "sha256": "a6281838e3503b8b4bb6362c0f80dddd656499ff10428adc28705b01cda12242"
+    },
+    {
+      "path": "spec/traceability.json",
+      "sha256": "3a7cb3360cbe70b43794c51f440d9ed552c6ba1c7b0449894952b644af0142cf"
+    },
+    {
+      "path": "spec/work-order-catalog.json",
+      "sha256": "1abfef9aa8e057b5dc97a7ec8e548e1696921148e07e08c06d262f6a7fdafdde"
+    }
+  ]
+}

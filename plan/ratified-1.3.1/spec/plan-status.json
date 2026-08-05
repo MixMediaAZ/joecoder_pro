@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.3.1",
+  "planVersion": "1.3.1",
+  "state": "ratified_not_implementation_authorized",
+  "ratifiedOn": "2026-07-15",
+  "applicationImplementationStarted": false,
+  "applicationImplementationAuthorized": false,
+  "firstCandidateWorkOrderId": "JC19-M0-001",
+  "authorizedWorkOrderIds": [],
+  "dependencyRequiredState": "completed",
+  "dependencyEvidenceRequired": true,
+  "ruleCount": 48,
+  "workOrderCount": 95,
+  "fixtureCount": 84,
+  "authority": "../README.md",
+  "bootstrapProtocol": "../BOOTSTRAP_CONSTRUCTION_PROTOCOL.md",
+  "sourceManifest": "../source-manifest.json",
+  "effectiveSchemas": {
+    "workOrder": "../schemas/work-order.schema.json",
+    "ruleRegistry": "../schemas/rule-registry.schema.json",
+    "evidence": "../schemas/evidence-envelope.schema.json",
+    "policyDecision": "../schemas/policy-decision.schema.json"
+  },
+  "implementationStartRequires": [
+    "zero validation errors",
+    "ratified plan-root hash",
+    "exact-scope JC19-M0-001",
+    "immutable approval",
+    "source snapshot",
+    "external bootstrap evidence root"
+  ]
+}

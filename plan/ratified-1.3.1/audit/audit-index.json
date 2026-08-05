@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "1.3.0",
+  "authority": "../README.md",
+  "physicalLocation": "../../",
+  "policy": "Retained in place because safe existing-file mutation is unavailable. Non-governing; later movement requires a verified mechanical archival operation.",
+  "artifacts": [
+    {
+      "path": "000_CANONICAL_HANDOFF.md",
+      "sha256": "abd13086b8cc953ab9f3ebbd92cf2f329e0291ff6b7e72e246424fd06ad6ebd2",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "00_CANONICAL_HANDOFF.md",
+      "sha256": "fa05063c2dfe94c83ed5bf5d941c0fb1039c186aa61a4a4923319f7c42bce7f2",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "00_READ_FIRST.md",
+      "sha256": "d6034c0ff81d0e104fc3ff52f56a60d5b5b6ad677794f62c3fe0737de74b3d75",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "00_READ_FIRST_PLAN_V1.1.1.md",
+      "sha256": "2e0b03933ee7b663d2a91421dfc695ee04be11b2b44a20ad36935ce69b7c8508",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "00_READ_FIRST_PLAN_V1.1.md",
+      "sha256": "779de263dcc2851b18fe86e2c0801c3a930e400b3772092dd309da128b5907c7",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "00_READ_FIRST_PLAN_V1.2.md",
+      "sha256": "a8ee0ddc73f733f7d720ec77f1541a640a480ab75b464b1f6fb656886c03d183",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d537ef6428eb24d29d443a4befb4f5ea695c8207baba8b40f042c8c794e90211",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "START_IMPLEMENTATION_HERE.md",
+      "sha256": "116a77f456618ec920212c207208881999d487eea552a0f3dfb71296389698f7",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "schemas/work-order.schema.json",
+      "sha256": "41bcdd0fca93914b3e5e6786ae35bb3dcb2a4abfd11ef79cd7dd3af9756b9851",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "schemas/work-order.v1.1.schema.json",
+      "sha256": "8c32e7dbd8b9db111ec533dbdcd54837fb9a74b591189a580a93ad0cdbfd2fb8",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "schemas/work-order.v1.2.schema.json",
+      "sha256": "6e1551df1bbc34cff59ee1f788e3ba11e2460bd1e7f542ae7544e6949c1a2fd0",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/jc-rule.schema.json",
+      "sha256": "6d1e6b6764cda513adb53f5b96f4861f187db8d7335077b22393b9250ed6531f",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/jc-rule.v1.2.schema.json",
+      "sha256": "a9ef24bb05950f4deee942d01476464899cbcffa6364a4790a053ca6d6b2aa20",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/jc-rules.json",
+      "sha256": "ca36ead367d1c863691201ca9d9da36ce73539d4416a393bf6c3bb346422a0ec",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-status.final.json",
+      "sha256": "aa3235bb19d6be3127d765c973957ec608495645867bb5d050158852e3c165e9",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-status.v1.1.json",
+      "sha256": "dea60de63108ea3dfecbec550494a66d55b077a16e55f3ba0d1f80c3b885d9aa",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-status.v1.2.json",
+      "sha256": "93d598def66dd05979da4b4860f06bfdef70e5d099717532c49865b1c487dfae",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.current.json",
+      "sha256": "18f558f971c8718d27b26fec9e5d432c1f47f868095175903a170362a2922fbf",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.definitive.json",
+      "sha256": "507e974a1df1aae779b396beb201243c9f17705c5f38a4c5d0145f313011f0ba",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.final.json",
+      "sha256": "e622a094c6270df4d03b3e9854936b531e189dbfe8226e3f0384e236e025c3ed",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.json",
+      "sha256": "c30343f64ce6e5e98ddf2b9c615ea5c97c4cd818c0f66f06733a7c70d884960d",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.v1.1.1.json",
+      "sha256": "2b252485508db0111466f39bde3c756716a0a16a384f767bc427b1ced6634899",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.v1.1.json",
+      "sha256": "dce8fe92b8b26684c00623b210854b4d326dd0639b0e61937e3d49813c58e329",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/plan-validation-report.v1.2.json",
+      "sha256": "aa046c45f9e332ecf7afdd58d5249b1605d482a0ceb4340f497ba4c0fa06b078",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "spec/work-order-details.v1.1.json",
+      "sha256": "919c87d4e81a7a46c90d3a2cdaff25db7ec0a298e0506bfd9d1fd4a110448ff2",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-current.mjs",
+      "sha256": "3da267a5f6d0f117511dcec4c790a3dd98a3624abdfb8bdb5ccbb5d6876b7fab",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-definitive.mjs",
+      "sha256": "12949435c9b256dd1eefd7eadbe71327a268466bd6f5e1b6b087efde9e183fc9",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-final.mjs",
+      "sha256": "e8bf9c34048f05991645de282f1e4356f93996e560e545c24ac2f4910af91179",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-v1.1.1.mjs",
+      "sha256": "eee67a86689498b82283d18494f5beb156db517ffb0e345f615ea4698e7cc2b1",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-v1.1.mjs",
+      "sha256": "004663e847a999919bb71c2d719a38ad60fca5b68140a772fc8074aa00a07cb8",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning-v1.2.mjs",
+      "sha256": "bc876a80265e629ec7b09b611515f358754588409b63c789bd5a4f0066ea1015",
+      "classification": "superseded_non_governing_audit_history"
+    },
+    {
+      "path": "scripts/validate-planning.mjs",
+      "sha256": "85d6289331d4037aee877c6dba9856633376b3caaaf1b2becb2e6e067326d073",
+      "classification": "superseded_non_governing_audit_history"
+    }
+  ]
+}

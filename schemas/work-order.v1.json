@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JoeCoder Work Order v1",
+  "type": "object",
+  "required": [
+    "id",
+    "status",
+    "authorization"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "authorization": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "granted": {
+          "type": "boolean"
+        },
+        "grantedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grantedBy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "envelopeVersion": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "envelopeHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "scope": {
+      "type": "object"
+    },
+    "budgets": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.3.0",
+  "policy": "Values resolve by precedence only after the restrictive capability lattice admits the key and source.",
+  "keys": [
+    {
+      "key": "JC_HOST",
+      "type": "string",
+      "default": "127.0.0.1",
+      "classification": "security_constrained",
+      "allowed": "loopback only"
+    },
+    {
+      "key": "JC_PORT",
+      "type": "integer",
+      "default": 0,
+      "classification": "ordinary",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    {
+      "key": "JC_DATA_DIR",
+      "type": "absolute_canonical_path",
+      "default": "windows_local_app_data",
+      "classification": "security_constrained"
+    },
+    {
+      "key": "JC_LOG_LEVEL",
+      "type": "enum",
+      "default": "info",
+      "values": [
+        "error",
+        "warn",
+        "info",
+        "debug"
+      ],
+      "classification": "ordinary"
+    },
+    {
+      "key": "JC_TELEMETRY_ENABLED",
+      "type": "boolean",
+      "default": false,
+      "classification": "privacy_constrained"
+    },
+    {
+      "key": "OLLAMA_BASE_URL",
+      "type": "url",
+      "default": "http://127.0.0.1:11434",
+      "classification": "security_constrained"
+    },
+    {
+      "key": "OLLAMA_DEFAULT_MODEL",
+      "type": "string",
+      "default": "",
+      "classification": "ordinary"
+    },
+    {
+      "key": "OLLAMA_EMBEDDING_MODEL",
+      "type": "string",
+      "default": "",
+      "classification": "ordinary"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "type": "secret",
+      "default": null,
+      "classification": "secret"
+    },
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "type": "secret",
+      "default": null,
+      "classification": "secret"
+    },
+    {
+      "key": "GEMINI_API_KEY",
+      "type": "secret",
+      "default": null,
+      "classification": "secret"
+    },
+    {
+      "key": "JC_COMMAND_TIMEOUT_MS",
+      "type": "integer",
+      "default": 120000,
+      "classification": "budget",
+      "maximum": 1800000
+    },
+    {
+      "key": "JC_MAX_PROCESS_MEMORY_MB",
+      "type": "integer",
+      "default": 4096,
+      "classification": "budget"
+    },
+    {
+      "key": "JC_MAX_PROCESS_COUNT",
+      "type": "integer",
+      "default": 32,
+      "classification": "budget",
+      "maximum": 128
+    },
+    {
+      "key": "JC_NETWORK_DEFAULT",
+      "type": "enum",
+      "default": "deny",
+      "values": [
+        "deny"
+      ],
+      "classification": "security_constrained"
+    }
+  ]
+}

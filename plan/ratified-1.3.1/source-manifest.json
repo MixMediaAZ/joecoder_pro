@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.3.0",
+  "purpose": "Pinned, read-only source inputs admitted into the JoeCoder Pro 1.9 Plan Amendment and Ratification 1.3.",
+  "authority": "README.md",
+  "sourceRoot": "..",
+  "policy": "These files supply historical concepts and facts only. README.md, AGENTS.md, contracts/, and spec/ inside plan-1.3 supersede conflicting source wording.",
+  "sources": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "b546f1ad9608f111225b0677c91b670830a0800339d2d549670c574d2b85636d"
+    },
+    {
+      "path": "JOECODER_DEFINITIVE_ENGINEERING_HANDOFF.md",
+      "sha256": "1920ca01948cadc003f0e1096348266985e4a7dc0e5451640a99fe50c0ae5d68"
+    },
+    {
+      "path": "JOECODER_IMPLEMENTATION_MASTER_PLAN.md",
+      "sha256": "43012045e2e34e87505b4c9bc01529254f1f5493781dddf54aef2110678589f0"
+    },
+    {
+      "path": "docs/FROZEN_ARCHITECTURE_AND_CHANGE_CONTROL.md",
+      "sha256": "bdd2a609eb39c9c18f1bf3ced2ba5f7cd6d02c6ed8d78fdfc7e1d079a39970f3"
+    },
+    {
+      "path": "docs/SYSTEM_CONTRACTS.md",
+      "sha256": "3cee3438c0649a4b8050f7d96569bab624fa0b0a129982cad8a5f30d61cbf71d"
+    },
+    {
+      "path": "docs/SECURITY_RUNTIME_DEFAULTS.md",
+      "sha256": "e3db07f14b0b6c602ada440f516790e0cccfc3b59ff7cca49469dcc2ca6b0a0d"
+    },
+    {
+      "path": "docs/UX_INFORMATION_ARCHITECTURE.md",
+      "sha256": "4e0b984f1fe4d4c7f48d5c22f749d878d4d447a0615d12b101e0145394f222d0"
+    },
+    {
+      "path": "docs/TEST_AND_CERTIFICATION_PLAN.md",
+      "sha256": "c247c01acebd8f3a86ec5508332b31d3442006b869c89e23a42a2f8d680f9241"
+    },
+    {
+      "path": "spec/jc-rules.json",
+      "sha256": "ca36ead367d1c863691201ca9d9da36ce73539d4416a393bf6c3bb346422a0ec"
+    },
+    {
+      "path": "spec/build-plan.json",
+      "sha256": "6b1113d438df1b65c15b2d60f6cd1d9e8a646d069814c1f0d46392b3e9525228"
+    },
+    {
+      "path": "spec/work-order-details.v1.1.json",
+      "sha256": "919c87d4e81a7a46c90d3a2cdaff25db7ec0a298e0506bfd9d1fd4a110448ff2"
+    },
+    {
+      "path": "spec/traceability-matrix.v1.1.json",
+      "sha256": "af052cada5151e2f6ff3e893698448ccd4d3656244380a2c949f495768fa9e31"
+    },
+    {
+      "path": "schemas/evidence-envelope.schema.json",
+      "sha256": "542cfc099d1c140126a9ddb6ae21456f08f7c400117df4fd67429a6e8704ee9a"
+    },
+    {
+      "path": "schemas/policy-decision.schema.json",
+      "sha256": "30d36ac8c89558520401dfbd31cb02de9d9a3938906ef76bdcf5eb29efcadf74"
+    },
+    {
+      "path": "schemas/work-order.v1.2.schema.json",
+      "sha256": "6e1551df1bbc34cff59ee1f788e3ba11e2460bd1e7f542ae7544e6949c1a2fd0"
+    },
+    {
+      "path": "spec/jc-rule.v1.2.schema.json",
+      "sha256": "a9ef24bb05950f4deee942d01476464899cbcffa6364a4790a053ca6d6b2aa20"
+    },
+    {
+      "path": ".env.example",
+      "sha256": "668ca80b3497679f50db9ec25127a14c7d00bd11237be541bcf1900d06e62d5f"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "8946776d339869874a64f823c1b147ae65d31235ad7c73e317a91bb7c6571b62"
+    }
+  ]
+}

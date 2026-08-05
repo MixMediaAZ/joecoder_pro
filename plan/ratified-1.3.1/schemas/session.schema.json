@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://joecoder.local/plan-1.3/schemas/session.schema.json",
+  "title": "Local session payloads",
+  "$defs": {
+    "exchangeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bootstrapToken"
+      ],
+      "properties": {
+        "bootstrapToken": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "exchangeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "csrfToken",
+        "expiresAt",
+        "idleTimeoutSeconds"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.3.0"
+        },
+        "csrfToken": {
+          "type": "string",
+          "minLength": 32,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "idleTimeoutSeconds": {
+          "const": 1800
+        }
+      }
+    },
+    "sessionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.3.0"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "expired",
+            "invalid",
+            "logged_out"
+          ]
+        },
+        "expiresAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

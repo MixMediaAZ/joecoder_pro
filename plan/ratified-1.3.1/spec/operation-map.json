@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.3.0",
+  "purpose": "Translate planning action classes into concrete generated Work Order operations.",
+  "mappings": [
+    {
+      "planning": "read",
+      "allowedGenerated": [
+        "read"
+      ]
+    },
+    {
+      "planning": "create",
+      "allowedGenerated": [
+        "create"
+      ]
+    },
+    {
+      "planning": "update",
+      "allowedGenerated": [
+        "update"
+      ]
+    },
+    {
+      "planning": "test",
+      "allowedGenerated": [
+        "execute"
+      ],
+      "rule": "Every test is an explicitly declared executable plus argument array; the label test never authorizes a shell string."
+    }
+  ],
+  "rule": "A generated Work Order must replace planning actions with the narrowest concrete operation set and may never add delete, rename, network, provider, package or deploy without explicit catalog scope and authorization."
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.3.1",
+  "id": "JC19-M3-000",
+  "status": "planned_unapproved",
+  "decisionStates": [
+    "qualified",
+    "qualified_with_limitations",
+    "not_qualified"
+  ],
+  "m1PermittedFoundation": [
+    "authenticated non-executing IPC",
+    "bounded protocol validation",
+    "capability attestation without execution authority",
+    "bounded archive and file-service transport"
+  ],
+  "m1ProhibitedCapabilities": [
+    "native process creation",
+    "project command execution",
+    "restricted token creation",
+    "Job Object enforcement",
+    "AppContainer enforcement",
+    "network isolation enforcement",
+    "sandbox or containment claims"
+  ],
+  "gatedCapabilities": [
+    "native process creation",
+    "project command execution",
+    "restricted token containment",
+    "Job Object descendant control",
+    "AppContainer isolation",
+    "network isolation enforcement",
+    "sandbox and containment claims"
+  ],
+  "mustProve": [
+    "AppContainer or selected strong isolation",
+    "restricted identity and ACLs",
+    "Job Object descendant control",
+    "network behavior",
+    "Node child compatibility",
+    "resource limits",
+    "cancellation and cleanup",
+    "broker replay rejection",
+    "truthful unavailable fallback"
+  ],
+  "failureAction": "Stop M3 and create architecture_change Work Order"
+}

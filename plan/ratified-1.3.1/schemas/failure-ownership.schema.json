@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://joecoder.local/plan-1.3/schemas/failure-ownership.schema.json",
+  "title": "Failure ownership hypothesis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "errorCode",
+    "category",
+    "stage",
+    "ownerHypothesis",
+    "supportingEvidenceRefs",
+    "contradictingEvidenceRefs",
+    "probes",
+    "retryable",
+    "recoveryAction"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.3.0"
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 3
+    },
+    "category": {
+      "enum": [
+        "validation",
+        "authorization",
+        "security",
+        "provider",
+        "execution",
+        "transaction",
+        "verification",
+        "storage",
+        "configuration",
+        "cancellation",
+        "internal"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ownerHypothesis": {
+      "enum": [
+        "JC_CONTROL",
+        "JC_EXECUTION",
+        "PROVIDER_LOCAL",
+        "PROVIDER_CLOUD",
+        "HOST_ENVIRONMENT",
+        "PROJECT",
+        "EXTERNAL",
+        "UNKNOWN"
+      ]
+    },
+    "supportingEvidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contradictingEvidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "evidenceRefs"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unavailable",
+              "inconclusive",
+              "not_run"
+            ]
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "requiredPreconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recoveryAction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeoutBreakdown": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

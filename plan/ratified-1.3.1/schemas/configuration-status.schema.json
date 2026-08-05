@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://joecoder.local/plan-1.3/schemas/configuration-status.schema.json",
+  "title": "Resolved configuration status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "entries",
+    "policyState"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.3.0"
+    },
+    "mode": {
+      "enum": [
+        "development",
+        "normal"
+      ]
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "classification",
+          "source",
+          "valueState",
+          "valid",
+          "requiresRestart",
+          "constraints"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "classification": {
+            "enum": [
+              "ordinary",
+              "security_constrained",
+              "secret",
+              "privacy_constrained",
+              "budget"
+            ]
+          },
+          "source": {
+            "enum": [
+              "work_order",
+              "process_environment",
+              "development_env",
+              "project_configuration",
+              "user_configuration",
+              "credential_manager",
+              "default",
+              "none"
+            ]
+          },
+          "valueState": {
+            "enum": [
+              "set_redacted",
+              "defaulted",
+              "absent",
+              "invalid",
+              "inaccessible",
+              "development_only"
+            ]
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "requiresRestart": {
+            "type": "boolean"
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "policyState": {
+      "enum": [
+        "satisfied",
+        "denied",
+        "invalid",
+        "unavailable"
+      ]
+    }
+  }
+}

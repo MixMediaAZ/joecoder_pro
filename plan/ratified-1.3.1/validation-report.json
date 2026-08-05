@@ -1,0 +1,491 @@
+{
+  "schemaVersion": "1.3.1",
+  "generatedAt": "2026-07-15T08:00:08.589Z",
+  "validator": "scripts/validate-plan.mjs",
+  "state": "passed",
+  "implementationAuthorized": false,
+  "planRootHash": "39d9d5333f47f88f207f3d9dc94788f26fc1ab0dbb95d02d1b2561234c465d60",
+  "counts": {
+    "checks": 87,
+    "passed": 87,
+    "failed": 0,
+    "warnings": 0,
+    "rules": 48,
+    "workOrders": 95,
+    "fixtures": 84,
+    "pinnedSources": 18,
+    "auditArtifacts": 32,
+    "ratifiedFiles": 39
+  },
+  "formalValidation": {
+    "engine": "python-jsonschema",
+    "draft": "2020-12",
+    "schemasCompiled": [
+      "schemas/work-order.schema.json",
+      "schemas/rule-registry.schema.json",
+      "schemas/evidence-envelope.schema.json",
+      "schemas/policy-decision.schema.json",
+      "schemas/configuration-status.schema.json",
+      "schemas/session.schema.json",
+      "schemas/failure-ownership.schema.json"
+    ],
+    "rulesValid": true,
+    "ruleErrors": [],
+    "validWorkOrder": true,
+    "validWorkOrderErrors": [],
+    "invalidRejected": {
+      "fixtures/contracts/invalid/missing-source-plan-hash.json": true,
+      "fixtures/contracts/invalid/unknown-field.json": true,
+      "fixtures/contracts/invalid/bad-id.json": true,
+      "fixtures/contracts/invalid/empty-scope.json": true,
+      "fixtures/contracts/invalid/bad-dependency-state.json": true,
+      "fixtures/contracts/invalid/shell-string-command.json": true
+    },
+    "emptyRejected": true
+  },
+  "checks": [
+    {
+      "name": "FILE_PRESENT_README.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_AGENTS.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_PLAN_AMENDMENT_1.3.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_PLAN_AMENDMENT_1.3.1.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_BOOTSTRAP_CONSTRUCTION_PROTOCOL.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_source-manifest.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_audit/README.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_audit/audit-index.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_contracts/CONFIGURATION_AND_POLICY.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_contracts/LOCAL_SESSION.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_contracts/FAILURE_OWNERSHIP.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_contracts/ARCHITECTURE_QUALIFICATION.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_contracts/UX_FOUNDATION.md",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/work-order.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/rule-registry.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/evidence-envelope.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/policy-decision.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/configuration-status.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/session.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_schemas/failure-ownership.schema.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/rules.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/plan-status.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/build-plan.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/work-order-catalog.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/traceability.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/fixture-contracts.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/configuration-keys.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/api-contract.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/architecture-qualification.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_spec/rollback-strategy-map.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/valid-work-order.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/missing-source-plan-hash.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/unknown-field.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/bad-id.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/empty-scope.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/bad-dependency-state.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_fixtures/contracts/invalid/shell-string-command.json",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "FILE_PRESENT_scripts/validate-plan.mjs",
+      "status": "passed",
+      "detail": "Required ratification artifact exists."
+    },
+    {
+      "name": "PINNED_SOURCE_HASHES",
+      "status": "passed",
+      "detail": "All 18 admitted source inputs exist and match their ratified SHA-256 values."
+    },
+    {
+      "name": "AUDIT_HISTORY_HASHES",
+      "status": "passed",
+      "detail": "Superseded root planning artifacts remain intact and explicitly non-governing."
+    },
+    {
+      "name": "PLAN_VERSION_STATUS",
+      "status": "passed",
+      "detail": "The effective plan is ratified 1.3.1 and not implementation-authorized."
+    },
+    {
+      "name": "BUILD_PLAN_VERSION",
+      "status": "passed",
+      "detail": "The build graph names Plan Amendment 1.3.1 as its effective authority."
+    },
+    {
+      "name": "NO_IMPLEMENTATION_AUTHORIZATION",
+      "status": "passed",
+      "detail": "Ratification did not authorize or start application implementation."
+    },
+    {
+      "name": "NO_APPLICATION_SCAFFOLD",
+      "status": "passed",
+      "detail": "No root npm workspace, apps directory, or packages directory was created during planning."
+    },
+    {
+      "name": "RULES_APPROVED_48",
+      "status": "passed",
+      "detail": "The effective registry contains 48 approved version-1.3.1 laws."
+    },
+    {
+      "name": "RULE_IDS_UNIQUE",
+      "status": "passed",
+      "detail": "Canonical law IDs are unique."
+    },
+    {
+      "name": "WORK_ORDER_COUNT_95",
+      "status": "passed",
+      "detail": "The ratified graph contains 95 unique Work Orders."
+    },
+    {
+      "name": "M3_QUALIFICATION_INSERTED",
+      "status": "passed",
+      "detail": "Windows isolation qualification gates all later M3 broker work."
+    },
+    {
+      "name": "DEPENDENCIES_EXIST_AND_PRECEDE",
+      "status": "passed",
+      "detail": "Every dependency exists and precedes its dependent task."
+    },
+    {
+      "name": "DEPENDENCY_GRAPH_ACYCLIC",
+      "status": "passed",
+      "detail": "The 95-task graph has no cycle."
+    },
+    {
+      "name": "MILESTONE_EXITS",
+      "status": "passed",
+      "detail": "All ten milestones have valid exit Work Orders."
+    },
+    {
+      "name": "DEPENDENCY_COMPLETION_SEMANTICS",
+      "status": "passed",
+      "detail": "Dependencies use the real completed state and require verified evidence."
+    },
+    {
+      "name": "FIRST_CANDIDATE_NOT_AUTHORIZED",
+      "status": "passed",
+      "detail": "JC19-M0-001 is only the first candidate."
+    },
+    {
+      "name": "CATALOG_ONE_TO_ONE",
+      "status": "passed",
+      "detail": "Every graph task has exactly one planning detail record."
+    },
+    {
+      "name": "CATALOG_DETAIL_COMPLETE",
+      "status": "passed",
+      "detail": "All 95 tasks carry mandatory planning detail and require exact paths before authorization."
+    },
+    {
+      "name": "CATALOG_CONVENTIONS",
+      "status": "passed",
+      "detail": "Status, authorization, dependencies, rules, tests, and evidence IDs match the graph."
+    },
+    {
+      "name": "SEMANTIC_ACCEPTANCE_NO_COPY_THROUGH",
+      "status": "passed",
+      "detail": "Generic acceptance copy-through is absent from every Work Order."
+    },
+    {
+      "name": "SEMANTIC_ACCEPTANCE_UNIQUE",
+      "status": "passed",
+      "detail": "Every acceptance criterion is task-bound and textually unique."
+    },
+    {
+      "name": "SEMANTIC_ACCEPTANCE_SOURCE_BOUND",
+      "status": "passed",
+      "detail": "Every M1-M9 acceptance set binds its objective, full law requirements, source exit proof, exact fixture oracles, tests, and evidence ID."
+    },
+    {
+      "name": "M0_SEVEN_DISTINCT_TASKS",
+      "status": "passed",
+      "detail": "M0 has seven separately scoped Work Orders."
+    },
+    {
+      "name": "M0_001_NARROW_SCOPE",
+      "status": "passed",
+      "detail": "M0-001 is limited to root workspace and runtime artifacts."
+    },
+    {
+      "name": "M0_TASK_SPECIFIC_ACCEPTANCE",
+      "status": "passed",
+      "detail": "Every M0 task has four task-specific criteria, named fixtures, and zero cloud budget."
+    },
+    {
+      "name": "BOOTSTRAP_GOVERNANCE_MODES",
+      "status": "passed",
+      "detail": "Governance claims advance only after the corresponding system exists."
+    },
+    {
+      "name": "FIXTURE_CONTRACTS_COMPLETE",
+      "status": "passed",
+      "detail": "All 84 fixtures have source-pinned triggers, expected outcomes, forbidden outcomes, and evidence obligations."
+    },
+    {
+      "name": "FIXTURE_OUTCOMES_SEMANTICALLY_DISTINCT",
+      "status": "passed",
+      "detail": "Each fixture has a scenario-specific expected outcome, and planning prose alone is explicitly non-probative."
+    },
+    {
+      "name": "FIXTURE_INVENTORY_84",
+      "status": "passed",
+      "detail": "The admitted certification plan and effective oracle catalog contain the same 84 canonical fixture IDs."
+    },
+    {
+      "name": "NO_UNKNOWN_FIXTURE_REFERENCES",
+      "status": "passed",
+      "detail": "Every catalog fixture reference exists in the canonical initial inventory."
+    },
+    {
+      "name": "ALL_FIXTURES_PLANNED",
+      "status": "passed",
+      "detail": "Every initial fixture is exercised by at least one planned Work Order."
+    },
+    {
+      "name": "TASK_FIXTURE_RELEVANCE_CORRECTED",
+      "status": "passed",
+      "detail": "Known irrelevant or underpowered FX-BUILD-001-only mappings are replaced by task-relevant adversarial sets."
+    },
+    {
+      "name": "NO_UNKNOWN_RULE_REFERENCES",
+      "status": "passed",
+      "detail": "The build graph references only canonical laws."
+    },
+    {
+      "name": "ALL_RULES_PLANNED",
+      "status": "passed",
+      "detail": "Every law maps to planned enforcement."
+    },
+    {
+      "name": "TRACE_COUNTS",
+      "status": "passed",
+      "detail": "Traceability declares 48 laws, 95 Work Orders, and 84 fixtures."
+    },
+    {
+      "name": "TRACE_FULL_CHAIN",
+      "status": "passed",
+      "detail": "Rule to Work Order to acceptance to test to fixture to evidence chains are exact."
+    },
+    {
+      "name": "CONFIG_PROCESS_COUNT_32",
+      "status": "passed",
+      "detail": "The canonical default process count is 32."
+    },
+    {
+      "name": "CONFIG_SECURITY_LATTICE",
+      "status": "passed",
+      "detail": "Configuration cannot override security policy."
+    },
+    {
+      "name": "SESSION_API_WIRED",
+      "status": "passed",
+      "detail": "All frozen local-session routes exist in the machine API contract."
+    },
+    {
+      "name": "SESSION_CONTRACT_EXPLICIT",
+      "status": "passed",
+      "detail": "Cookie, CSRF, origin, storage, and lifetime behavior are explicit."
+    },
+    {
+      "name": "FAILURE_OWNERSHIP_PROBES",
+      "status": "passed",
+      "detail": "Failure ownership and timeout attribution require discriminating evidence."
+    },
+    {
+      "name": "UX_FOUNDATION_GATED",
+      "status": "passed",
+      "detail": "UX foundations are specified without starting decorative UI."
+    },
+    {
+      "name": "ARCHITECTURE_QUALIFICATION_CONTRACT",
+      "status": "passed",
+      "detail": "Failed Windows qualification stops M3 and requires change control."
+    },
+    {
+      "name": "BROKER_QUALIFICATION_SEQUENCE",
+      "status": "passed",
+      "detail": "M1 is limited to non-executing IPC/file-service foundations and M3-000 gates native process execution and isolation."
+    },
+    {
+      "name": "ROLLBACK_STRATEGY_MAPPING",
+      "status": "passed",
+      "detail": "Every planning rollback category maps to an allowed generated Work Order strategy."
+    },
+    {
+      "name": "FORMAL_SCHEMA_COMPILATION",
+      "status": "passed",
+      "detail": "All seven effective schemas compile under Draft 2020-12."
+    },
+    {
+      "name": "FORMAL_RULE_REGISTRY",
+      "status": "passed",
+      "detail": "The approved 48-law registry validates formally."
+    },
+    {
+      "name": "FORMAL_VALID_WORK_ORDER",
+      "status": "passed",
+      "detail": "The representative M0-001 Work Order validates."
+    },
+    {
+      "name": "FORMAL_INVALID_WORK_ORDERS",
+      "status": "passed",
+      "detail": "All six adversarial Work Order instances are rejected."
+    },
+    {
+      "name": "FORMAL_EMPTY_CONTRACTS",
+      "status": "passed",
+      "detail": "Empty consequential contract instances are rejected."
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "notes": [
+    "Parent-directory planning artifacts are pinned source or non-governing audit history.",
+    "Plan Amendment 1.3.1 removes semantic acceptance copy-through and makes the M1/M3 broker boundary explicit.",
+    "Application implementation and project-source mutation remain unauthorized; only ratified planning artifacts were amended.",
+    "Passing this report ratifies planning only and does not authorize JC19-M0-001."
+  ]
+}

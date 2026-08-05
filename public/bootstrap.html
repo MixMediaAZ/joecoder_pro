@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JoeCoder Pro 20.0 — Bootstrap</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background: #1e2937;
+      padding: 2.5rem;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 { margin-top: 0; color: #60a5fa; }
+    .status {
+      margin: 1.5rem 0;
+      padding: 1rem;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .success { background: #166534; color: #86efac; }
+    .error { background: #7f1d1d; color: #fca5a5; }
+    .loading { background: #334155; color: #94a3b8; }
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    button:hover { background: #2563eb; }
+    .hidden { display: none; }
+    pre {
+      background: #0f172a;
+      padding: 1rem;
+      border-radius: 6px;
+      text-align: left;
+      font-size: 0.85rem;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>JoeCoder Pro 20.0</h1>
+    <p style="color:#94a3b8; margin-bottom: 2rem;">Establishing secure local session</p>
+
+    <div id="status" class="status loading">Connecting...</div>
+
+    <div id="result" class="hidden">
+      <pre id="result-content"></pre>
+      <a id="enter-app" href="/app.html" style="display:inline-block;margin-top:1rem;background:#3b82f6;color:white;text-decoration:none;padding:0.75rem 1.5rem;border-radius:8px;font-weight:500">Enter workspace</a>
+    </div>
+
+    <button id="retry-btn" class="hidden">Try Again</button>
+  </div>
+
+  <script src="/bootstrap.js"></script>
+</body>
+</html>

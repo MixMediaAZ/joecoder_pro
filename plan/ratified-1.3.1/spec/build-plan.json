@@ -1,0 +1,1111 @@
+{
+  "planVersion": "1.3.1",
+  "status": "ratified_not_implementation_authorized",
+  "amendment": "../PLAN_AMENDMENT_1.3.1.md",
+  "catalog": "work-order-catalog.json",
+  "traceability": "traceability.json",
+  "executionPolicy": {
+    "maxActiveMutatingWorkOrdersPerProject": 1,
+    "dependencyRequiredState": "completed",
+    "dependencyVerifiedEvidenceRequired": true,
+    "exactPathAllowlistRequiredBeforeAuthorization": true,
+    "commandArraysRequired": true,
+    "scopeExpansionRequiresPlanAmendment": true,
+    "applicationCodeAllowedDuringPlanning": false,
+    "firstCandidateWorkOrderId": "JC19-M0-001",
+    "authorizedWorkOrderIds": []
+  },
+  "milestones": [
+    {
+      "id": "M0",
+      "exitWorkOrder": "JC19-M0-007"
+    },
+    {
+      "id": "M1",
+      "exitWorkOrder": "JC19-M1-010"
+    },
+    {
+      "id": "M2",
+      "exitWorkOrder": "JC19-M2-010"
+    },
+    {
+      "id": "M3",
+      "entryQualification": "JC19-M3-000",
+      "exitWorkOrder": "JC19-M3-010"
+    },
+    {
+      "id": "M4",
+      "exitWorkOrder": "JC19-M4-009"
+    },
+    {
+      "id": "M5",
+      "exitWorkOrder": "JC19-M5-012"
+    },
+    {
+      "id": "M6",
+      "exitWorkOrder": "JC19-M6-010"
+    },
+    {
+      "id": "M7",
+      "exitWorkOrder": "JC19-M7-010"
+    },
+    {
+      "id": "M8",
+      "exitWorkOrder": "JC19-M8-008"
+    },
+    {
+      "id": "M9",
+      "exitWorkOrder": "JC19-M9-008"
+    }
+  ],
+  "workOrders": [
+    {
+      "id": "JC19-M0-001",
+      "title": "Root workspace and pinned runtime",
+      "dependsOn": [],
+      "rules": [
+        "JC-QA-002",
+        "JC-DELIV-001"
+      ]
+    },
+    {
+      "id": "JC19-M0-002",
+      "title": "Schema validation and contract generation",
+      "dependsOn": [
+        "JC19-M0-001"
+      ],
+      "rules": [
+        "JC-WO-002",
+        "JC-AGENT-002"
+      ]
+    },
+    {
+      "id": "JC19-M0-003",
+      "title": "Strict code-quality baseline",
+      "dependsOn": [
+        "JC19-M0-002"
+      ],
+      "rules": [
+        "JC-QA-001",
+        "JC-QA-004"
+      ]
+    },
+    {
+      "id": "JC19-M0-004",
+      "title": "Architecture boundary harness",
+      "dependsOn": [
+        "JC19-M0-003"
+      ],
+      "rules": [
+        "JC-AGENT-001",
+        "JC-WO-001"
+      ]
+    },
+    {
+      "id": "JC19-M0-005",
+      "title": "Orchestrator lifecycle",
+      "dependsOn": [
+        "JC19-M0-004"
+      ],
+      "rules": [
+        "JC-QA-003",
+        "JC-TRUTH-001"
+      ]
+    },
+    {
+      "id": "JC19-M0-006",
+      "title": "Windows bootstrap and configuration status",
+      "dependsOn": [
+        "JC19-M0-005"
+      ],
+      "rules": [
+        "JC-DELIV-001",
+        "JC-SEC-006"
+      ]
+    },
+    {
+      "id": "JC19-M0-007",
+      "title": "M0 root verification",
+      "dependsOn": [
+        "JC19-M0-006"
+      ],
+      "rules": [
+        "JC-TRUTH-002",
+        "JC-TRUTH-003",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M1-001",
+      "title": "Project identity and data roots",
+      "dependsOn": [
+        "JC19-M0-007"
+      ],
+      "rules": [
+        "JC-SEC-008"
+      ]
+    },
+    {
+      "id": "JC19-M1-002",
+      "title": "SQLite migration and recovery foundation",
+      "dependsOn": [
+        "JC19-M1-001"
+      ],
+      "rules": [
+        "JC-TXN-005",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M1-003",
+      "title": "Evidence, artifacts and redaction",
+      "dependsOn": [
+        "JC19-M1-002"
+      ],
+      "rules": [
+        "JC-TRUTH-001",
+        "JC-QA-005",
+        "JC-SEC-006"
+      ]
+    },
+    {
+      "id": "JC19-M1-004",
+      "title": "Non-executing broker IPC foundation",
+      "dependsOn": [
+        "JC19-M1-003"
+      ],
+      "rules": [
+        "JC-SEC-002",
+        "JC-SEC-005"
+      ]
+    },
+    {
+      "id": "JC19-M1-005",
+      "title": "Canonical Windows path containment",
+      "dependsOn": [
+        "JC19-M1-004"
+      ],
+      "rules": [
+        "JC-SEC-003"
+      ]
+    },
+    {
+      "id": "JC19-M1-006",
+      "title": "Bounded archive inspection and extraction",
+      "dependsOn": [
+        "JC19-M1-005"
+      ],
+      "rules": [
+        "JC-SEC-003",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M1-007",
+      "title": "Content-addressed blobs and trees",
+      "dependsOn": [
+        "JC19-M1-006"
+      ],
+      "rules": [
+        "JC-TXN-002",
+        "JC-SEC-008"
+      ]
+    },
+    {
+      "id": "JC19-M1-008",
+      "title": "Non-mutating folder and ZIP import",
+      "dependsOn": [
+        "JC19-M1-007"
+      ],
+      "rules": [
+        "JC-TXN-002",
+        "JC-SEC-008"
+      ]
+    },
+    {
+      "id": "JC19-M1-009",
+      "title": "Node TypeScript deterministic survey",
+      "dependsOn": [
+        "JC19-M1-008"
+      ],
+      "rules": [
+        "JC-TRUTH-002",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M1-010",
+      "title": "Read-only survey certification",
+      "dependsOn": [
+        "JC19-M1-009"
+      ],
+      "rules": [
+        "JC-TRUTH-001",
+        "JC-QA-005",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M2-001",
+      "title": "Generated governance contracts",
+      "dependsOn": [
+        "JC19-M1-010"
+      ],
+      "rules": [
+        "JC-WO-002",
+        "JC-AGENT-002"
+      ]
+    },
+    {
+      "id": "JC19-M2-002",
+      "title": "Tamper-evident event ledger",
+      "dependsOn": [
+        "JC19-M2-001"
+      ],
+      "rules": [
+        "JC-TRUTH-004",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M2-003",
+      "title": "Durable Work Order state machine",
+      "dependsOn": [
+        "JC19-M2-002"
+      ],
+      "rules": [
+        "JC-WO-001",
+        "JC-WO-002",
+        "JC-TRUTH-003"
+      ]
+    },
+    {
+      "id": "JC19-M2-004",
+      "title": "Dependencies focus and budgets",
+      "dependsOn": [
+        "JC19-M2-003"
+      ],
+      "rules": [
+        "JC-SCOPE-003",
+        "JC-WO-004",
+        "JC-WO-005"
+      ]
+    },
+    {
+      "id": "JC19-M2-005",
+      "title": "Canonical deterministic policy engine",
+      "dependsOn": [
+        "JC19-M2-004"
+      ],
+      "rules": [
+        "JC-SEC-002",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M2-006",
+      "title": "Capability authorization grants",
+      "dependsOn": [
+        "JC19-M2-005"
+      ],
+      "rules": [
+        "JC-WO-003",
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M2-007",
+      "title": "Governed Work Order API",
+      "dependsOn": [
+        "JC19-M2-006"
+      ],
+      "rules": [
+        "JC-WO-001",
+        "JC-WO-002"
+      ]
+    },
+    {
+      "id": "JC19-M2-008",
+      "title": "Interrupted-state reconciliation",
+      "dependsOn": [
+        "JC19-M2-007"
+      ],
+      "rules": [
+        "JC-TXN-005"
+      ]
+    },
+    {
+      "id": "JC19-M2-009",
+      "title": "Waiver and disqualification logic",
+      "dependsOn": [
+        "JC19-M2-008"
+      ],
+      "rules": [
+        "JC-DELIV-004",
+        "JC-TRUTH-002"
+      ]
+    },
+    {
+      "id": "JC19-M2-010",
+      "title": "Governance bypass certification",
+      "dependsOn": [
+        "JC19-M2-009"
+      ],
+      "rules": [
+        "JC-WO-001",
+        "JC-AGENT-001",
+        "JC-UX-001"
+      ]
+    },
+    {
+      "id": "JC19-M3-000",
+      "title": "Windows isolation architecture qualification",
+      "dependsOn": [
+        "JC19-M2-010"
+      ],
+      "rules": [
+        "JC-SEC-005",
+        "JC-SEC-007",
+        "JC-TRUTH-002"
+      ]
+    },
+    {
+      "id": "JC19-M3-001",
+      "title": "Broker protocol hardening",
+      "dependsOn": [
+        "JC19-M3-000"
+      ],
+      "rules": [
+        "JC-SEC-002",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M3-002",
+      "title": "Executable and argument enforcement",
+      "dependsOn": [
+        "JC19-M3-001"
+      ],
+      "rules": [
+        "JC-SEC-004"
+      ]
+    },
+    {
+      "id": "JC19-M3-003",
+      "title": "Restricted identity ACL and environment",
+      "dependsOn": [
+        "JC19-M3-002"
+      ],
+      "rules": [
+        "JC-SEC-002",
+        "JC-SEC-006"
+      ]
+    },
+    {
+      "id": "JC19-M3-004",
+      "title": "Job Object process-tree control",
+      "dependsOn": [
+        "JC19-M3-003"
+      ],
+      "rules": [
+        "JC-SEC-005",
+        "JC-WO-005"
+      ]
+    },
+    {
+      "id": "JC19-M3-005",
+      "title": "Execution resource and output limits",
+      "dependsOn": [
+        "JC19-M3-004"
+      ],
+      "rules": [
+        "JC-WO-005",
+        "JC-SEC-005"
+      ]
+    },
+    {
+      "id": "JC19-M3-006",
+      "title": "End-to-end cancellation",
+      "dependsOn": [
+        "JC19-M3-005"
+      ],
+      "rules": [
+        "JC-UX-002"
+      ]
+    },
+    {
+      "id": "JC19-M3-007",
+      "title": "Truthful isolation selection",
+      "dependsOn": [
+        "JC19-M3-006"
+      ],
+      "rules": [
+        "JC-SEC-005"
+      ]
+    },
+    {
+      "id": "JC19-M3-008",
+      "title": "Network default deny",
+      "dependsOn": [
+        "JC19-M3-007"
+      ],
+      "rules": [
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M3-009",
+      "title": "Broker evidence and accounting",
+      "dependsOn": [
+        "JC19-M3-008"
+      ],
+      "rules": [
+        "JC-QA-005",
+        "JC-WO-005"
+      ]
+    },
+    {
+      "id": "JC19-M3-010",
+      "title": "Broker adversarial certification",
+      "dependsOn": [
+        "JC19-M3-009"
+      ],
+      "rules": [
+        "JC-SEC-003",
+        "JC-SEC-004",
+        "JC-SEC-005",
+        "JC-SEC-006",
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M4-001",
+      "title": "Snapshot-linked project versions",
+      "dependsOn": [
+        "JC19-M3-010"
+      ],
+      "rules": [
+        "JC-TXN-001"
+      ]
+    },
+    {
+      "id": "JC19-M4-002",
+      "title": "Patch-set contracts and conflicts",
+      "dependsOn": [
+        "JC19-M4-001"
+      ],
+      "rules": [
+        "JC-TXN-002",
+        "JC-WO-002"
+      ]
+    },
+    {
+      "id": "JC19-M4-003",
+      "title": "Safe diff generation",
+      "dependsOn": [
+        "JC19-M4-002"
+      ],
+      "rules": [
+        "JC-SEC-003",
+        "JC-WO-005"
+      ]
+    },
+    {
+      "id": "JC19-M4-004",
+      "title": "Copy-on-write patch application",
+      "dependsOn": [
+        "JC19-M4-003"
+      ],
+      "rules": [
+        "JC-TXN-002",
+        "JC-TXN-003"
+      ]
+    },
+    {
+      "id": "JC19-M4-005",
+      "title": "Selected-patch re-verification",
+      "dependsOn": [
+        "JC19-M4-004"
+      ],
+      "rules": [
+        "JC-QA-006",
+        "JC-TXN-003"
+      ]
+    },
+    {
+      "id": "JC19-M4-006",
+      "title": "Atomic current-version commit",
+      "dependsOn": [
+        "JC19-M4-005"
+      ],
+      "rules": [
+        "JC-TXN-003"
+      ]
+    },
+    {
+      "id": "JC19-M4-007",
+      "title": "Journaled folder materialization",
+      "dependsOn": [
+        "JC19-M4-006"
+      ],
+      "rules": [
+        "JC-TXN-003",
+        "JC-SEC-003"
+      ]
+    },
+    {
+      "id": "JC19-M4-008",
+      "title": "Verified rollback",
+      "dependsOn": [
+        "JC19-M4-007"
+      ],
+      "rules": [
+        "JC-TXN-004"
+      ]
+    },
+    {
+      "id": "JC19-M4-009",
+      "title": "Transaction crash certification",
+      "dependsOn": [
+        "JC19-M4-008"
+      ],
+      "rules": [
+        "JC-TXN-003",
+        "JC-TXN-004",
+        "JC-TXN-005"
+      ]
+    },
+    {
+      "id": "JC19-M5-001",
+      "title": "Verification-plan derivation",
+      "dependsOn": [
+        "JC19-M4-009"
+      ],
+      "rules": [
+        "JC-QA-001",
+        "JC-TRUTH-002"
+      ]
+    },
+    {
+      "id": "JC19-M5-002",
+      "title": "Runtime lockfile and environment gate",
+      "dependsOn": [
+        "JC19-M5-001"
+      ],
+      "rules": [
+        "JC-QA-002"
+      ]
+    },
+    {
+      "id": "JC19-M5-003",
+      "title": "Clean dependency install gate",
+      "dependsOn": [
+        "JC19-M5-002"
+      ],
+      "rules": [
+        "JC-QA-002",
+        "JC-SEC-009"
+      ]
+    },
+    {
+      "id": "JC19-M5-004",
+      "title": "Type lint and format gates",
+      "dependsOn": [
+        "JC19-M5-003"
+      ],
+      "rules": [
+        "JC-QA-001",
+        "JC-QA-004"
+      ]
+    },
+    {
+      "id": "JC19-M5-005",
+      "title": "Production build gate",
+      "dependsOn": [
+        "JC19-M5-004"
+      ],
+      "rules": [
+        "JC-QA-001"
+      ]
+    },
+    {
+      "id": "JC19-M5-006",
+      "title": "Test execution gates",
+      "dependsOn": [
+        "JC19-M5-005"
+      ],
+      "rules": [
+        "JC-QA-001",
+        "JC-QA-004"
+      ]
+    },
+    {
+      "id": "JC19-M5-007",
+      "title": "Startup lifecycle verifier",
+      "dependsOn": [
+        "JC19-M5-006"
+      ],
+      "rules": [
+        "JC-QA-003",
+        "JC-UX-002"
+      ]
+    },
+    {
+      "id": "JC19-M5-008",
+      "title": "Browser critical-flow verifier",
+      "dependsOn": [
+        "JC19-M5-007"
+      ],
+      "rules": [
+        "JC-QA-003",
+        "JC-DELIV-003"
+      ]
+    },
+    {
+      "id": "JC19-M5-009",
+      "title": "Accessibility gate",
+      "dependsOn": [
+        "JC19-M5-008"
+      ],
+      "rules": [
+        "JC-UX-003"
+      ]
+    },
+    {
+      "id": "JC19-M5-010",
+      "title": "Security license and SBOM gates",
+      "dependsOn": [
+        "JC19-M5-009"
+      ],
+      "rules": [
+        "JC-SEC-009",
+        "JC-SEC-010",
+        "JC-DELIV-002"
+      ]
+    },
+    {
+      "id": "JC19-M5-011",
+      "title": "Architecture performance and soak gates",
+      "dependsOn": [
+        "JC19-M5-010"
+      ],
+      "rules": [
+        "JC-QA-001",
+        "JC-WO-005"
+      ]
+    },
+    {
+      "id": "JC19-M5-012",
+      "title": "Evaluation reducer and ownership report",
+      "dependsOn": [
+        "JC19-M5-011"
+      ],
+      "rules": [
+        "JC-TRUTH-001",
+        "JC-TRUTH-002",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M6-001",
+      "title": "Provider contracts and privacy",
+      "dependsOn": [
+        "JC19-M5-012"
+      ],
+      "rules": [
+        "JC-PROV-001",
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M6-002",
+      "title": "Ollama health identity and cancellation",
+      "dependsOn": [
+        "JC19-M6-001"
+      ],
+      "rules": [
+        "JC-PROV-001",
+        "JC-PROV-003"
+      ]
+    },
+    {
+      "id": "JC19-M6-003",
+      "title": "Model capability probes",
+      "dependsOn": [
+        "JC19-M6-002"
+      ],
+      "rules": [
+        "JC-PROV-002",
+        "JC-AGENT-002"
+      ]
+    },
+    {
+      "id": "JC19-M6-004",
+      "title": "Evidence-based model router",
+      "dependsOn": [
+        "JC19-M6-003"
+      ],
+      "rules": [
+        "JC-PROV-002"
+      ]
+    },
+    {
+      "id": "JC19-M6-005",
+      "title": "Structured generation validation",
+      "dependsOn": [
+        "JC19-M6-004"
+      ],
+      "rules": [
+        "JC-AGENT-002",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M6-006",
+      "title": "Policy-governed tool proposals",
+      "dependsOn": [
+        "JC19-M6-005"
+      ],
+      "rules": [
+        "JC-AGENT-001",
+        "JC-WO-003"
+      ]
+    },
+    {
+      "id": "JC19-M6-007",
+      "title": "Bounded reconciliation loop",
+      "dependsOn": [
+        "JC19-M6-006"
+      ],
+      "rules": [
+        "JC-AGENT-003"
+      ]
+    },
+    {
+      "id": "JC19-M6-008",
+      "title": "Provider resilience and cloud escalation",
+      "dependsOn": [
+        "JC19-M6-007"
+      ],
+      "rules": [
+        "JC-PROV-003",
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M6-009",
+      "title": "Scoped retrieval and memory",
+      "dependsOn": [
+        "JC19-M6-008"
+      ],
+      "rules": [
+        "JC-AGENT-005",
+        "JC-SEC-008"
+      ]
+    },
+    {
+      "id": "JC19-M6-010",
+      "title": "Agentic security certification",
+      "dependsOn": [
+        "JC19-M6-009"
+      ],
+      "rules": [
+        "JC-SEC-001",
+        "JC-AGENT-001",
+        "JC-AGENT-003",
+        "JC-AGENT-005"
+      ]
+    },
+    {
+      "id": "JC19-M7-001",
+      "title": "Mode and ACDQ intake UI",
+      "dependsOn": [
+        "JC19-M6-010"
+      ],
+      "rules": [
+        "JC-SCOPE-001",
+        "JC-SCOPE-002"
+      ]
+    },
+    {
+      "id": "JC19-M7-002",
+      "title": "Survey and evidence UI",
+      "dependsOn": [
+        "JC19-M7-001"
+      ],
+      "rules": [
+        "JC-TRUTH-001",
+        "JC-UX-003"
+      ]
+    },
+    {
+      "id": "JC19-M7-003",
+      "title": "Manifest and plan review UI",
+      "dependsOn": [
+        "JC19-M7-002"
+      ],
+      "rules": [
+        "JC-WO-002",
+        "JC-WO-004"
+      ]
+    },
+    {
+      "id": "JC19-M7-004",
+      "title": "Capability authorization UI",
+      "dependsOn": [
+        "JC19-M7-003"
+      ],
+      "rules": [
+        "JC-WO-003",
+        "JC-SEC-007"
+      ]
+    },
+    {
+      "id": "JC19-M7-005",
+      "title": "Isolated generation and staged verification",
+      "dependsOn": [
+        "JC19-M7-004"
+      ],
+      "rules": [
+        "JC-TXN-002",
+        "JC-AGENT-001"
+      ]
+    },
+    {
+      "id": "JC19-M7-006",
+      "title": "Verified selective patch review UI",
+      "dependsOn": [
+        "JC19-M7-005"
+      ],
+      "rules": [
+        "JC-TXN-003",
+        "JC-QA-006"
+      ]
+    },
+    {
+      "id": "JC19-M7-007",
+      "title": "Apply verify and rollback UI",
+      "dependsOn": [
+        "JC19-M7-006"
+      ],
+      "rules": [
+        "JC-UX-001",
+        "JC-TXN-004"
+      ]
+    },
+    {
+      "id": "JC19-M7-008",
+      "title": "Evidence-driven diagnosis and stabilization",
+      "dependsOn": [
+        "JC19-M7-007"
+      ],
+      "rules": [
+        "JC-AGENT-003",
+        "JC-TRUTH-002"
+      ]
+    },
+    {
+      "id": "JC19-M7-009",
+      "title": "Cancellation crash and resume UX",
+      "dependsOn": [
+        "JC19-M7-008"
+      ],
+      "rules": [
+        "JC-UX-002",
+        "JC-TXN-005"
+      ]
+    },
+    {
+      "id": "JC19-M7-010",
+      "title": "Repair and refactor vertical certification",
+      "dependsOn": [
+        "JC19-M7-009"
+      ],
+      "rules": [
+        "JC-TRUTH-003",
+        "JC-QA-006",
+        "JC-DELIV-003"
+      ]
+    },
+    {
+      "id": "JC19-M8-001",
+      "title": "Behavioral manifest",
+      "dependsOn": [
+        "JC19-M7-010"
+      ],
+      "rules": [
+        "JC-SCOPE-002",
+        "JC-TRUTH-003"
+      ]
+    },
+    {
+      "id": "JC19-M8-002",
+      "title": "Claim implementation evidence mapping",
+      "dependsOn": [
+        "JC19-M8-001"
+      ],
+      "rules": [
+        "JC-TRUTH-001",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M8-003",
+      "title": "Real independent prosecution",
+      "dependsOn": [
+        "JC19-M8-002"
+      ],
+      "rules": [
+        "JC-AGENT-004",
+        "JC-TRUTH-004"
+      ]
+    },
+    {
+      "id": "JC19-M8-004",
+      "title": "Finding reproduction and uncertainty",
+      "dependsOn": [
+        "JC19-M8-003"
+      ],
+      "rules": [
+        "JC-AGENT-004",
+        "JC-TRUTH-002"
+      ]
+    },
+    {
+      "id": "JC19-M8-005",
+      "title": "Repair-linked re-prosecution",
+      "dependsOn": [
+        "JC19-M8-004"
+      ],
+      "rules": [
+        "JC-QA-006",
+        "JC-AGENT-004"
+      ]
+    },
+    {
+      "id": "JC19-M8-006",
+      "title": "Evidence checkpoint signing",
+      "dependsOn": [
+        "JC19-M8-005"
+      ],
+      "rules": [
+        "JC-TRUTH-004",
+        "JC-QA-005"
+      ]
+    },
+    {
+      "id": "JC19-M8-007",
+      "title": "Supply-chain release proof",
+      "dependsOn": [
+        "JC19-M8-006"
+      ],
+      "rules": [
+        "JC-SEC-009",
+        "JC-DELIV-002"
+      ]
+    },
+    {
+      "id": "JC19-M8-008",
+      "title": "Certification reducer",
+      "dependsOn": [
+        "JC19-M8-007"
+      ],
+      "rules": [
+        "JC-TRUTH-003",
+        "JC-DELIV-004"
+      ]
+    },
+    {
+      "id": "JC19-M9-001",
+      "title": "Accessible complete workflow",
+      "dependsOn": [
+        "JC19-M8-008"
+      ],
+      "rules": [
+        "JC-UX-003",
+        "JC-DELIV-003"
+      ]
+    },
+    {
+      "id": "JC19-M9-002",
+      "title": "Diagnostics and redacted support bundle",
+      "dependsOn": [
+        "JC19-M9-001"
+      ],
+      "rules": [
+        "JC-SEC-006",
+        "JC-TRUTH-001"
+      ]
+    },
+    {
+      "id": "JC19-M9-003",
+      "title": "Clean Windows machine matrix",
+      "dependsOn": [
+        "JC19-M9-002"
+      ],
+      "rules": [
+        "JC-QA-002",
+        "JC-QA-003",
+        "JC-DELIV-001"
+      ]
+    },
+    {
+      "id": "JC19-M9-004",
+      "title": "Signed Windows packaging",
+      "dependsOn": [
+        "JC19-M9-003"
+      ],
+      "rules": [
+        "JC-DELIV-002"
+      ]
+    },
+    {
+      "id": "JC19-M9-005",
+      "title": "Upgrade migration backup and restore",
+      "dependsOn": [
+        "JC19-M9-004"
+      ],
+      "rules": [
+        "JC-TXN-005",
+        "JC-DELIV-001"
+      ]
+    },
+    {
+      "id": "JC19-M9-006",
+      "title": "One hundred run soak",
+      "dependsOn": [
+        "JC19-M9-005"
+      ],
+      "rules": [
+        "JC-WO-005",
+        "JC-QA-006"
+      ]
+    },
+    {
+      "id": "JC19-M9-007",
+      "title": "Final security and threat audit",
+      "dependsOn": [
+        "JC19-M9-006"
+      ],
+      "rules": [
+        "JC-SEC-001",
+        "JC-SEC-009",
+        "JC-SEC-010"
+      ]
+    },
+    {
+      "id": "JC19-M9-008",
+      "title": "Final documentation and certification",
+      "dependsOn": [
+        "JC19-M9-007"
+      ],
+      "rules": [
+        "JC-DELIV-001",
+        "JC-DELIV-003",
+        "JC-DELIV-004",
+        "JC-TRUTH-003"
+      ]
+    }
+  ],
+  "schemaVersion": "1.3.1"
+}

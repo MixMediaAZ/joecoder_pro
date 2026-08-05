@@ -1,0 +1,965 @@
+{
+  "$schema": "../schemas/rule-registry.schema.json",
+  "specVersion": "1.3.1",
+  "status": "approved",
+  "rules": [
+    {
+      "id": "JC-TRUTH-001",
+      "category": "truth",
+      "priority": "P0",
+      "title": "Evidence outranks narrative",
+      "requirement": "Reproducible verifier output and actual artifacts override documentation, summaries, confidence, and model claims.",
+      "enforcement": [
+        "completion policy",
+        "handoff generator",
+        "evidence resolver"
+      ],
+      "failureBehavior": "Block the claim and report the contradictory evidence.",
+      "verification": [
+        "contradictory-claim fixture",
+        "handoff evidence-link test"
+      ],
+      "sources": [
+        "Core Loop MASTER",
+        "NIST AI RMF"
+      ]
+    },
+    {
+      "id": "JC-TRUTH-002",
+      "category": "truth",
+      "priority": "P0",
+      "title": "Unknown stays unknown",
+      "requirement": "Unknown, not_run, unavailable, inconclusive, skipped, and waived states must never be converted to passed.",
+      "enforcement": [
+        "verdict type system",
+        "certification reducer"
+      ],
+      "failureBehavior": "Certification fails with the exact unresolved state.",
+      "verification": [
+        "verdict algebra property test"
+      ],
+      "sources": [
+        "Core Loop MASTER",
+        "JoeCoder truth over optimism"
+      ]
+    },
+    {
+      "id": "JC-TRUTH-003",
+      "category": "truth",
+      "priority": "P0",
+      "title": "No premature completion",
+      "requirement": "A Work Order may enter completed only when every mandatory acceptance criterion and gate has passing evidence and rollback is resolved.",
+      "enforcement": [
+        "Work Order transition guard",
+        "certification policy"
+      ],
+      "failureBehavior": "Keep the order blocked, failed, or inconclusive.",
+      "verification": [
+        "illegal completion transition tests",
+        "missing-evidence fixture"
+      ],
+      "sources": [
+        "QA Sentinel",
+        "Pre-ZIP truth check"
+      ]
+    },
+    {
+      "id": "JC-TRUTH-004",
+      "category": "truth",
+      "priority": "P0",
+      "title": "No fabricated proof",
+      "requirement": "Production evidence, provider results, test results, metrics, and prosecution findings must originate from recorded real operations and may not be static, simulated, or invented.",
+      "enforcement": [
+        "evidence provenance validator",
+        "FORGE policy"
+      ],
+      "failureBehavior": "Open an integrity incident and disqualify certification.",
+      "verification": [
+        "hard-coded FORGE fixture",
+        "evidence producer signature test"
+      ],
+      "sources": [
+        "FORGE intent",
+        "Pro 9 hard-coded prosecution failure"
+      ]
+    },
+    {
+      "id": "JC-SCOPE-001",
+      "category": "scope",
+      "priority": "P0",
+      "title": "A.C.D.Q. before execution",
+      "requirement": "Assumptions, constraints, dependencies, and blocking questions must be resolved or explicitly represented before execution authorization.",
+      "enforcement": [
+        "intake validator",
+        "authorization policy"
+      ],
+      "failureBehavior": "Return to scoped or awaiting clarification.",
+      "verification": [
+        "incomplete-intake contract tests"
+      ],
+      "sources": [
+        "JoeCoder Skills Playbook",
+        "Core Principles"
+      ]
+    },
+    {
+      "id": "JC-SCOPE-002",
+      "category": "scope",
+      "priority": "P0",
+      "title": "Explicit objective and non-goals",
+      "requirement": "Every mutating Work Order must define concrete success and what must not be changed or built.",
+      "enforcement": [
+        "Work Order schema",
+        "intake policy"
+      ],
+      "failureBehavior": "Reject the Work Order as underspecified.",
+      "verification": [
+        "missing objective/non-goal schema tests"
+      ],
+      "sources": [
+        "Task Intake Form",
+        "Build Concentration Agent"
+      ]
+    },
+    {
+      "id": "JC-SCOPE-003",
+      "category": "scope",
+      "priority": "P1",
+      "title": "Single focus objective",
+      "requirement": "Only one mutating objective may be active per project; unrelated scope becomes a dependent future Work Order.",
+      "enforcement": [
+        "project queue coordinator",
+        "concentration policy"
+      ],
+      "failureBehavior": "Pause or split the conflicting work.",
+      "verification": [
+        "parallel conflicting order test"
+      ],
+      "sources": [
+        "Build Concentration Agent"
+      ]
+    },
+    {
+      "id": "JC-WO-001",
+      "category": "work_order",
+      "priority": "P0",
+      "title": "One governed entry path",
+      "requirement": "Every command, mutation, provider action, repair, retry, package, and deployment must belong to a persisted Work Order.",
+      "enforcement": [
+        "API middleware",
+        "broker protocol",
+        "provider router"
+      ],
+      "failureBehavior": "Deny the operation and log the attempted bypass.",
+      "verification": [
+        "route inventory bypass test",
+        "broker orphan-call test"
+      ],
+      "sources": [
+        "Work Orders Agent",
+        "Rules of the Road"
+      ]
+    },
+    {
+      "id": "JC-WO-002",
+      "category": "work_order",
+      "priority": "P0",
+      "title": "Schema-valid durable state machine",
+      "requirement": "Work Orders must validate against the canonical schema and transition only through allowlisted durable state changes.",
+      "enforcement": [
+        "JSON Schema validator",
+        "transactional state machine"
+      ],
+      "failureBehavior": "Reject malformed data or illegal transitions.",
+      "verification": [
+        "schema corpus",
+        "state-machine property tests",
+        "restart tests"
+      ],
+      "sources": [
+        "Work Orders Agent",
+        "JSON Schema 2020-12"
+      ]
+    },
+    {
+      "id": "JC-WO-003",
+      "category": "work_order",
+      "priority": "P0",
+      "title": "Capability-scoped authorization",
+      "requirement": "Approval grants only the declared paths, operations, commands, network, providers, secrets, budgets, project version, and expiration.",
+      "enforcement": [
+        "authorization envelope",
+        "policy engine",
+        "execution broker"
+      ],
+      "failureBehavior": "Deny expansion and return to authorization.",
+      "verification": [
+        "scope expansion tests",
+        "expired grant test"
+      ],
+      "sources": [
+        "Rules of the Road",
+        "OWASP excessive agency"
+      ]
+    },
+    {
+      "id": "JC-WO-004",
+      "category": "work_order",
+      "priority": "P1",
+      "title": "Dependencies gate execution",
+      "requirement": "Unmet, failed, rolled-back, or inconclusive dependencies block downstream Work Orders.",
+      "enforcement": [
+        "dependency graph evaluator"
+      ],
+      "failureBehavior": "Mark the dependent order blocked with evidence.",
+      "verification": [
+        "dependency state matrix tests",
+        "cycle detection test"
+      ],
+      "sources": [
+        "Work Orders Agent"
+      ]
+    },
+    {
+      "id": "JC-WO-005",
+      "category": "work_order",
+      "priority": "P0",
+      "title": "Bounded change and resource budgets",
+      "requirement": "Every execution has explicit limits for files, changed lines, attempts, duration, processes, memory, network, tokens, and cloud cost.",
+      "enforcement": [
+        "budget policy",
+        "execution broker",
+        "provider router"
+      ],
+      "failureBehavior": "Pause, split, or terminate before exceeding the grant.",
+      "verification": [
+        "budget boundary property tests",
+        "resource exhaustion fixtures"
+      ],
+      "sources": [
+        "Build Concentration Agent",
+        "Windows Job Objects"
+      ]
+    },
+    {
+      "id": "JC-SEC-001",
+      "category": "security",
+      "priority": "P0",
+      "title": "Untrusted input cannot become authority",
+      "requirement": "Imported source, repository instructions, model output, memory, web content, tools, skills, plugins, MCP servers, and logs are untrusted data unless admitted by explicit policy.",
+      "enforcement": [
+        "context trust labels",
+        "prompt builder",
+        "tool registry"
+      ],
+      "failureBehavior": "Ignore the attempted authority escalation and log a security finding.",
+      "verification": [
+        "indirect prompt injection fixtures",
+        "poisoned memory test"
+      ],
+      "sources": [
+        "OWASP Agentic Top 10 2026",
+        "MCP security best practices"
+      ]
+    },
+    {
+      "id": "JC-SEC-002",
+      "category": "security",
+      "priority": "P0",
+      "title": "Deny by default and least privilege",
+      "requirement": "Tools, paths, commands, network, providers, credentials, and plugins are unavailable until a narrow policy grant allows them.",
+      "enforcement": [
+        "policy engine",
+        "capability registry",
+        "broker ACL"
+      ],
+      "failureBehavior": "Deny with required grant details.",
+      "verification": [
+        "default-deny integration suite"
+      ],
+      "sources": [
+        "Guardrails Agent",
+        "OWASP Agentic Top 10 2026",
+        "NIST SSDF"
+      ]
+    },
+    {
+      "id": "JC-SEC-003",
+      "category": "security",
+      "priority": "P0",
+      "title": "Canonical path containment",
+      "requirement": "All file operations must prove canonical containment after normalization and final-handle resolution, including Windows reparse, ADS, device, case, and reserved-name rules.",
+      "enforcement": [
+        "execution broker path resolver",
+        "archive importer"
+      ],
+      "failureBehavior": "Deny without touching the path.",
+      "verification": [
+        "path property corpus",
+        "ZIP Slip and reparse fixtures"
+      ],
+      "sources": [
+        "FS Jail recurring law",
+        "prior prefix-check failures"
+      ]
+    },
+    {
+      "id": "JC-SEC-004",
+      "category": "security",
+      "priority": "P0",
+      "title": "No model-generated shell execution",
+      "requirement": "Commands must be executable-plus-argument arrays selected through policy; untrusted command strings, shell interpolation, and shell:true are forbidden.",
+      "enforcement": [
+        "broker command schema",
+        "static architecture test"
+      ],
+      "failureBehavior": "Reject the command proposal.",
+      "verification": [
+        "quoting/injection fixture corpus",
+        "shell bypass scan"
+      ],
+      "sources": [
+        "Guardrails Agent",
+        "prior evaluator failures"
+      ]
+    },
+    {
+      "id": "JC-SEC-005",
+      "category": "security",
+      "priority": "P0",
+      "title": "Truthful execution isolation",
+      "requirement": "JoeCoder must identify and enforce analysis-only, native-constrained, or strong-isolated execution and must not call a temp directory a sandbox.",
+      "enforcement": [
+        "broker attestation",
+        "isolation policy",
+        "UI status"
+      ],
+      "failureBehavior": "Downgrade to analysis-only or require explicit degraded-mode authorization.",
+      "verification": [
+        "isolation capability probes",
+        "escape and child-process fixtures"
+      ],
+      "sources": [
+        "Windows Job Objects",
+        "Windows AppContainer",
+        "OWASP unexpected code execution"
+      ]
+    },
+    {
+      "id": "JC-SEC-006",
+      "category": "security",
+      "priority": "P0",
+      "title": "Secret confinement",
+      "requirement": "Secrets remain in approved local secret storage, are exposed only through scoped handles, and are redacted from UI, logs, evidence, prompts, diffs, errors, and crash data.",
+      "enforcement": [
+        "secret broker",
+        "redaction pipeline",
+        "provider adapters"
+      ],
+      "failureBehavior": "Block the operation, revoke affected grants, and open an incident.",
+      "verification": [
+        "canary secret leakage suite",
+        "log/evidence scan"
+      ],
+      "sources": [
+        "Guardrails Agent",
+        "NIST SSDF"
+      ]
+    },
+    {
+      "id": "JC-SEC-007",
+      "category": "security",
+      "priority": "P0",
+      "title": "Network and cloud require explicit grants",
+      "requirement": "Network access and cloud-provider transmission are denied by default and restricted to approved destinations, data classes, and duration.",
+      "enforcement": [
+        "network policy",
+        "provider router",
+        "authorization envelope"
+      ],
+      "failureBehavior": "Deny and preserve a local-only fallback when possible.",
+      "verification": [
+        "cloud denied test",
+        "destination allowlist tests"
+      ],
+      "sources": [
+        "Local-first decision",
+        "OWASP tool misuse"
+      ]
+    },
+    {
+      "id": "JC-SEC-008",
+      "category": "security",
+      "priority": "P0",
+      "title": "Project isolation",
+      "requirement": "Files, versions, memory, embeddings, providers, credentials, logs, snapshots, evidence, and events must be namespaced and access-controlled per project.",
+      "enforcement": [
+        "storage keys",
+        "query filters",
+        "broker project token"
+      ],
+      "failureBehavior": "Deny cross-project access and open an integrity incident.",
+      "verification": [
+        "cross-project contamination suite"
+      ],
+      "sources": [
+        "Architecture Agent",
+        "prior global-storage failure"
+      ]
+    },
+    {
+      "id": "JC-SEC-009",
+      "category": "security",
+      "priority": "P1",
+      "title": "Supply-chain provenance",
+      "requirement": "Dependencies, agents, skills, plugins, MCP servers, models, builds, and releases require pinned identity, provenance, integrity checks, and an admission policy.",
+      "enforcement": [
+        "dependency policy",
+        "artifact verifier",
+        "plugin/model registry"
+      ],
+      "failureBehavior": "Quarantine or reject unverified components.",
+      "verification": [
+        "tampered dependency/artifact fixtures",
+        "SBOM validation"
+      ],
+      "sources": [
+        "SLSA 1.2",
+        "CycloneDX",
+        "OWASP agentic supply chain"
+      ]
+    },
+    {
+      "id": "JC-SEC-010",
+      "category": "security",
+      "priority": "P0",
+      "title": "Security gates fail closed",
+      "requirement": "Malformed validator output, scanner errors, missing policy data, timeouts, and unavailable security tools cannot produce an allow or passing verdict.",
+      "enforcement": [
+        "policy reducer",
+        "evidence verdict mapping"
+      ],
+      "failureBehavior": "Block or mark unavailable/inconclusive.",
+      "verification": [
+        "validator crash and malformed-output tests"
+      ],
+      "sources": [
+        "Guardrails Agent",
+        "prior fail-open DNA failure"
+      ]
+    },
+    {
+      "id": "JC-TXN-001",
+      "category": "transaction",
+      "priority": "P0",
+      "title": "Snapshot before mutation",
+      "requirement": "A verified source-version snapshot or version manifest must exist before the first mutation.",
+      "enforcement": [
+        "Work Order transition guard",
+        "transaction manager"
+      ],
+      "failureBehavior": "Do not mutate.",
+      "verification": [
+        "mutation-without-snapshot test"
+      ],
+      "sources": [
+        "Snapshot recurring law"
+      ]
+    },
+    {
+      "id": "JC-TXN-002",
+      "category": "transaction",
+      "priority": "P0",
+      "title": "Isolated staged versions",
+      "requirement": "Generation, patch application, install, build, test, and repair occur on a new versioned workspace tree, never the user's active source.",
+      "enforcement": [
+        "project version store",
+        "broker workspace token"
+      ],
+      "failureBehavior": "Deny direct source mutation.",
+      "verification": [
+        "source hash unchanged tests",
+        "import non-mutation test"
+      ],
+      "sources": [
+        "Patch-first workflow",
+        "Build Isolation Agent"
+      ]
+    },
+    {
+      "id": "JC-TXN-003",
+      "category": "transaction",
+      "priority": "P0",
+      "title": "Atomic visible commit",
+      "requirement": "A multi-file change becomes visible as one committed project version or not at all; sequential partial mutation is forbidden.",
+      "enforcement": [
+        "version pointer transaction",
+        "materialization journal"
+      ],
+      "failureBehavior": "Abort and retain the previous current version.",
+      "verification": [
+        "failure-at-every-write-boundary suite"
+      ],
+      "sources": [
+        "Work Order Atomicity Law",
+        "prior partial-apply failure"
+      ]
+    },
+    {
+      "id": "JC-TXN-004",
+      "category": "transaction",
+      "priority": "P0",
+      "title": "Rollback must restore and prove",
+      "requirement": "Rollback must restore the prior observable version and generate hash-based restoration evidence; a status change alone is not rollback.",
+      "enforcement": [
+        "rollback manager",
+        "post-rollback verifier"
+      ],
+      "failureBehavior": "Enter blocked integrity-recovery state.",
+      "verification": [
+        "rollback content/hash tests",
+        "fake rollback fixture"
+      ],
+      "sources": [
+        "Work Orders Agent",
+        "prior simulated rollback failure"
+      ]
+    },
+    {
+      "id": "JC-TXN-005",
+      "category": "transaction",
+      "priority": "P0",
+      "title": "Crash-consistent recovery",
+      "requirement": "After termination or power-loss simulation, the system must determine committed, resumable, or rollback-required state without guessing.",
+      "enforcement": [
+        "durable event/state transactions",
+        "startup reconciler"
+      ],
+      "failureBehavior": "Freeze mutation and request integrity recovery.",
+      "verification": [
+        "crash injection at every transition boundary"
+      ],
+      "sources": [
+        "Core reconciliation loop",
+        "SQLite atomicity"
+      ]
+    },
+    {
+      "id": "JC-QA-001",
+      "category": "verification",
+      "priority": "P0",
+      "title": "Named independent gates",
+      "requirement": "Environment, install, typecheck, lint, build, tests, startup, browser, accessibility, security, architecture, performance, and package gates report independently.",
+      "enforcement": [
+        "evaluation plan",
+        "certification reducer"
+      ],
+      "failureBehavior": "No gate inherits another gate's pass.",
+      "verification": [
+        "Vite-pass/typecheck-fail fixture",
+        "gate separation tests"
+      ],
+      "sources": [
+        "QA Sentinel",
+        "current JoeCoder typecheck failure"
+      ]
+    },
+    {
+      "id": "JC-QA-002",
+      "category": "verification",
+      "priority": "P0",
+      "title": "Clean reproducible install",
+      "requirement": "Verification uses a clean version, pinned supported runtime, committed lockfile, and deterministic install command with lifecycle-script policy.",
+      "enforcement": [
+        "ecosystem adapter",
+        "dependency policy"
+      ],
+      "failureBehavior": "Fail install/reproducibility gate.",
+      "verification": [
+        "clean copy/VM install test",
+        "lockfile mismatch test"
+      ],
+      "sources": [
+        "Pre-ZIP checklist",
+        "NIST SSDF",
+        "SLSA"
+      ]
+    },
+    {
+      "id": "JC-QA-003",
+      "category": "verification",
+      "priority": "P0",
+      "title": "Runtime and UI proof",
+      "requirement": "A successful build is insufficient; startup, health, critical user workflow, browser errors, failed requests, shutdown, restart, and dead controls must be tested.",
+      "enforcement": [
+        "runtime verifier",
+        "Playwright suite"
+      ],
+      "failureBehavior": "Fail runtime or UI gate.",
+      "verification": [
+        "dead-button fixture",
+        "startup failure fixtures"
+      ],
+      "sources": [
+        "Live Preview Agent",
+        "Pre-ZIP UI rules"
+      ]
+    },
+    {
+      "id": "JC-QA-004",
+      "category": "verification",
+      "priority": "P0",
+      "title": "No validation weakening",
+      "requirement": "Tests, types, policies, acceptance criteria, scanners, and thresholds may not be removed, skipped, suppressed, or weakened to obtain success without explicit disqualifying waiver.",
+      "enforcement": [
+        "diff policy",
+        "test inventory comparison",
+        "waiver policy"
+      ],
+      "failureBehavior": "Block completion and flag verifier tampering.",
+      "verification": [
+        "test deletion and ts-ignore fixtures"
+      ],
+      "sources": [
+        "Truth over optimism",
+        "QA Sentinel"
+      ]
+    },
+    {
+      "id": "JC-QA-005",
+      "category": "verification",
+      "priority": "P0",
+      "title": "Raw evidence for every verdict",
+      "requirement": "Every gate verdict must link to producer/tool version, command identity, environment fingerprint, timings, exit status, and hashed raw artifacts.",
+      "enforcement": [
+        "evidence envelope schema",
+        "gate adapter contract"
+      ],
+      "failureBehavior": "Mark the verdict invalid or inconclusive.",
+      "verification": [
+        "missing artifact/provenance tests"
+      ],
+      "sources": [
+        "Core Loop proof files",
+        "SLSA provenance"
+      ]
+    },
+    {
+      "id": "JC-QA-006",
+      "category": "verification",
+      "priority": "P1",
+      "title": "Regression and mutation assurance",
+      "requirement": "Repairs rerun original failure evidence and relevant regression gates; governance kernel tests include mutation testing.",
+      "enforcement": [
+        "impact analyzer",
+        "verification planner",
+        "release policy"
+      ],
+      "failureBehavior": "Keep the Work Order in verification or inconclusive state.",
+      "verification": [
+        "regression selection tests",
+        "mutation threshold test"
+      ],
+      "sources": [
+        "Re-prosecution law",
+        "modern test practice"
+      ]
+    },
+    {
+      "id": "JC-AGENT-001",
+      "category": "agent",
+      "priority": "P0",
+      "title": "Deterministic control plane",
+      "requirement": "Models may propose but cannot directly authorize, mutate, execute, transition durable state, or declare completion.",
+      "enforcement": [
+        "architecture boundary",
+        "tool broker",
+        "state machine API"
+      ],
+      "failureBehavior": "Reject the direct model action.",
+      "verification": [
+        "model bypass architecture tests"
+      ],
+      "sources": [
+        "AI suggests/user approves",
+        "OWASP excessive agency"
+      ]
+    },
+    {
+      "id": "JC-AGENT-002",
+      "category": "agent",
+      "priority": "P0",
+      "title": "Schema-validated model outputs",
+      "requirement": "Operational model outputs must satisfy versioned JSON Schemas and local semantic validation before use.",
+      "enforcement": [
+        "provider adapter",
+        "structured output validator"
+      ],
+      "failureBehavior": "Reject, bounded-retry, or route fallback; never fail open.",
+      "verification": [
+        "malformed and adversarial output corpus"
+      ],
+      "sources": [
+        "Ollama structured outputs",
+        "JSON Schema 2020-12"
+      ]
+    },
+    {
+      "id": "JC-AGENT-003",
+      "category": "agent",
+      "priority": "P0",
+      "title": "Bounded evidence-sensitive loop",
+      "requirement": "Agent loops have attempt, time, token, cost, tool, and change budgets and may not repeat materially identical failed actions without new evidence.",
+      "enforcement": [
+        "loop coordinator",
+        "failure fingerprint store",
+        "budgets"
+      ],
+      "failureBehavior": "Rollback, replan, or escalate.",
+      "verification": [
+        "infinite-loop prevention tests",
+        "duplicate failure fingerprint test"
+      ],
+      "sources": [
+        "Build Concentration Agent",
+        "OODA methodology"
+      ]
+    },
+    {
+      "id": "JC-AGENT-004",
+      "category": "agent",
+      "priority": "P0",
+      "title": "Independent prosecution is not self-certification",
+      "requirement": "The generating model cannot be the sole reviewer; model findings remain hypotheses until deterministic or accepted human reproduction supports them.",
+      "enforcement": [
+        "FORGE router",
+        "certification policy"
+      ],
+      "failureBehavior": "Mark prosecution unavailable or inconclusive, not passed.",
+      "verification": [
+        "same-model-only and unreproduced-finding tests"
+      ],
+      "sources": [
+        "FORGE recurring law",
+        "NIST evaluation guidance"
+      ]
+    },
+    {
+      "id": "JC-AGENT-005",
+      "category": "agent",
+      "priority": "P0",
+      "title": "Memory is scoped and provenance-bearing",
+      "requirement": "Memory and retrieval must be project/version scoped, source-attributed, trust-labeled, freshness-aware, and unable to override higher authority or verified facts.",
+      "enforcement": [
+        "retrieval filters",
+        "memory writer policy",
+        "context assembler"
+      ],
+      "failureBehavior": "Exclude poisoned/stale memory and report the conflict.",
+      "verification": [
+        "cross-project and memory-poisoning fixtures"
+      ],
+      "sources": [
+        "Attention hierarchy",
+        "OWASP memory/context poisoning"
+      ]
+    },
+    {
+      "id": "JC-PROV-001",
+      "category": "provider",
+      "priority": "P0",
+      "title": "Local Ollama is the default",
+      "requirement": "Source and project context remain local unless both project policy and Work Order authorization permit cloud transmission.",
+      "enforcement": [
+        "provider router",
+        "privacy policy"
+      ],
+      "failureBehavior": "Use a suitable local model or report unavailable.",
+      "verification": [
+        "cloud-denied routing tests"
+      ],
+      "sources": [
+        "User architecture decision"
+      ]
+    },
+    {
+      "id": "JC-PROV-002",
+      "category": "provider",
+      "priority": "P1",
+      "title": "Capability and evidence-based routing",
+      "requirement": "Model selection uses measured schema/tool/code/review capability, context, health, privacy, latency, memory, cost, and outcome history rather than name heuristics alone.",
+      "enforcement": [
+        "capability probe registry",
+        "routing scorer"
+      ],
+      "failureBehavior": "Reject unsuitable models and record candidate decisions.",
+      "verification": [
+        "model capability mismatch tests",
+        "routing decision snapshots"
+      ],
+      "sources": [
+        "API Behavior Agent",
+        "Ollama capabilities"
+      ]
+    },
+    {
+      "id": "JC-PROV-003",
+      "category": "provider",
+      "priority": "P1",
+      "title": "Bounded fallback and circuit breaking",
+      "requirement": "Provider retries and fallback chains are bounded, cancellable, backoff-controlled, health-aware, and recorded.",
+      "enforcement": [
+        "provider gateway",
+        "circuit breaker"
+      ],
+      "failureBehavior": "Return unavailable or escalate without tail-chasing.",
+      "verification": [
+        "timeout, outage, OOM, cancel, and fallback tests"
+      ],
+      "sources": [
+        "API Behavior Agent",
+        "Core Principles no tail-chasing"
+      ]
+    },
+    {
+      "id": "JC-UX-001",
+      "category": "user_control",
+      "priority": "P0",
+      "title": "Blockers block consequential controls",
+      "requirement": "Critical/blocker findings and absent required authorization disable execution and apply at UI, API, state-machine, and broker layers.",
+      "enforcement": [
+        "UI selector",
+        "API policy",
+        "transition guard",
+        "broker policy"
+      ],
+      "failureBehavior": "Deny with visible reasons and remediation path.",
+      "verification": [
+        "blocker bypass end-to-end suite"
+      ],
+      "sources": [
+        "Guardrails Agent",
+        "prior Apply-enabled failure"
+      ]
+    },
+    {
+      "id": "JC-UX-002",
+      "category": "user_control",
+      "priority": "P0",
+      "title": "Cancellation is real",
+      "requirement": "Cancel propagates to model requests, tool calls, process trees, verification, transactions, and durable state and proves cleanup.",
+      "enforcement": [
+        "AbortSignal chain",
+        "broker kill-on-close",
+        "state transition"
+      ],
+      "failureBehavior": "Enter recovery if cleanup cannot be proven.",
+      "verification": [
+        "cancel-at-every-stage end-to-end tests"
+      ],
+      "sources": [
+        "Rules of the Road",
+        "Windows Job Objects"
+      ]
+    },
+    {
+      "id": "JC-UX-003",
+      "category": "user_control",
+      "priority": "P1",
+      "title": "Transparent progress and risk",
+      "requirement": "The UI exposes current stage, operation, elapsed time, isolation, provider/privacy, grants, evidence, failure, next action, and rollback state without mystery loading.",
+      "enforcement": [
+        "state-derived UI",
+        "accessibility and UX tests"
+      ],
+      "failureBehavior": "Do not expose an unbound/decorative control or success state.",
+      "verification": [
+        "Playwright workflow and accessibility tests"
+      ],
+      "sources": [
+        "AGENTS UI policy",
+        "Rules of the Road"
+      ]
+    },
+    {
+      "id": "JC-DELIV-001",
+      "category": "delivery",
+      "priority": "P0",
+      "title": "Truthful startup and documentation",
+      "requirement": "README, environment example, runtime requirement, install/start commands, ports, limitations, and capability claims must match clean-machine behavior.",
+      "enforcement": [
+        "documentation validator",
+        "clean-machine test",
+        "capability inventory"
+      ],
+      "failureBehavior": "Fail delivery gate and correct the claim.",
+      "verification": [
+        "README command execution",
+        "stale claim fixture"
+      ],
+      "sources": [
+        "Pre-ZIP checklist",
+        "AGENTS verification checklist"
+      ]
+    },
+    {
+      "id": "JC-DELIV-002",
+      "category": "delivery",
+      "priority": "P1",
+      "title": "SBOM, provenance, checksums, and signatures",
+      "requirement": "Release artifacts include a validated SBOM, dependency/license report, build provenance, cryptographic checksums, and signature/attestation when a trusted release identity is configured.",
+      "enforcement": [
+        "release pipeline",
+        "artifact verifier"
+      ],
+      "failureBehavior": "Do not publish a certified release.",
+      "verification": [
+        "artifact verification and tampering tests"
+      ],
+      "sources": [
+        "SLSA 1.2",
+        "CycloneDX",
+        "GitHub artifact attestations"
+      ]
+    },
+    {
+      "id": "JC-DELIV-003",
+      "category": "delivery",
+      "priority": "P0",
+      "title": "No placeholders, dead paths, or aspirational features",
+      "requirement": "Production packages contain no placeholder core logic, mock-only production routes, dead controls, empty critical modules, or claimed capabilities lacking executable proof.",
+      "enforcement": [
+        "capability manifest",
+        "dead-code/UI tests",
+        "delivery validator"
+      ],
+      "failureBehavior": "Fail delivery and remove the claim or implement it.",
+      "verification": [
+        "empty agent/dead control/mock endpoint fixtures"
+      ],
+      "sources": [
+        "No Partials Rule",
+        "prior build failures"
+      ]
+    },
+    {
+      "id": "JC-DELIV-004",
+      "category": "delivery",
+      "priority": "P0",
+      "title": "Waivers disqualify full compliance",
+      "requirement": "Waivers are explicit, scoped, expiring, justified, and visible; any active waiver prevents a full-compliance certification.",
+      "enforcement": [
+        "waiver registry",
+        "certification reducer"
+      ],
+      "failureBehavior": "Issue a qualified report with the waiver and residual risk.",
+      "verification": [
+        "waiver certification tests"
+      ],
+      "sources": [
+        "QA override logging",
+        "Truth over optimism"
+      ]
+    }
+  ]
+}
