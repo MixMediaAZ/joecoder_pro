@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,7 @@ const installRoot = path.join(isolatedRoot, 'install');
 const dataRoot = path.join(isolatedRoot, 'data');
 const fixtureRoot = path.join(isolatedRoot, 'fixture');
 const checks = [];
+const preservedReceipts = [];
 
 function run(command, args, cwd, timeoutMs = 240000) {
   return new Promise((resolve, reject) => {
@@ -155,7 +156,29 @@ try {
     .sort();
   const installedReceiptName = installedReceipts.at(-1);
   if (!installedReceiptName) throw new Error('installed acceptance receipt was not produced');
-  const installedAcceptance = JSON.parse(await fs.readFile(path.join(installedCertificationDir, installedReceiptName), 'utf8'));
+
+  // The isolated tree is destroyed in the finally block. Copy every receipt it produced into the
+  // repository and re-hash from the destination before that happens, or the evidence is lost.
+  const certificationDir = path.join(root, '.jc', 'certification');
+  await fs.mkdir(certificationDir, { recursive: true });
+  for (const name of installedReceipts) {
+    const bytes = await fs.readFile(path.join(installedCertificationDir, name));
+    const sourceHash = createHash('sha256').update(bytes).digest('hex');
+    const destination = path.join(certificationDir, name);
+    await fs.writeFile(destination, bytes, { flag: 'wx' });
+    const preservedHash = createHash('sha256').update(await fs.readFile(destination)).digest('hex');
+    if (preservedHash !== sourceHash) {
+      throw new Error(`preserved receipt ${name} does not match the isolated original`);
+    }
+    preservedReceipts.push({ name, sha256: preservedHash, authoritative: name === installedReceiptName });
+  }
+  checks.push({
+    id: 'installed_acceptance_preserved',
+    passed: true,
+    detail: `${preservedReceipts.length} receipt(s) copied out and hash-verified into .jc/certification`
+  });
+
+  const installedAcceptance = JSON.parse(await fs.readFile(path.join(certificationDir, installedReceiptName), 'utf8'));
   if (installedAcceptance.runs !== 2 || installedAcceptance.results?.length !== 20) {
     throw new Error('installed acceptance receipt does not contain two complete fixture runs');
   }
@@ -169,11 +192,10 @@ try {
     limitation: 'A separately provisioned clean Windows user account was not created by this automated verifier.',
     releaseRoot,
     installedAcceptance: { receipt: installedReceiptName, runs: installedAcceptance.runs, results: installedAcceptance.results },
+    preservedReceipts,
     checks,
     recordedAt: new Date().toISOString()
   };
-  const certificationDir = path.join(root, '.jc', 'certification');
-  await fs.mkdir(certificationDir, { recursive: true });
   const receiptPath = path.join(certificationDir, `CERT-STAGE12-ISOLATED-${Date.now()}-${randomBytes(4).toString('hex')}.json`);
   await fs.writeFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   console.log(JSON.stringify({ ...receipt, receiptPath }, null, 2));

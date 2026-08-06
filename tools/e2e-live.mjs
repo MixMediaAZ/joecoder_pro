@@ -30,13 +30,21 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Every receipt must disclose which model produced it. This harness defaults to the deterministic
+// mock model (see startServer), and src/providers.ts declares that mode "not for production
+// repairs" — so without this field a mock-derived receipt is indistinguishable on disk from real
+// evidence, and can be cited as product proof by mistake. `modelMode` is derived from the same
+// expression startServer uses; `observedModel` is filled in once /health has been read.
+const MODEL_MODE = (process.env.JC_MOCK_MODEL || '1') === '1' ? 'mock' : 'real';
+const provenance = { modelMode: MODEL_MODE, observedModel: null };
+
 async function writeEvidence(controlId, result) {
   const dir = path.join(ROOT, '.jc', 'certification');
   await fs.mkdir(dir, { recursive: true });
   const id = `CERT-E2E-${Date.now()}-${controlId}-${randomBytes(3).toString('hex')}`;
   await fs.writeFile(
     path.join(dir, `${id}.json`),
-    JSON.stringify({ id, control: controlId, result, at: new Date().toISOString() }, null, 2)
+    JSON.stringify({ id, control: controlId, result, provenance: { ...provenance }, at: new Date().toISOString() }, null, 2)
   );
   return id;
 }
@@ -167,6 +175,7 @@ async function main() {
     );
 
     const health = await api.get('/health');
+    provenance.observedModel = health.data?.model?.localModel ?? null;
     await record(
       'health',
       health.status === 200 && health.data?.capabilities?.sourceRepair?.enabled === true,
@@ -303,12 +312,19 @@ async function main() {
       }
       const content3 = await fs.readFile(path.join(fixture3, 'src', 'lib.js'), 'utf8').catch(() => '');
       const fixed3 = content3.includes('a + b') || content3.includes('a+b');
+      // This control is mode-dependent, so it asserts a different property in each mode rather
+      // than passing vacuously in one of them. Under the mock model it proves mock output is
+      // downgraded to completed_with_limits AND flagged mockModel=true, so it can never be read
+      // as full proof. Under a real model it proves the opposite — that the run was genuinely
+      // real (mockModel=false) — which is the property a production receipt has to carry.
+      const mockMode = MODEL_MODE === 'mock';
       const guardedMockResult = observed3?.job?.status === 'completed' &&
-        observed3?.job?.terminalState === 'completed_with_limits' &&
-        observed3?.job?.result?.mockModel === true;
+        (mockMode
+          ? observed3?.job?.terminalState === 'completed_with_limits' && observed3?.job?.result?.mockModel === true
+          : observed3?.job?.result?.mockModel !== true);
       const stages3 = (observed3?.events || []).map((event) => event.stage);
       await record(
-        'agent_job_mock_guardrail',
+        mockMode ? 'agent_job_mock_guardrail' : 'agent_job_real_model',
         guardedMockResult && fixed3 && Boolean(observed3?.job?.workOrderId) && stages3.includes('complete'),
         `status=${observed3?.job?.status || 'timeout'} terminal=${observed3?.job?.terminalState || 'none'} mock=${Boolean(observed3?.job?.result?.mockModel)} fixed=${fixed3} wo=${observed3?.job?.workOrderId || 'none'} stages=${stages3.join(',')} error=${observed3?.job?.errorMessage || 'none'}`
       );

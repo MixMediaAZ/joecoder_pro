@@ -8,6 +8,13 @@ import test from 'node:test';
 import { executeGovernedTool, listGovernedTools, retryGovernedTool } from './governedTools.js';
 import type { GovernedToolContext } from './governedToolTypes.js';
 
+// Windows releases a terminated process's handles asynchronously: a fixture directory can stay
+// locked for a few hundred milliseconds after the process that used it as its working directory
+// has already exited. `force` suppresses ENOENT, not EBUSY, so an un-retried recursive remove
+// fails here intermittently. This only makes teardown robust; it weakens no assertion, and a
+// directory that is genuinely un-removable still fails the test once the retries are exhausted.
+const REMOVE_FIXTURE = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 } as const;
+
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -116,7 +123,7 @@ test('adversarial tool requests cannot escape scope, smuggle commands, widen aut
     assert.equal(externalUrl.ok, false);
     if (!externalUrl.ok) assert.equal(externalUrl.code, 'TOOL_INPUT_INVALID');
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, REMOVE_FIXTURE);
   }
 });
 
@@ -175,7 +182,7 @@ test('authorized changes snapshot, apply exactly, move, delete, and restore with
     assert.equal(configured.ok, true);
     assert.equal(JSON.parse(await fs.readFile(path.join(root, 'config.json'), 'utf8')).feature.enabled, true);
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, REMOVE_FIXTURE);
   }
 });
 
@@ -196,7 +203,7 @@ test('allowlisted checks and governed process lifecycle execute without a model-
     handle = null;
   } finally {
     if (handle) await executeGovernedTool({ name: 'project.stop', input: { handle } }, context);
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, REMOVE_FIXTURE);
   }
 });
 
@@ -257,7 +264,7 @@ test('real browser tools capture, inspect, interact, check responsive layout, an
     }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, REMOVE_FIXTURE);
   }
 });
 
