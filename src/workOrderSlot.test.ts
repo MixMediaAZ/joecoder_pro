@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  WorkOrderCreateSchema,
+  buildDraftWorkOrder,
   getActiveMutatingWorkOrder,
   terminalStatusForDeadWorkOrder,
   TERMINAL_WORK_ORDER_STATUSES
@@ -94,4 +96,29 @@ test('the wedge sequence self-heals end to end', () => {
   assert.equal(reconcileTerminalWorkOrder(holder, order), true);
   assert.equal(holder.activeWorkOrderId, undefined);
   assert.equal(getActiveMutatingWorkOrder(orders, holder.activeWorkOrderId), null);
+});
+
+test('a draft Work Order accepts and carries evidence targets end to end', () => {
+  // Regression: taskSpecific is a strict zod schema. evidenceTargets was added to the TypeScript
+  // type and the draft assembly but not the schema, so every dependency-repair draft failed with
+  // "Schema validation failed" at the plan stage -- on the live server only, because nothing in
+  // the suite exercised WorkOrderCreateSchema. This test closes that gap.
+  const body = WorkOrderCreateSchema.parse({
+    id: 'JC20-M2-900',
+    intent: 'repair',
+    objective: 'fix dependency install',
+    scope: { exactPaths: ['pubspec.yaml'], operations: ['edit_files'] },
+    acceptance: [{ id: 'A1', criterion: 'installs', mandatory: true }],
+    budgets: { maxFiles: 3, maxDurationMs: 60000 },
+    taskSpecific: {
+      assumptions: ['Recorded failure evidence: constraint cannot resolve'],
+      constraints: [],
+      risks: [],
+      evidenceArtifacts: [],
+      evidenceTargets: ['pubspec.yaml']
+    }
+  });
+  const draft = buildDraftWorkOrder(body);
+  assert.deepEqual(draft.taskSpecific?.evidenceTargets, ['pubspec.yaml']);
+  assert.equal(draft.status, 'draft');
 });

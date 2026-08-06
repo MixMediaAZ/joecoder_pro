@@ -94,7 +94,8 @@ export const WorkOrderCreateSchema = z.object({
     assumptions: z.array(z.string()).optional(),
     constraints: z.array(z.string()).optional(),
     risks: z.array(z.string()).optional(),
-    evidenceArtifacts: z.array(z.string()).optional()
+    evidenceArtifacts: z.array(z.string()).optional(),
+    evidenceTargets: z.array(z.string()).optional()
   }).strict().optional(),
   donorDisposition: z.object({
     origin: z.string(),
@@ -171,7 +172,10 @@ export function buildDraftWorkOrder(body: z.infer<typeof WorkOrderCreateSchema>)
     assumptions: body.taskSpecific?.assumptions || [],
     constraints: body.taskSpecific?.constraints || [],
     risks: body.taskSpecific?.risks || [],
-    evidenceArtifacts: body.taskSpecific?.evidenceArtifacts || []
+    evidenceArtifacts: body.taskSpecific?.evidenceArtifacts || [],
+    // Evidence-identified files the edit stage is required to touch; dropped here would mean
+    // the enforcement silently never fires.
+    evidenceTargets: body.taskSpecific?.evidenceTargets || []
   };
 
   if (body.donorDisposition) {
