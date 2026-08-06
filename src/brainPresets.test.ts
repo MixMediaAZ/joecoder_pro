@@ -25,7 +25,7 @@ const guidanceFields = [
 test('Project Brain presets preserve the complete canonical law foundation', () => {
   assert.equal(lawSpec.rules.length, CANONICAL_LAW_COUNT);
   assert.equal(CANONICAL_LAW_VERSION, lawSpec.specVersion);
-  assert.equal(BRAIN_GUIDANCE_VERSION, '1.3.2');
+  assert.equal(BRAIN_GUIDANCE_VERSION, '1.4.0');
   assert.deepEqual([...CANONICAL_LAW_FAMILIES].sort(), registryFamilies);
 
   const presets = listBrainGuidancePresets();

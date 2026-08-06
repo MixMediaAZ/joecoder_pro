@@ -2141,3 +2141,19 @@ body.resizing-rail #rail { pointer-events: none; }
   background: rgba(244, 239, 230, 0.07);
   border-radius: 5px;
 }
+
+/* A Project Brain field that the server will refuse, shown disabled with its reason instead of
+   failing on Save. */
+.brain-field-blocked textarea[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: rgba(31, 28, 24, 0.04);
+}
+
+.field-blocked-reason {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--muted);
+}

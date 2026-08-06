@@ -19,8 +19,17 @@ function tokens(value: string): Set<string> {
   return new Set(value.toLowerCase().match(/[a-z0-9_./-]{3,}/g) || []);
 }
 
+// Standing context applies to every task regardless of wording. Preferences and constraints were
+// always treated this way; environment and architecture belong with them because they describe the
+// machine and the shape of the system, not a topic. Leaving them on token overlap meant a request
+// like "fix the login bug" silently dropped the operator's Windows/deploy facts unless those notes
+// happened to contain the word "login", "bug" or "fix" — the retrieval was a coincidence, and the
+// omission was invisible in the prompt. Decisions and known issues stay task-relevant recall, which
+// is what they are.
+const STANDING_CATEGORIES = new Set(['preferences', 'constraints', 'environment', 'architecture']);
+
 function relevance(record: ProjectMemoryRecord, task: string): number {
-  if (record.category === 'preferences' || record.category === 'constraints') return 4;
+  if (STANDING_CATEGORIES.has(record.category)) return 4;
   const taskTokens = tokens(task);
   const contentTokens = tokens(record.content);
   let score = record.category === 'purpose' ? 2 : 0;
