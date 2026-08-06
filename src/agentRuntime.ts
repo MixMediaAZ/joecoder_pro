@@ -12,7 +12,7 @@ import {
   type AgentJobTerminalState
 } from './database/database.js';
 
-export const AGENT_ACTION_SEQUENCE = [
+export const AGENT_ACTION_CATALOG = [
   'capture_objective',
   'establish_evidence',
   'produce_plan',
@@ -22,7 +22,7 @@ export const AGENT_ACTION_SEQUENCE = [
   'finalize'
 ] as const;
 
-export type AgentRuntimeAction = typeof AGENT_ACTION_SEQUENCE[number];
+export type AgentRuntimeAction = typeof AGENT_ACTION_CATALOG[number];
 
 export interface AgentRuntimeSnapshot extends Record<string, unknown> {
   schemaVersion: 1;
@@ -118,13 +118,21 @@ const ACTION_PRESENTATION: Record<AgentRuntimeAction, {
 function initialState(job: AgentJobRecord): AgentRuntimeSnapshot {
   const candidate = job.runtimeState as Partial<AgentRuntimeSnapshot>;
   if (candidate.schemaVersion === 1 && Array.isArray(candidate.completedActions)) {
+    const completedActions = candidate.completedActions.filter(
+      (action): action is AgentRuntimeAction => AGENT_ACTION_CATALOG.includes(action as AgentRuntimeAction)
+    );
     return {
       ...candidate,
       schemaVersion: 1,
-      completedActions: candidate.completedActions.filter(
-        (action): action is AgentRuntimeAction => AGENT_ACTION_SEQUENCE.includes(action as AgentRuntimeAction)
-      ),
-      transitionCount: Number(candidate.transitionCount || 0)
+      completedActions,
+      transitionCount: Number(candidate.transitionCount || 0),
+      objectiveRecorded: candidate.objectiveRecorded ?? completedActions.includes('capture_objective'),
+      evidenceReady: candidate.evidenceReady ?? completedActions.includes('establish_evidence'),
+      planRevision: candidate.planRevision ?? (completedActions.includes('produce_plan') ? 1 : 0),
+      authorizationSealed: candidate.authorizationSealed ?? completedActions.includes('seal_authorization'),
+      executionCompleted: candidate.executionCompleted ?? completedActions.includes('execute_change'),
+      verificationEvaluated: candidate.verificationEvaluated ?? completedActions.includes('evaluate_verification'),
+      finalizedAt: candidate.finalizedAt ?? (completedActions.includes('finalize') ? 1 : undefined)
     };
   }
   return {
@@ -143,8 +151,16 @@ function loadState(job: AgentJobRecord): AgentRuntimeSnapshot {
   return initialState(job);
 }
 
-function selectNextAction(state: AgentRuntimeSnapshot): AgentRuntimeAction | null {
-  return AGENT_ACTION_SEQUENCE.find((action) => !state.completedActions.includes(action)) || null;
+export function selectNextPermittedAction(state: AgentRuntimeSnapshot): AgentRuntimeAction | null {
+  const done = (action: AgentRuntimeAction) => state.completedActions.includes(action);
+  if (!state.objectiveRecorded && !done('capture_objective')) return 'capture_objective';
+  if (!state.evidenceReady && !done('establish_evidence')) return 'establish_evidence';
+  if (!state.planRevision || !state.workOrderId || !state.plan) return 'produce_plan';
+  if (!state.authorizationSealed && !done('seal_authorization')) return 'seal_authorization';
+  if (!state.executionCompleted && !state.executionResult && !done('execute_change')) return 'execute_change';
+  if ((!state.verificationEvaluated && !done('evaluate_verification')) || !state.requestedTerminalState) return 'evaluate_verification';
+  if (!state.finalizedAt && !done('finalize')) return 'finalize';
+  return null;
 }
 
 function actionKey(job: AgentJobRecord, state: AgentRuntimeSnapshot, action: AgentRuntimeAction): string {
@@ -280,7 +296,7 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
   }
 
   const state = loadState(job);
-  const action = selectNextAction(state);
+  const action = selectNextPermittedAction(state);
   if (!action) {
     const terminal = (state.terminalState as AgentJobTerminalState | undefined) || 'failed_safe';
     const reason = String(state.terminalReason || 'The runtime exhausted its actions without a terminal proof.');
@@ -373,7 +389,7 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
       terminalReason: outcome.terminalReason || terminalMessage(outcome.terminalState)
     } : {})
   };
-  const nextAction = selectNextAction(nextState);
+  const nextAction = selectNextPermittedAction(nextState);
   const terminal = outcome.terminalState || (action === 'finalize'
     ? (nextState.terminalState as AgentJobTerminalState | undefined)
     : undefined);

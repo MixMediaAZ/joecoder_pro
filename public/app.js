@@ -1657,6 +1657,15 @@ const renderWorkshopOverlayBeforeSettingsPolish = renderWorkshopOverlay;
 renderWorkshopOverlay = function renderHighContrastSettingsOverlay() {
   let html = renderWorkshopOverlayBeforeSettingsPolish();
   if (state.panel !== 'settings') return html;
+  const governance = state.workshopSettings?.governance;
+  const counts = governance?.statusSummary || {};
+  const limitations = Array.isArray(governance?.limitations) ? governance.limitations : [];
+  const governanceCard = '<div class="settings-section governance-truth"><h3>Governance truth</h3>' +
+    '<p class="settings-rule">Canonical laws ' + escapeHtml(governance?.canonicalVersion || 'unavailable') + ' · implementation ' + escapeHtml(governance?.amendmentVersion || 'unavailable') +
+    ' · ' + escapeHtml(String(counts.enforced || 0)) + ' enforced · ' + escapeHtml(String(counts.partial || 0)) + ' ratified boundaries · ' + escapeHtml(String(counts.missing || 0)) + ' missing.</p>' +
+    (limitations.length ? '<details><summary>Review verified limitations</summary><div class="settings-boundaries">' + limitations.map(item =>
+      '<article><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.id + ' · ' + item.limitationId) + '</small><p>' + escapeHtml(item.boundary) + '</p></article>'
+    ).join('') + '</div></details>' : '<p class="settings-rule">No ratified limitations are recorded.</p>') + '</div>';
   const liveControls = '<div class="settings-section settings-actions"><h3>Joe Live</h3>' +
     '<p class="settings-rule">Choose how Joe presents the visible work account. These display preferences do not change permissions.</p>' +
     '<div class="settings-link-list">' +
@@ -1673,7 +1682,7 @@ renderWorkshopOverlay = function renderHighContrastSettingsOverlay() {
         '<span class="settings-link-state">' + (state.level === 'builder' ? 'Shown' : 'Hidden') + ' <b aria-hidden="true">&rsaquo;</b></span>' +
       '</button>' +
     '</div></div>';
-  html = html.replace('<section class="workshop-overlay overlay-wide">', '<section class="workshop-overlay overlay-wide settings-overlay" aria-labelledby="settings-title">');
+  html = html.replace('<section class="workshop-overlay overlay-wide">', '<section class="workshop-overlay overlay-wide settings-overlay" aria-labelledby="settings-title">');  html = html.replace('<div class="settings-section"><h3>Capabilities</h3>', governanceCard + '<div class="settings-section"><h3>Capabilities</h3>');
   html = html.replace('<h2>Models, privacy, and behavior</h2>', '<h2 id="settings-title">Models, privacy, and behavior</h2><p class="settings-intro">Connection truth, guarded capabilities, and how Joe keeps you informed.</p>');
   html = html.replace(/<div class="settings-section"><h3>Joe Live<\/h3>[\s\S]*?<\/div><div class="overlay-actions">/, liveControls + '<div class="overlay-actions settings-done">');
   return html;
@@ -1953,269 +1962,8 @@ const AUTO_JOB_STAGE_ORDER = [
   { id: 'check', label: 'Verify' }
 ];
 
-function inferAutoJobIntent(objective, survey) {
-  const text = String(objective || '').toLowerCase();
-  const asksForChange = /\b(fix|repair|change|update|refactor|redesign|replace|remove|add|implement|improve|finish|complete|wire|connect|correct|build|create|scaffold)\b/.test(text);
-  const asksForReadOnly = /\b(inspect|review|audit|analy[sz]e|assess|survey|explain|investigate|diagnose|report|find bugs|look for bugs)\b/.test(text);
-  if (asksForReadOnly && !asksForChange) return 'inspect';
-  const totalFiles = Number(survey?.summary?.totalFiles ?? survey?.result?.summary?.totalFiles ?? 999999);
-  const asksForNewBuild = /\b(build|create|scaffold|start|new app|new site|from scratch)\b/.test(text);
-  return totalFiles === 0 && asksForNewBuild ? 'build' : 'repair';
-}
-
-function autoJobProjectStillOpen(projectId) {
-  if (state.currentProject?.id !== projectId) {
-    throw new Error('The automatic job stopped because you left its project. Return to the project to review its current recorded state.');
-  }
-}
-
-function setAutoJobStage(stage, message, what, meaning, next) {
-  if (!state.autoJob) return;
-  state.autoJob = { ...state.autoJob, stage, message };
-  if (what) beginNarration(what, meaning || message, next || 'Joe will stop if a guardrail cannot be proven.');
-  render();
-}
-
-function renderAutoJobStatus() {
-  const job = state.autoJob;
-  if (!job || job.status === 'done') return '';
-  const currentIndex = AUTO_JOB_STAGE_ORDER.findIndex(item => item.id === job.stage);
-  const steps = AUTO_JOB_STAGE_ORDER.map((item, index) => {
-    const stepState = job.status === 'failed' && index === currentIndex
-      ? 'failed'
-      : index < currentIndex
-        ? 'done'
-        : index === currentIndex
-          ? 'current'
-          : 'waiting';
-    return '<div class="auto-job-step ' + stepState + '"><span>' + (index + 1) + '</span><strong>' + escapeHtml(item.label) + '</strong></div>';
-  }).join('');
-  return '<section class="auto-job-status ' + (job.status === 'failed' ? 'failed' : '') + '" aria-live="polite">' +
-    '<div class="auto-job-head"><div><div class="eyebrow">Joe automatic job</div><h2>' +
-    escapeHtml(job.status === 'failed' ? 'Stopped safely' : 'Handling the job') + '</h2></div><span class="badge ' +
-    (job.status === 'failed' ? 'warn' : 'ok') + '">' + escapeHtml(job.status === 'failed' ? 'Needs review' : 'Working') + '</span></div>' +
-    '<p class="auto-job-objective">' + escapeHtml(job.objective) + '</p><div class="auto-job-steps">' + steps + '</div>' +
-    '<p class="auto-job-message">' + escapeHtml(job.message || 'Joe is moving through the guarded stages.') + '</p>' +
-    '<p class="auto-job-boundary">One objective, one sealed Work Order, one mutation attempt. Scope cannot expand. Failed checks stop and restore the snapshot.</p></section>';
-}
-
-async function refreshAutoJobProject(projectId) {
-  const data = await api('/api/v1/projects/' + projectId);
-  autoJobProjectStillOpen(projectId);
-  state.currentProject = data.project;
-  state.latestSurvey = data.latestSurvey || null;
-  return data;
-}
-
-async function runAutomatedJob(requestedObjective, activeWorkOrderId = null) {
-  const project = state.currentProject;
-  const thread = state.currentThread;
-  if (!project || !thread) return showError('Open a project conversation before starting an automatic job.');
-  if (state.autoJob?.running) return showNotice('Joe is already handling this job.');
-  const active = activeWorkOrderId
-    ? state.workOrders.find(item => item.id === activeWorkOrderId)
-    : activeProjectWorkOrder();
-  if (active && !activeWorkOrderId) {
-    return showError('A guarded job is already active. Tell Joe to continue, or use Resume job, so it completes that recorded scope instead of starting another.');
-  }
-
-  let objective = String(active?.objective || requestedObjective || '').trim();
-  if (!objective) return showError('Tell Joe the outcome you want, then press Send.');
-  if (objective.length > 500) return showError('Keep the automatic job request under 500 characters so its authorization stays precise.');
-  const projectId = project.id;
-  let workOrder = active || null;
-  let result = null;
-
-  clearMessages();
-  state.lastRunResult = null;
-  state.reviewAction = null;
-  state.autoJob = {
-    running: true,
-    status: 'running',
-    stage: workOrder ? 'authorize' : 'chat',
-    objective,
-    message: workOrder ? 'Taking over the existing bounded Work Order.' : 'Recording your objective in this conversation.'
-  };
-  state.busy = true;
-  state.chatBusy = true;
-  state.joeStatus = 'working';
-  beginNarration(
-    workOrder ? 'I am taking over the current Work Order.' : 'I am taking responsibility for this bounded job.',
-    'Your Send action authorizes Joe to move through the guarded stages for this one clear work request without asking at every checkpoint.',
-    'I will stop on missing evidence, unsafe scope, unavailable capability, failed verification, or incomplete rollback.'
-  );
-  render();
-
-  try {
-    if (!workOrder) {
-      setAutoJobStage('chat', 'Recording the objective and checking it against current project truth.',
-        'I am recording your request in the project conversation.',
-        'The work request supplies the objective and an explicit one-job grant; server guardrails still control every permitted operation.',
-        'Next I will establish fresh evidence if the project needs it.');
-      const chat = await api('/api/v1/projects/' + projectId + '/threads/' + thread.id + '/chat', {
-        method: 'POST',
-        body: JSON.stringify({ content: objective }),
-        timeoutMs: 30000
-      });
-      autoJobProjectStillOpen(projectId);
-      state.currentThread = chat.thread || thread;
-      state.messages = chat.messages || [];
-      state.chatSuggestions = chat.reply?.suggestions || [];
-
-      const needsInspection = !state.currentProject.latestSurveyId ||
-        state.latestSurvey?._integrity?.verified === false ||
-        ['folder_selected', 'complete', 'partial', 'blocked', 'cancelled'].includes(state.currentProject.workflowStage);
-      setAutoJobStage('inspect',
-        needsInspection ? 'Reading the build without changing it.' : 'Using the current verified inspection.',
-        needsInspection ? 'I am running a fresh read-only inspection.' : 'I found a current verified inspection.',
-        needsInspection ? 'This establishes the file inventory and project revision before planning.' : 'The recorded evidence is still current for this project revision.',
-        'Next I will accept the observed build for bounded planning.');
-      if (needsInspection) {
-        await api('/api/v1/survey', {
-          method: 'POST',
-          body: JSON.stringify({ path: project.path, projectId }),
-          timeoutMs: 120000
-        });
-        autoJobProjectStillOpen(projectId);
-      }
-      await refreshAutoJobProject(projectId);
-
-      setAutoJobStage('plan', 'Selecting the safe job type and asking the configured model route for an exact plan.',
-        'I am accepting the inspected build and planning the smallest complete job.',
-        'Acceptance stays read-only. The model may propose files, but server guardrails decide whether that scope is valid.',
-        'A valid plan will be sealed to this objective before execution.');
-      const accepted = await api('/api/v1/projects/' + projectId + '/accept', { method: 'POST', body: '{}' });
-      autoJobProjectStillOpen(projectId);
-      if (accepted.project) state.currentProject = accepted.project;
-      const intent = inferAutoJobIntent(objective, state.latestSurvey);
-      const draft = await api('/api/v1/work-orders/from-survey', {
-        method: 'POST',
-        body: JSON.stringify({ surveyId: state.currentProject.latestSurveyId, objective, intent }),
-        timeoutMs: intent === 'inspect' ? 30000 : 210000
-      });
-      autoJobProjectStillOpen(projectId);
-      workOrder = draft.workOrder;
-      if (!workOrder?.id) throw new Error('Joe did not receive a valid Work Order from the planning stage.');
-    }
-
-    setAutoJobStage('authorize', 'Sealing the exact scope and recording your one-job automatic grant.',
-      'I am validating and sealing the Work Order.',
-      'The grant is evidence-linked to this project, conversation, exact objective, scope, budgets, and one attempt.',
-      'If the sealed envelope is valid, I will run it without another approval prompt.');
-    if (workOrder.status === 'draft') {
-      const authorization = await api('/api/v1/work-orders/' + workOrder.id + '/authorize', {
-        method: 'POST',
-        body: JSON.stringify({
-          grantedBy: 'local-operator:auto-job',
-          automationGrant: {
-            mode: 'bounded_auto_job',
-            projectId,
-            threadId: thread.id,
-            objective: workOrder.objective,
-            maxAttempts: 1
-          }
-        })
-      });
-      autoJobProjectStillOpen(projectId);
-      workOrder = authorization.workOrder;
-    }
-    if (workOrder.status !== 'authorized') {
-      throw new Error('Automatic execution requires a successfully sealed authorized Work Order; current status is ' + workOrder.status + '.');
-    }
-
-    const repair = (workOrder.scope?.operations || []).includes('edit_files');
-    setAutoJobStage('run', repair ? 'Protecting the approved files, making the change, and running project checks.' : 'Creating the approved handoff without changing source files.',
-      repair ? 'I am running the sealed repair now.' : 'I am creating the sealed read-only handoff now.',
-      repair ? "Joe snapshots first, writes only approved files, and uses the project's available build and tests." : 'All output stays under JoeCoder protected storage.',
-      repair ? 'Failed verification triggers restoration before Joe reports the result.' : 'Completion still requires verified handoff evidence.');
-    result = await api('/api/v1/work-orders/' + workOrder.id + '/apply', {
-      method: 'POST',
-      body: JSON.stringify({ action: repair ? 'apply_edits' : 'export_handoff' }),
-      timeoutMs: repair ? 640000 : 90000
-    });
-    autoJobProjectStillOpen(projectId);
-
-    setAutoJobStage('check', 'Reading the completion evidence and reporting only what was actually proven.',
-      'The authorized action finished. I am checking its recorded proof.',
-      'Completion is derived from mandatory evidence; it is never declared just because the process returned.',
-      'I will show the files, checks, and evidence receipt in the workspace.');
-    const proofLevel = repair ? clientVerificationProofLevel(result.verification) : 'runtime';
-    state.lastRunResult = {
-      projectId,
-      workOrderId: workOrder.id,
-      action: repair ? 'apply_edits' : 'export_handoff',
-      applied: result.applied || [],
-      verification: result.verification || null,
-      evidenceId: result.evidenceId || null,
-      exportPath: result.exportPath || null,
-      completedAt: new Date().toISOString()
-    };
-    await openProject(projectId);
-    state.reviewAction = null;
-    state.stage = 'complete';
-    state.joeStatus = repair && proofLevel !== 'runtime' ? 'waiting' : 'complete';
-    state.autoJob = {
-      running: false,
-      status: 'done',
-      stage: 'check',
-      objective,
-      message: proofLevel === 'runtime' || !repair
-        ? 'The bounded job finished with its proof receipt.'
-        : 'The file change finished, but runtime behavior remains unproven.'
-    };
-    beginNarration(
-      !repair
-        ? 'I created and verified the bounded handoff.'
-        : proofLevel === 'runtime'
-          ? 'I finished the bounded automatic job with passing runtime checks.'
-          : proofLevel === 'integrity'
-            ? 'I finished the authorized file change; runtime behavior remains unproven.'
-            : 'I finished the file operation without enough runtime proof.',
-      !repair
-        ? 'The handoff stayed under JoeCoder storage and source files remained unchanged.'
-        : proofLevel === 'runtime'
-          ? 'The available project build or tests passed after the approved changes.'
-          : 'The changed files were hash-checked, but no runnable build or test proved the application behavior.',
-      proofLevel === 'runtime' || !repair
-        ? 'Continue chatting about the result or describe the next job.'
-        : 'Review the recorded files, then add or run a real build/test before treating the product as verified.'
-    );
-    showNotice(proofLevel === 'runtime' || !repair
-      ? 'Bounded job finished with verified proof. Keep chatting with Joe.'
-      : 'File change recorded; runtime remains unproven. Review the proof in the conversation.');
-  } catch (error) {
-    try {
-      if (state.currentProject?.id === projectId) await openProject(projectId);
-    } catch {}
-    const rolledBack = error?.details?.rolledBack === true;
-    const rollbackIncomplete = error?.code === 'ROLLBACK_INCOMPLETE' || error?.details?.rollbackRequired === true;
-    state.autoJob = {
-      running: false,
-      status: 'failed',
-      stage: state.autoJob?.stage || 'check',
-      objective,
-      message: rollbackIncomplete
-        ? 'Joe stopped. Complete rollback could not be proven, so further automatic mutation is blocked.'
-        : rolledBack
-          ? 'Joe stopped and restored the pre-job snapshot.'
-          : 'Joe stopped before it could prove safe completion.'
-    };
-    state.joeStatus = 'blocked';
-    failNarration(
-      error.message,
-      rollbackIncomplete
-        ? 'Review the reported recovery evidence before any further mutation.'
-        : rolledBack
-          ? 'The original files were restored. Review the failed check before trying a new bounded job.'
-          : 'Review the visible guardrail result; Joe will not widen the job or silently continue.'
-    );
-    showError(error);
-  } finally {
-    state.busy = false;
-    state.chatBusy = false;
-    render();
-  }
-}
+let runAutomatedJob;
+function renderAutoJobStatus() { return ''; }
 
 // Automatic jobs enter through the same Send action as normal conversation.
 // The smart-chat renderer below keeps the guarded engine behind one prompt.

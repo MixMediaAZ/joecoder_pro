@@ -20,7 +20,7 @@ import {
   upsertProject
 } from './database/database.js';
 import {
-  AGENT_ACTION_SEQUENCE,
+  AGENT_ACTION_CATALOG,
   runAgentRuntimeStep,
   type AgentRuntimeAction,
   type AgentRuntimeDriver
@@ -104,9 +104,9 @@ test('durable runtime resumes after every transition without repeating an action
     const calls = new Map<AgentRuntimeAction, number>();
     const driver = deterministicDriver(calls);
 
-    for (let index = 0; index < AGENT_ACTION_SEQUENCE.length; index += 1) {
+    for (let index = 0; index < AGENT_ACTION_CATALOG.length; index += 1) {
       const step = await runAgentRuntimeStep(job.id, driver);
-      assert.equal(step.action, AGENT_ACTION_SEQUENCE[index]);
+      assert.equal(step.action, AGENT_ACTION_CATALOG[index]);
       assert.equal(step.recoveredResult, false);
       if (step.terminal) break;
 
@@ -124,12 +124,12 @@ test('durable runtime resumes after every transition without repeating an action
     const completed = getAgentJob(job.id)!;
     assert.equal(completed.status, 'completed');
     assert.equal(completed.terminalState, 'completed');
-    assert.equal(completed.stateVersion, AGENT_ACTION_SEQUENCE.length);
-    assert.deepEqual(completed.runtimeState.completedActions, [...AGENT_ACTION_SEQUENCE]);
-    for (const action of AGENT_ACTION_SEQUENCE) assert.equal(calls.get(action), 1, `${action} repeated`);
+    assert.equal(completed.stateVersion, AGENT_ACTION_CATALOG.length);
+    assert.deepEqual(completed.runtimeState.completedActions, [...AGENT_ACTION_CATALOG]);
+    for (const action of AGENT_ACTION_CATALOG) assert.equal(calls.get(action), 1, `${action} repeated`);
 
     const checkpoint = getAgentJobCheckpoint(job.id)!;
-    assert.equal(checkpoint.stateVersion, AGENT_ACTION_SEQUENCE.length);
+    assert.equal(checkpoint.stateVersion, AGENT_ACTION_CATALOG.length);
     assert.match(checkpoint.lastCompletedAction || '', /finalize/);
     const journal = listAgentJobJournal(job.id);
     const kinds = new Set(journal.map((entry) => entry.kind));

@@ -10,6 +10,7 @@ export interface LawImplementation {
   modules: string[];
   tests: string[];
   gap: string | null;
+  limitationId: string | null;
 }
 
 export interface CanonicalLaw {
@@ -51,7 +52,7 @@ interface ImplementationMap {
 }
 
 const CANONICAL_VERSION = '1.3.1';
-const AMENDMENT_VERSION = '1.3.2';
+const AMENDMENT_VERSION = '1.3.3';
 const CANONICAL_RULE_COUNT = 48;
 const CANONICAL_PLAN_ROOT_HASH = '39d9d5333f47f88f207f3d9dc94788f26fc1ab0dbb95d02d1b2561234c465d60';
 const CANONICAL_RULES_HASH = 'a6281838e3503b8b4bb6362c0f80dddd656499ff10428adc28705b01cda12242';
@@ -82,7 +83,7 @@ function countStatuses(mappings: LawImplementation[]): Record<ImplementationStat
 
 export async function loadCanonicalLaws(root: string): Promise<CanonicalLawsBundle> {
   const source = path.join(root, 'plan', 'ratified-1.3.1', 'spec', 'rules.json');
-  const implementationSource = path.join(root, 'plan', 'amendment-1.3.2', 'spec', 'implementation-map.json');
+  const implementationSource = path.join(root, 'plan', 'amendment-1.3.3', 'spec', 'implementation-map.json');
   const [sourceBytes, implementationBytes] = await Promise.all([fs.readFile(source), fs.readFile(implementationSource)]);
   const sourceHash = sha256(sourceBytes);
   const implementationHash = sha256(implementationBytes);
@@ -111,7 +112,7 @@ export async function loadCanonicalLaws(root: string): Promise<CanonicalLawsBund
   const mappings = implementation.mappings ?? [];
   const mappingIds = mappings.map((mapping) => mapping.id);
   if (
-    implementation.schemaVersion !== '1.0.0' || implementation.amendmentVersion !== AMENDMENT_VERSION ||
+    implementation.schemaVersion !== '1.1.0' || implementation.amendmentVersion !== AMENDMENT_VERSION ||
     implementation.canonicalPlanVersion !== CANONICAL_VERSION ||
     implementation.canonicalPlanRootHash !== CANONICAL_PLAN_ROOT_HASH ||
     implementation.canonicalRulesHash !== CANONICAL_RULES_HASH
@@ -131,8 +132,8 @@ export async function loadCanonicalLaws(root: string): Promise<CanonicalLawsBund
     if (mapping.status === 'enforced' && (!mapping.modules.length || !mapping.tests.length || mapping.gap !== null)) {
       throw new Error(`LAW_IMPLEMENTATION_UNPROVEN_ENFORCED: ${mapping.id}`);
     }
-    if (mapping.status !== 'enforced' && (!mapping.gap || mapping.gap.trim().length < 12)) {
-      throw new Error(`LAW_IMPLEMENTATION_GAP_REQUIRED: ${mapping.id}`);
+    if (mapping.status !== 'enforced' && (!mapping.gap || mapping.gap.trim().length < 12 || !mapping.limitationId)) {
+      throw new Error(`LAW_IMPLEMENTATION_RATIFIED_LIMITATION_REQUIRED: ${mapping.id}`);
     }
   }
 

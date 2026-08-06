@@ -13,6 +13,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { verifyDependencyAdmission, type DependencyInventory, type SignedEnvelope } from './supplyChain.js';
 
 export interface InstallDepsResult {
   attempted: boolean;
@@ -73,11 +74,11 @@ async function hasNodeModules(projectRoot: string): Promise<boolean> {
  */
 export async function runJailedInstall(
   projectRoot: string,
-  options: { timeoutMs?: number; force?: boolean } = {}
+  options: { timeoutMs?: number; force?: boolean; admission?: SignedEnvelope<DependencyInventory>; trustedKeyId?: string } = {}
 ): Promise<InstallDepsResult> {
   const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const root = path.resolve(projectRoot);
-  const command = 'npm install --ignore-scripts --no-audit --no-fund';
+  const command = 'npm ci --ignore-scripts --no-audit --no-fund';
 
   if (!(await hasPackageJson(root))) {
     return {
@@ -107,10 +108,27 @@ export async function runJailedInstall(
     };
   }
 
+  if (!options.admission) {
+    return {
+      attempted: false, skipped: false, command, exitCode: null, timedOut: false, passed: false, durationMs: 0,
+      outputTail: ['Dependency admission metadata is required before install.']
+    };
+  }
+  try {
+    await verifyDependencyAdmission(root, options.admission, {
+      ...(options.trustedKeyId ? { trustedKeyId: options.trustedKeyId } : {}), timeoutMs
+    });
+  } catch (error: unknown) {
+    return {
+      attempted: false, skipped: false, command, exitCode: null, timedOut: false, passed: false, durationMs: 0,
+      outputTail: [error instanceof Error ? error.message : String(error)]
+    };
+  }
+
   const started = Date.now();
   const result = spawnSync(
     'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
+    ['ci', '--ignore-scripts', '--no-audit', '--no-fund'],
     {
       cwd: root,
       shell: false,

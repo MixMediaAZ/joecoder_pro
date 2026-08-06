@@ -35,6 +35,7 @@ import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
 import { compactEvidenceLinkedHistory } from './structuredControl.js';
 import { buildTaskMemoryPrompt } from './projectMemory.js';
 import { runJailedInstall } from './installDeps.js';
+import { inventoryNpmDependencies, loadOrCreateSigningIdentity, signEnvelope } from './supplyChain.js';
 import { SOURCE_REPAIR_CAPABILITY, runtimeCapabilities, sourceRepairDeniedPayload } from './capabilities.js';
 import { sealAuthorizationEnvelope, verifyAuthorizationEnvelope } from './authorization.js';
 import { classifyInterruptedExecution } from './recovery.js';
@@ -104,6 +105,7 @@ const PORT = process.env.JC_PORT ? parseInt(process.env.JC_PORT, 10) : 0;
 const HOST = process.env.JC_HOST || '127.0.0.1';
 const RUNTIME_STATE_FILE = path.join(DATA_DIR, 'server-runtime.json');
 const LAUNCHER_SECRET = opaqueToken();
+const AGENT_RUNTIME_TOKEN = opaqueToken();
 
 async function writeRuntimeState(port: number): Promise<void> {
   await atomicWriteFile(RUNTIME_STATE_FILE, JSON.stringify({
@@ -546,11 +548,18 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           wo,
           'repair.installing',
           'I am running an authorized jailed dependency install.',
-          'cwd is the project root only; npm install --ignore-scripts; scripts are never executed.',
+          'The pinned lockfile and package integrity are verified first; npm ci runs at project root with scripts disabled.',
           'After install I will run verification.'
         );
         const installTimeout = Math.min(wo.budgets.maxDurationMs || 180000, 300000);
-        installResult = await runJailedInstall(project.path, { timeoutMs: installTimeout });
+        const signingIdentity = await loadOrCreateSigningIdentity(path.join(DATA_DIR, 'signing'));
+        const dependencyInventory = await inventoryNpmDependencies(project.path, Math.min(installTimeout, 10_000));
+        const admission = signEnvelope(dependencyInventory, signingIdentity.privateKeyPem);
+        installResult = await runJailedInstall(project.path, {
+          timeoutMs: installTimeout,
+          admission,
+          trustedKeyId: signingIdentity.keyId
+        });
         await narrateWorkOrder(
           wo,
           installResult.passed ? 'repair.install_finished' : 'repair.install_failed',
@@ -1518,6 +1527,14 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
       providers: listProviderProfiles(),
       liveProviderStatus: await providerStatus(),
       capabilities: runtimeCapabilities(),
+      governance: {
+        canonicalVersion: laws.canonicalVersion,
+        amendmentVersion: laws.amendmentVersion,
+        statusSummary: laws.statusSummary,
+        limitations: laws.laws
+          .filter(law => law.implementation.status === 'partial')
+          .map(law => ({ id: law.id, title: law.title, boundary: law.implementation.gap, limitationId: law.implementation.limitationId }))
+      },
       rules: {
         secrets: 'Environment variables only; JoeCoder never returns or stores secret values.',
         cloud: 'Cloud use requires an explicit non-zero Work Order budget.',
@@ -1665,8 +1682,19 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     return {
       baseUrl: `${req.protocol}://${host}`,
       cookie: req.headers.cookie || '',
-      csrfToken: req.jcSession.csrfToken
+      csrfToken: req.jcSession.csrfToken,
+      runtimeToken: AGENT_RUNTIME_TOKEN
     };
+  }
+
+  function requireDurableAgentRuntime(req: express.Request, res: express.Response): boolean {
+    const supplied = req.get('X-JC-Agent-Runtime') || '';
+    if (constantTimeEqual(supplied, AGENT_RUNTIME_TOKEN)) return true;
+    res.status(410).json({
+      error: 'This legacy lifecycle endpoint is internal. Start or control work through the project conversation.',
+      code: 'DURABLE_AGENT_RUNTIME_REQUIRED'
+    });
+    return false;
   }
 
   app.get('/api/v1/projects/:id/agent-jobs', (req, res) => {
@@ -1873,6 +1901,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
   // Accept project for further work (R1 stage transition)
   app.post('/api/v1/projects/:id/accept', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const proj = projects.get(req.params.id);
       if (!proj) return res.status(404).json({ error: 'Project not found' });
@@ -2000,6 +2029,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   app.post('/api/v1/work-orders', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const parsed = WorkOrderCreateSchema.safeParse(req.body || {});
       if (!parsed.success) {
@@ -2054,6 +2084,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
   // Authorize a draft Work Order (B4)
   app.post('/api/v1/work-orders/:id/authorize', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);
       if (!wo) return res.status(404).json({ error: 'Work Order not found' });
@@ -2205,6 +2236,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
   // Cancel a draft or authorized Work Order  // Cancel a draft or authorized Work Order
   app.post('/api/v1/work-orders/:id/cancel', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);
       if (!wo) return res.status(404).json({ error: 'Work Order not found' });
@@ -2257,6 +2289,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
   // Create draft WO from an existing survey (B6) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same strict schema as POST /work-orders
   app.post('/api/v1/work-orders/from-survey', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const surveyId = req.body?.surveyId;
       const objective = req.body?.objective;
@@ -2854,6 +2887,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
   // First authorized apply path ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â safe export_handoff only (no source-tree mutation)
   app.post('/api/v1/work-orders/:id/apply', async (req, res) => {
+    if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);
       if (!wo) return res.status(404).json({ error: 'Work Order not found' });

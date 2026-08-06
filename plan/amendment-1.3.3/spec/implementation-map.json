@@ -1,0 +1,688 @@
+{
+  "schemaVersion": "1.1.0",
+  "amendmentVersion": "1.3.3",
+  "canonicalPlanVersion": "1.3.1",
+  "canonicalPlanRootHash": "39d9d5333f47f88f207f3d9dc94788f26fc1ab0dbb95d02d1b2561234c465d60",
+  "canonicalRulesHash": "a6281838e3503b8b4bb6362c0f80dddd656499ff10428adc28705b01cda12242",
+  "generatedFrom": [
+    "spec/enforcement-points.json",
+    "../RATIFIED_LIMITATIONS.json"
+  ],
+  "auditedOn": "2026-08-05",
+  "summary": {
+    "enforced": 27,
+    "partial": 21,
+    "missing": 0
+  },
+  "mappings": [
+    {
+      "id": "JC-TRUTH-001",
+      "status": "enforced",
+      "modules": [
+        "src/completion.ts",
+        "src/evidence.ts"
+      ],
+      "tests": [
+        "src/completion.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TRUTH-002",
+      "status": "enforced",
+      "modules": [
+        "src/completion.ts",
+        "src/verification.ts"
+      ],
+      "tests": [
+        "src/verificationProof.test.ts",
+        "src/completion.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TRUTH-003",
+      "status": "enforced",
+      "modules": [
+        "src/completion.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/completion.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TRUTH-004",
+      "status": "enforced",
+      "modules": [
+        "src/evidence.ts",
+        "src/chat.ts"
+      ],
+      "tests": [
+        "src/chat.test.ts",
+        "src/completion.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SCOPE-001",
+      "status": "partial",
+      "modules": [
+        "src/workOrder.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/scopeSemantics.test.ts"
+      ],
+      "gap": "A.C.D.Q. questions and answers are not a mandatory execution gate; automatic work relies on objective framing, ambiguity detection, and stop-for-user rules.",
+      "limitationId": "LIM-SCOPE-001"
+    },
+    {
+      "id": "JC-SCOPE-002",
+      "status": "partial",
+      "modules": [
+        "src/workOrder.ts",
+        "src/scopeSemantics.ts"
+      ],
+      "tests": [
+        "src/scopeSemantics.test.ts"
+      ],
+      "gap": "Explicit non-goals are not a required persisted field on every job.",
+      "limitationId": "LIM-SCOPE-002"
+    },
+    {
+      "id": "JC-SCOPE-003",
+      "status": "enforced",
+      "modules": [
+        "src/workflow.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/workflow.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-WO-001",
+      "status": "enforced",
+      "modules": [
+        "src/workOrder.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts",
+        "src/scopeSemantics.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-WO-002",
+      "status": "partial",
+      "modules": [
+        "src/workOrder.ts",
+        "src/database/database.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/database/database.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": "The durable Agent Job is authoritative for automatic work; legacy Work Order records do not implement every field in the ratified Work Order schema.",
+      "limitationId": "LIM-WO-002"
+    },
+    {
+      "id": "JC-WO-003",
+      "status": "enforced",
+      "modules": [
+        "src/authorization.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/authorization.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-WO-004",
+      "status": "enforced",
+      "modules": [
+        "src/workOrder.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-WO-005",
+      "status": "enforced",
+      "modules": [
+        "src/workOrder.ts",
+        "src/mutation.ts",
+        "src/verification.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts",
+        "src/authorization.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-001",
+      "status": "enforced",
+      "modules": [
+        "src/chat.ts",
+        "src/brainPresets.ts",
+        "src/authorization.ts"
+      ],
+      "tests": [
+        "src/chat.test.ts",
+        "src/brainPresets.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-002",
+      "status": "enforced",
+      "modules": [
+        "src/capabilities.ts",
+        "src/authorization.ts",
+        "src/sessionSecurity.ts"
+      ],
+      "tests": [
+        "src/capabilities.test.ts",
+        "src/authorization.test.ts",
+        "src/sessionSecurity.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-003",
+      "status": "enforced",
+      "modules": [
+        "src/mutation.ts",
+        "src/projectExplorer.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts",
+        "src/projectExplorer.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-004",
+      "status": "enforced",
+      "modules": [
+        "src/repair.ts",
+        "src/verification.ts",
+        "src/installDeps.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-005",
+      "status": "partial",
+      "modules": [
+        "src/verification.ts",
+        "src/installDeps.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Commands are bounded, shell-free, path-jailed, and process-tracked, but Windows AppContainer, restricted-token, and measured network isolation are not claimed.",
+      "limitationId": "LIM-SEC-005"
+    },
+    {
+      "id": "JC-SEC-006",
+      "status": "partial",
+      "modules": [
+        "src/providers.ts",
+        "src/projectExplorer.ts",
+        "src/sessionSecurity.ts"
+      ],
+      "tests": [
+        "src/projectExplorer.test.ts",
+        "src/sessionSecurity.test.ts"
+      ],
+      "gap": "Secrets remain environment-backed and excluded from UI evidence; Windows Credential Manager integration and complete historical-log redaction certification are not claimed.",
+      "limitationId": "LIM-SEC-006"
+    },
+    {
+      "id": "JC-SEC-007",
+      "status": "enforced",
+      "modules": [
+        "src/providers.ts",
+        "src/authorization.ts",
+        "src/workOrder.ts"
+      ],
+      "tests": [
+        "src/providers.test.ts",
+        "src/authorization.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-SEC-008",
+      "status": "partial",
+      "modules": [
+        "src/database/database.ts",
+        "src/store.ts",
+        "src/evidence.ts"
+      ],
+      "tests": [
+        "src/database/database.test.ts"
+      ],
+      "gap": "Durable records and evidence are project-scoped; OS-account isolation and exhaustive cross-version leakage certification are not claimed.",
+      "limitationId": "LIM-SEC-008"
+    },
+    {
+      "id": "JC-SEC-009",
+      "status": "partial",
+      "modules": [
+        "src/supplyChain.ts",
+        "src/installDeps.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/supplyChain.test.ts"
+      ],
+      "gap": "Pinned npm dependency admission and signed release artifacts are enforced; cryptographic admission bundles for every external model, skill, plugin, and MCP server are not supported or claimed.",
+      "limitationId": "LIM-SEC-009"
+    },
+    {
+      "id": "JC-SEC-010",
+      "status": "enforced",
+      "modules": [
+        "src/authorization.ts",
+        "src/mutation.ts",
+        "src/repair.ts"
+      ],
+      "tests": [
+        "src/authorization.test.ts",
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TXN-001",
+      "status": "enforced",
+      "modules": [
+        "src/mutation.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TXN-002",
+      "status": "partial",
+      "modules": [
+        "src/mutation.ts",
+        "src/persistence.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Scoped files are snapshotted and restored, but a complete isolated version-tree workspace is not used for every execution.",
+      "limitationId": "LIM-TXN-002"
+    },
+    {
+      "id": "JC-TXN-003",
+      "status": "partial",
+      "modules": [
+        "src/mutation.ts",
+        "src/persistence.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Each replacement is atomic and multi-file failures restore prior writes; the filesystem cannot expose the whole multi-file set as one atomic rename.",
+      "limitationId": "LIM-TXN-003"
+    },
+    {
+      "id": "JC-TXN-004",
+      "status": "enforced",
+      "modules": [
+        "src/mutation.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-TXN-005",
+      "status": "enforced",
+      "modules": [
+        "src/recovery.ts",
+        "src/index.ts",
+        "src/mutation.ts"
+      ],
+      "tests": [
+        "src/recovery.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-QA-001",
+      "status": "partial",
+      "modules": [
+        "src/verification.ts",
+        "src/completion.ts"
+      ],
+      "tests": [
+        "src/verificationProof.test.ts",
+        "src/completion.test.ts"
+      ],
+      "gap": "Supported project-specific gates run independently; unavailable stack-specific security, architecture, performance, or packaging tools remain named limitations rather than passes.",
+      "limitationId": "LIM-QA-001"
+    },
+    {
+      "id": "JC-QA-002",
+      "status": "partial",
+      "modules": [
+        "src/installDeps.ts",
+        "src/verification.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Pinned npm installs are admitted and reproducible; offline-cache guarantees and equivalent installers for every non-Node ecosystem are not claimed.",
+      "limitationId": "LIM-QA-002"
+    },
+    {
+      "id": "JC-QA-003",
+      "status": "partial",
+      "modules": [
+        "src/verification.ts",
+        "src/completion.ts",
+        "public/app.js"
+      ],
+      "tests": [
+        "src/verificationProof.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": "Browser, responsive, interaction, screenshot, and accessibility tools are available for loopback web projects; they are not universally applicable to every desktop, mobile, audio, or embedded stack.",
+      "limitationId": "LIM-QA-003"
+    },
+    {
+      "id": "JC-QA-004",
+      "status": "partial",
+      "modules": [
+        "src/authorization.ts",
+        "src/completion.ts"
+      ],
+      "tests": [
+        "src/authorization.test.ts"
+      ],
+      "gap": "Acceptance cannot widen silently; semantic detection of every possible weakened project test or policy is not claimed.",
+      "limitationId": "LIM-QA-004"
+    },
+    {
+      "id": "JC-QA-005",
+      "status": "enforced",
+      "modules": [
+        "src/evidence.ts",
+        "src/completion.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "src/completion.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-QA-006",
+      "status": "partial",
+      "modules": [
+        "src/verification.ts",
+        "src/mutation.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Affected tests and original failure evidence are rerun; full mutation testing and optimal regression selection for every language are not claimed.",
+      "limitationId": "LIM-QA-006"
+    },
+    {
+      "id": "JC-AGENT-001",
+      "status": "enforced",
+      "modules": [
+        "src/index.ts",
+        "src/workflow.ts",
+        "src/authorization.ts"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts",
+        "src/workflow.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-AGENT-002",
+      "status": "enforced",
+      "modules": [
+        "src/repair.ts",
+        "src/workOrder.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-AGENT-003",
+      "status": "enforced",
+      "modules": [
+        "src/repair.ts",
+        "src/workOrder.ts",
+        "src/evidence.ts"
+      ],
+      "tests": [
+        "src/repairEngine.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-AGENT-004",
+      "status": "partial",
+      "modules": [
+        "src/verification.ts",
+        "src/completion.ts"
+      ],
+      "tests": [
+        "src/completion.test.ts",
+        "src/verificationProof.test.ts"
+      ],
+      "gap": "Deterministic evidence gates independently reject model self-certification; a separate model reviewer persona is not a required or claimed trust boundary.",
+      "limitationId": "LIM-AGENT-004"
+    },
+    {
+      "id": "JC-AGENT-005",
+      "status": "partial",
+      "modules": [
+        "src/brainPresets.ts",
+        "src/database/database.ts",
+        "src/chat.ts"
+      ],
+      "tests": [
+        "src/brainPresets.test.ts",
+        "src/database/database.test.ts"
+      ],
+      "gap": "Memory is project-scoped, freshness-aware, evidence-linked, and non-authoritative; cryptographic source-version identities across externally moved projects are not claimed.",
+      "limitationId": "LIM-AGENT-005"
+    },
+    {
+      "id": "JC-PROV-001",
+      "status": "enforced",
+      "modules": [
+        "src/providers.ts"
+      ],
+      "tests": [
+        "src/providers.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-PROV-002",
+      "status": "enforced",
+      "modules": [
+        "src/providers.ts",
+        "src/brainPresets.ts"
+      ],
+      "tests": [
+        "src/providers.test.ts",
+        "src/brainPresets.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-PROV-003",
+      "status": "partial",
+      "modules": [
+        "src/providers.ts",
+        "src/repair.ts"
+      ],
+      "tests": [
+        "src/providers.test.ts",
+        "src/repairEngine.test.ts"
+      ],
+      "gap": "Eligible provider fallback and bounded repair exist; provider health does not survive a full service restart and failure-fingerprint routing is not claimed.",
+      "limitationId": "LIM-PROV-003"
+    },
+    {
+      "id": "JC-UX-001",
+      "status": "enforced",
+      "modules": [
+        "src/index.ts",
+        "public/app.js"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-UX-002",
+      "status": "enforced",
+      "modules": [
+        "src/index.ts",
+        "src/workflow.ts",
+        "public/app.js"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts",
+        "src/workflow.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-UX-003",
+      "status": "partial",
+      "modules": [
+        "src/index.ts",
+        "public/app.js"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts"
+      ],
+      "gap": "Committed events provide plain-language progress and proof links; complete manual accessibility certification and elimination of all technical diagnostic detail are not claimed.",
+      "limitationId": "LIM-UX-003"
+    },
+    {
+      "id": "JC-DELIV-001",
+      "status": "partial",
+      "modules": [
+        "src/index.ts",
+        "tools/check-running.mjs",
+        "public/bootstrap.js"
+      ],
+      "tests": [
+        "src/toolsIntegrity.test.ts",
+        "src/uiWiring.test.ts"
+      ],
+      "gap": "Automated startup, session, packaging, and restart checks run; a separately provisioned clean Windows user-account qualification remains external.",
+      "limitationId": "LIM-DELIV-001"
+    },
+    {
+      "id": "JC-DELIV-002",
+      "status": "enforced",
+      "modules": [
+        "src/supplyChain.ts",
+        "tools/build-release.mjs",
+        "tools/verify-release.mjs"
+      ],
+      "tests": [
+        "src/supplyChain.test.ts"
+      ],
+      "gap": null,
+      "limitationId": null
+    },
+    {
+      "id": "JC-DELIV-003",
+      "status": "partial",
+      "modules": [
+        "src/capabilities.ts",
+        "public/app.js"
+      ],
+      "tests": [
+        "src/uiWiring.test.ts"
+      ],
+      "gap": "Default automatic UI controls are live and tested and consequential legacy routes are blocked; earlier inactive renderer functions remain in public/app.js and are not production capability claims.",
+      "limitationId": "LIM-DELIV-003"
+    },
+    {
+      "id": "JC-DELIV-004",
+      "status": "partial",
+      "modules": [
+        "src/completion.ts",
+        "src/verification.ts"
+      ],
+      "tests": [
+        "src/completion.test.ts",
+        "src/verificationProof.test.ts"
+      ],
+      "gap": "Unknown, skipped, limited, or integrity-only checks disqualify full verified completion; a general-purpose time-expiring waiver issuance workflow is not exposed.",
+      "limitationId": "LIM-DELIV-004"
+    }
+  ]
+}

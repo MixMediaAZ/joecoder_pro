@@ -304,58 +304,6 @@ test('user chat thread keeps explicit high contrast on its dark bubble', () => {
   assert.ok(styles.includes('color: #e5b985;'));
   assert.ok(styles.includes('.workshop-conversation .chat-message.user .chat-body'));
 });
-test('one prompt replaces checkpoint ceremony without bypassing Joe laws', () => {
-  const composerStart = ui.indexOf('function renderCodexComposer()');
-  const composerEnd = ui.indexOf('renderComposer = renderCodexComposer;', composerStart);
-  const composer = ui.slice(composerStart, composerEnd);
-  const projectStart = ui.indexOf('renderProject = function renderConversationFirstProject()');
-  const projectEnd = ui.indexOf('runChat = async function runSmartChat', projectStart);
-  const projectView = ui.slice(projectStart, projectEnd);
-
-  assert.ok(ui.includes('function shouldAutoHandle(content)'));
-  assert.ok(ui.includes('runChat = async function runSmartChat'));
-  assert.ok(ui.includes('return runThreadChat(request)'));
-  assert.ok(ui.includes('return runAutomatedJob(request, active?.id || null)'));
-  assert.ok(ui.includes('function runAutomatedJob('));
-  assert.ok(composer.includes('id="chat-form"'));
-  assert.ok(composer.includes('id="chat-input"'));
-  assert.ok(composer.includes('type="submit"'));
-  assert.ok(composer.includes("busy ? 'Working...' : 'Send'"));
-  assert.ok(composer.includes('Questions stay read-only.'));
-  assert.equal(composer.includes('data-workshop-mode'), false);
-  assert.equal(composer.includes('btn-draft-repair'), false);
-  assert.equal(composer.includes('btn-auto-job'), false);
-  assert.ok(projectView.includes('renderCodexConversation()'));
-  assert.ok(projectView.includes('renderCodexDetails(project, survey)'));
-  assert.ok(projectView.includes('renderCodexActiveJob(active)'));
-  assert.equal(projectView.includes('renderJobPipeline('), false);
-  assert.ok(ui.includes('data-resume-auto='));
-  assert.ok(ui.includes('AUTO_JOB_STAGE_ORDER'));
-  assert.ok(ui.includes("['folder_selected', 'complete', 'partial', 'blocked', 'cancelled']"));
-  assert.ok(ui.includes("inferAutoJobIntent(objective, state.latestSurvey)"));
-  assert.ok(ui.includes("mode: 'bounded_auto_job'"));
-  assert.ok(ui.includes('maxAttempts: 1'));
-  assert.ok(ui.includes("body: JSON.stringify({ action: repair ? 'apply_edits' : 'export_handoff' })"));
-  assert.ok(ui.includes('renderAutoJobStatus()'));
-  assert.ok(ui.includes('One objective, one sealed Work Order, one attempt.'));
-  assert.ok(ui.includes("if (control.closest('.job-pipeline')) return !state.autoJob?.running;"));
-
-  assert.ok(server.includes('const AutomationGrantSchema = z.object({'));
-  assert.ok(server.includes("mode: z.literal('bounded_auto_job')"));
-  assert.ok(server.includes('maxAttempts: z.literal(1)'));
-  assert.ok(server.includes("'AUTOMATION_PROJECT_MISMATCH'"));
-  assert.ok(server.includes("'AUTOMATION_OBJECTIVE_MISMATCH'"));
-  assert.ok(server.includes("'AUTOMATION_THREAD_MISMATCH'"));
-  assert.ok(server.includes("type: 'authorization.automation_grant'"));
-  assert.ok(server.includes('automationGrantEvidenceId'));
-  assert.ok(server.includes('sealAuthorizationEnvelope(wo, authorizationProject)'));
-  assert.ok(styles.includes('/* Conversation-first Codex-style workspace */'));
-  assert.ok(styles.includes('.codex-conversation'));
-  assert.ok(styles.includes('.codex-composer'));
-  assert.ok(styles.includes('.codex-job-status'));
-  assert.ok(styles.includes('.codex-details'));
-});
-
 test('one Send delegates durable work to the server instead of browser stage choreography', () => {
   const jobs = fs.readFileSync('src/agentJobs.ts', 'utf8');
   const schema = fs.readFileSync('src/database/schema.ts', 'utf8');
@@ -367,7 +315,7 @@ test('one Send delegates durable work to the server instead of browser stage cho
   assert.ok(server.includes("app.get('/api/v1/agent-jobs/:jobId'"));
   assert.ok(server.includes('setImmediate(() => void runAgentJob(job.id, credentials))'));
   assert.ok(server.includes('interruptRunningAgentJobs()'));
-  assert.ok(jobs.includes('the authenticated public API'));
+  assert.ok(jobs.includes('the process-authenticated internal lifecycle API'));
   assert.ok(jobs.includes('authorization, idempotency, path jails'));
   assert.ok(schema.includes('CREATE TABLE IF NOT EXISTS agent_jobs'));
   assert.ok(schema.includes('CREATE UNIQUE INDEX IF NOT EXISTS agent_jobs_one_active_per_project'));
@@ -424,6 +372,15 @@ test('conversation proof is chronological, non-overlapping, and honest about run
   assert.ok(server.includes('candidate.scope.exactPaths.map(String)'));
 });
 
+test('generated governance status and every ratified limitation are visible in Settings', () => {
+  assert.ok(server.includes('statusSummary: laws.statusSummary'));
+  assert.ok(server.includes(".filter(law => law.implementation.status === 'partial')"));
+  assert.ok(ui.includes('Governance truth'));
+  assert.ok(ui.includes('Review verified limitations'));
+  assert.ok(ui.includes('governance?.limitations'));
+  assert.ok(styles.includes('/* Governance truth and ratified boundaries */'));
+  assert.ok(styles.includes('.settings-boundaries'));
+});
 test('settings modal keeps high contrast and uses wired link-style preference buttons', () => {
   assert.ok(ui.includes('renderHighContrastSettingsOverlay'));
   assert.ok(ui.includes('settings-overlay'));

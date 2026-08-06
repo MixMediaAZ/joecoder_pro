@@ -13,6 +13,7 @@ export interface AgentJobCredentials {
   baseUrl: string;
   cookie: string;
   csrfToken: string;
+  runtimeToken: string;
 }
 
 export class AgentJobHttpError extends Error {
@@ -40,7 +41,8 @@ async function callApi<T>(
   const method = options.method || 'GET';
   const headers: Record<string, string> = {
     Cookie: credentials.cookie,
-    Origin: credentials.baseUrl
+    Origin: credentials.baseUrl,
+    'X-JC-Agent-Runtime': credentials.runtimeToken
   };
   if (method === 'POST') {
     headers['Content-Type'] = 'application/json';

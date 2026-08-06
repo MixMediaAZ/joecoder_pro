@@ -52,3 +52,60 @@ test('Python fixture repairs and verifies across a long Windows path', async () 
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('Node API and database fixture begins broken, repairs one bounded file, verifies, preserves collateral files, and rolls back', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-node-api-db-'));
+  const project = path.join(root, 'project');
+  const snapshots = path.join(root, 'snapshots');
+  try {
+    await fs.mkdir(path.join(project, 'src'), { recursive: true });
+    await fs.mkdir(path.join(project, 'test'), { recursive: true });
+    await fs.writeFile(path.join(project, 'package.json'), JSON.stringify({ name: 'api-db', type: 'module', scripts: { test: 'node --test' } }));
+    await fs.writeFile(path.join(project, 'src', 'db.mjs'), "export function migrate(db){db.exec('CREATE TABLE users(id INTEGER PRIMARY KEY,name TEXT NOT NULL)')}\n");
+    const broken = "export function createUser(db,name){return db.prepare('INSERT INTO users(fullname) VALUES(?)').run(name)}\n";
+    const fixed = "export function createUser(db,name){return db.prepare('INSERT INTO users(name) VALUES(?)').run(name)}\n";
+    await fs.writeFile(path.join(project, 'src', 'api.mjs'), broken);
+    await fs.writeFile(path.join(project, 'untouched.txt'), 'preserve me\n');
+    await fs.writeFile(path.join(project, 'test', 'api.test.mjs'), [
+      "import test from 'node:test'; import assert from 'node:assert/strict'; import { DatabaseSync } from 'node:sqlite';",
+      "import { migrate } from '../src/db.mjs'; import { createUser } from '../src/api.mjs';",
+      "test('migration and API',()=>{const db=new DatabaseSync(':memory:');migrate(db);createUser(db,'David');assert.equal(db.prepare('SELECT count(*) n FROM users').get().n,1);db.close()})"
+    ].join('\n'));
+    const untouched = createHash('sha256').update(await fs.readFile(path.join(project, 'untouched.txt'))).digest('hex');
+    assert.equal((await runVerification(project, { editedRelPaths: ['src/api.mjs'], timeoutMs: 30_000 })).status, 'failed');
+    const snapshot = await snapshotScopedFiles(project, ['src/api.mjs'], snapshots);
+    await applyEdits(project, [{ relPath: 'src/api.mjs', content: fixed }], { scopeRelPaths: ['src/api.mjs'], maxFiles: 1, maxChangedLines: 2 });
+    const verified = await runVerification(project, { editedRelPaths: ['src/api.mjs'], timeoutMs: 30_000 });
+    assert.equal(verified.status, 'passed', JSON.stringify(verified, null, 2));
+    assert.equal(verificationProofLevel(verified), 'runtime');
+    assert.equal(createHash('sha256').update(await fs.readFile(path.join(project, 'untouched.txt'))).digest('hex'), untouched);
+    assert.deepEqual((await rollbackToSnapshot(snapshots, snapshot)).failures, []);
+    assert.equal(await fs.readFile(path.join(project, 'src', 'api.mjs'), 'utf8'), broken);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('Ambiguous multi-file fixture requires two evidence-driven correction cycles before success', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-multifile-corrections-'));
+  const snapshots = path.join(root, 'snapshots');
+  try {
+    await fs.mkdir(path.join(root, 'src'));
+    await fs.mkdir(path.join(root, 'test'));
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'multi', type: 'module', scripts: { test: 'node --test' } }));
+    await fs.writeFile(path.join(root, 'src', 'math.mjs'), 'export const add=(a,b)=>a-b;\n');
+    await fs.writeFile(path.join(root, 'src', 'label.mjs'), "export const label=n=>'Total: '+(n+1);\n");
+    await fs.writeFile(path.join(root, 'test', 'app.test.mjs'), "import test from 'node:test';import assert from 'node:assert/strict';import{add}from'../src/math.mjs';import{label}from'../src/label.mjs';test('composed',()=>assert.equal(label(add(2,3)),'Total: 5'));\n");
+    await fs.writeFile(path.join(root, 'untouched.txt'), 'never edit\n');
+    const untouched = createHash('sha256').update(await fs.readFile(path.join(root, 'untouched.txt'))).digest('hex');
+    const snapshot = await snapshotScopedFiles(root, ['src/math.mjs', 'src/label.mjs'], snapshots);
+    assert.equal((await runVerification(root, { editedRelPaths: ['src/math.mjs', 'src/label.mjs'] })).status, 'failed');
+    await applyEdits(root, [{ relPath: 'src/math.mjs', content: 'export const add=(a,b)=>a+b;\n' }], { scopeRelPaths: ['src/math.mjs', 'src/label.mjs'], maxFiles: 2 });
+    const firstCorrection = await runVerification(root, { editedRelPaths: ['src/math.mjs', 'src/label.mjs'] });
+    assert.equal(firstCorrection.status, 'failed');
+    await applyEdits(root, [{ relPath: 'src/label.mjs', content: "export const label=n=>'Total: '+n;\n" }], { scopeRelPaths: ['src/math.mjs', 'src/label.mjs'], maxFiles: 2 });
+    const secondCorrection = await runVerification(root, { editedRelPaths: ['src/math.mjs', 'src/label.mjs'] });
+    assert.equal(secondCorrection.status, 'passed', JSON.stringify(secondCorrection, null, 2));
+    assert.equal(createHash('sha256').update(await fs.readFile(path.join(root, 'untouched.txt'))).digest('hex'), untouched);
+    assert.deepEqual((await rollbackToSnapshot(snapshots, snapshot)).failures, []);
+    assert.equal(await fs.readFile(path.join(root, 'src', 'math.mjs'), 'utf8'), 'export const add=(a,b)=>a-b;\n');
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

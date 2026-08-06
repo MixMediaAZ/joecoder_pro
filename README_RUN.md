@@ -1,42 +1,37 @@
-# JoeCoder Pro 20.1 — run on Windows
+# JoeCoder Pro 20.1 — Windows operator guide
 
-## Wrong (what you just did)
-You ran commands from:
-  C:\Users\David
-So Node looked for:
-  C:\Users\David\tools\certify-mutation.mjs  → MODULE_NOT_FOUND
-  C:\Users\David\dist\*.test.js              → 0 tests
+## Start
 
-## Right
-1. cd into the **project root** (the folder that contains package.json, dist/, tools/, src/)
+Double-click `start.bat` from the JoeCoder Pro 20.1 folder.
 
-   Git Bash example:
-     cd /c/Users/David/AI_BUILDS/JoeCoder_Pro_20.1
+The launcher:
 
-   CMD:
-     cd C:\Users\David\AI_BUILDS\JoeCoder_Pro_20.1
+1. Reuses a healthy existing JoeCoder service or starts one dynamic local port.
+2. Opens a fresh one-time browser session automatically.
+3. Installs exact lockfile dependencies only when `node_modules` is absent.
+4. Builds current source before starting; stale build output is never launched.
+5. Restarts after an unexpected server failure and records the crash.
 
-2. Confirm:
-     ls package.json tools dist
-     # CMD: dir package.json & dir tools & dir dist
+If the browser does not open, copy the `http://127.0.0.1:<port>/bootstrap.html#token=...` address printed by the service into the browser within 60 seconds. Do not open bare `app.html`; it deliberately cannot create a session.
 
-3. First time only:
-     npm install
-     npm run build
+## Work
 
-4. Then:
-     node --test dist/*.test.js dist/database/*.test.js
-     node tools/certify-mutation.mjs --self
-     JC_MOCK_MODEL=1 node tools/e2e-live.mjs
+1. Choose a build folder.
+2. Wait for the read-only inspection.
+3. Leave the composer in **Automatic** mode and describe the finished result you want.
+4. Watch Joe Live for committed progress: inspecting, found, protecting, changing, checking, correcting, restored, blocked, or completed.
+5. Review the completion receipt. A limitation is not a pass.
 
-5. Start:
-     npm start
-   Open the bootstrap URL printed in the terminal.
+There are no Work Order drafting, authorization, or lifecycle buttons in the normal workflow. One clear request creates one durable bounded job. Use **Stop** to interrupt; use **Resume** only when an interrupted or user-blocked job allows it.
 
-## If you do not have this build on disk yet
-This session’s working tree is the certified 20.1 build. Copy the whole project
-folder (including dist/, tools/, public/, plan/, schemas/, package.json) onto
-your machine under AI_BUILDS, then run the steps above from that folder.
+## Full release verification
 
-Mock model (JC_MOCK_MODEL=1) is for offline certification only.
-For real repairs: start Ollama and leave JC_MOCK_MODEL unset.
+From this folder:
+
+```powershell
+npm run verify:release
+```
+
+This builds and runs the complete automated test suite, governance verification, live one-message read-only and repair jobs, and then produces a signed release under `.jc/releases/`.
+
+The separately provisioned clean-Windows-user installation remains an external qualification step and must not be reported as passed until it is actually performed.

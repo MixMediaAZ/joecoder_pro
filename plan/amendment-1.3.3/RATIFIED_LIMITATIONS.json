@@ -1,0 +1,116 @@
+{
+    "schemaVersion":  "1.0.0",
+    "amendmentVersion":  "1.3.3",
+    "canonicalPlanVersion":  "1.3.1",
+    "status":  "operator_ratified",
+    "ratifiedOn":  "2026-08-05",
+    "authority":  "Operator instruction to execute the Autonomous Coding Agent Completion Handoff exactly",
+    "rule":  "A boundary names behavior JoeCoder does not claim or certify. It may not be treated as passed, waived, or inferred. Expanding a boundary requires new implementation and executable proof.",
+    "limitations":  [
+                        {
+                            "id":  "LIM-AGENT-004",
+                            "lawId":  "JC-AGENT-004",
+                            "boundary":  "Deterministic evidence gates independently reject model self-certification; a separate model reviewer persona is not a required or claimed trust boundary."
+                        },
+                        {
+                            "id":  "LIM-AGENT-005",
+                            "lawId":  "JC-AGENT-005",
+                            "boundary":  "Memory is project-scoped, freshness-aware, evidence-linked, and non-authoritative; cryptographic source-version identities across externally moved projects are not claimed."
+                        },
+                        {
+                            "id":  "LIM-DELIV-001",
+                            "lawId":  "JC-DELIV-001",
+                            "boundary":  "Automated startup, session, packaging, and restart checks run; a separately provisioned clean Windows user-account qualification remains external."
+                        },
+                        {
+                            "id":  "LIM-DELIV-003",
+                            "lawId":  "JC-DELIV-003",
+                            "boundary":  "Default automatic UI controls are live and tested and consequential legacy routes are blocked; earlier inactive renderer functions remain in public/app.js and are not production capability claims."
+                        },
+                        {
+                            "id":  "LIM-DELIV-004",
+                            "lawId":  "JC-DELIV-004",
+                            "boundary":  "Unknown, skipped, limited, or integrity-only checks disqualify full verified completion; a general-purpose time-expiring waiver issuance workflow is not exposed."
+                        },
+                        {
+                            "id":  "LIM-PROV-003",
+                            "lawId":  "JC-PROV-003",
+                            "boundary":  "Eligible provider fallback and bounded repair exist; provider health does not survive a full service restart and failure-fingerprint routing is not claimed."
+                        },
+                        {
+                            "id":  "LIM-QA-001",
+                            "lawId":  "JC-QA-001",
+                            "boundary":  "Supported project-specific gates run independently; unavailable stack-specific security, architecture, performance, or packaging tools remain named limitations rather than passes."
+                        },
+                        {
+                            "id":  "LIM-QA-002",
+                            "lawId":  "JC-QA-002",
+                            "boundary":  "Pinned npm installs are admitted and reproducible; offline-cache guarantees and equivalent installers for every non-Node ecosystem are not claimed."
+                        },
+                        {
+                            "id":  "LIM-QA-003",
+                            "lawId":  "JC-QA-003",
+                            "boundary":  "Browser, responsive, interaction, screenshot, and accessibility tools are available for loopback web projects; they are not universally applicable to every desktop, mobile, audio, or embedded stack."
+                        },
+                        {
+                            "id":  "LIM-QA-004",
+                            "lawId":  "JC-QA-004",
+                            "boundary":  "Acceptance cannot widen silently; semantic detection of every possible weakened project test or policy is not claimed."
+                        },
+                        {
+                            "id":  "LIM-QA-006",
+                            "lawId":  "JC-QA-006",
+                            "boundary":  "Affected tests and original failure evidence are rerun; full mutation testing and optimal regression selection for every language are not claimed."
+                        },
+                        {
+                            "id":  "LIM-SCOPE-001",
+                            "lawId":  "JC-SCOPE-001",
+                            "boundary":  "A.C.D.Q. questions and answers are not a mandatory execution gate; automatic work relies on objective framing, ambiguity detection, and stop-for-user rules."
+                        },
+                        {
+                            "id":  "LIM-SCOPE-002",
+                            "lawId":  "JC-SCOPE-002",
+                            "boundary":  "Explicit non-goals are not a required persisted field on every job."
+                        },
+                        {
+                            "id":  "LIM-SEC-005",
+                            "lawId":  "JC-SEC-005",
+                            "boundary":  "Commands are bounded, shell-free, path-jailed, and process-tracked, but Windows AppContainer, restricted-token, and measured network isolation are not claimed."
+                        },
+                        {
+                            "id":  "LIM-SEC-006",
+                            "lawId":  "JC-SEC-006",
+                            "boundary":  "Secrets remain environment-backed and excluded from UI evidence; Windows Credential Manager integration and complete historical-log redaction certification are not claimed."
+                        },
+                        {
+                            "id":  "LIM-SEC-008",
+                            "lawId":  "JC-SEC-008",
+                            "boundary":  "Durable records and evidence are project-scoped; OS-account isolation and exhaustive cross-version leakage certification are not claimed."
+                        },
+                        {
+                            "id":  "LIM-SEC-009",
+                            "lawId":  "JC-SEC-009",
+                            "boundary":  "Pinned npm dependency admission and signed release artifacts are enforced; cryptographic admission bundles for every external model, skill, plugin, and MCP server are not supported or claimed."
+                        },
+                        {
+                            "id":  "LIM-TXN-002",
+                            "lawId":  "JC-TXN-002",
+                            "boundary":  "Scoped files are snapshotted and restored, but a complete isolated version-tree workspace is not used for every execution."
+                        },
+                        {
+                            "id":  "LIM-TXN-003",
+                            "lawId":  "JC-TXN-003",
+                            "boundary":  "Each replacement is atomic and multi-file failures restore prior writes; the filesystem cannot expose the whole multi-file set as one atomic rename."
+                        },
+                        {
+                            "id":  "LIM-UX-003",
+                            "lawId":  "JC-UX-003",
+                            "boundary":  "Committed events provide plain-language progress and proof links; complete manual accessibility certification and elimination of all technical diagnostic detail are not claimed."
+                        },
+                        {
+                            "id":  "LIM-WO-002",
+                            "lawId":  "JC-WO-002",
+                            "boundary":  "The durable Agent Job is authoritative for automatic work; legacy Work Order records do not implement every field in the ratified Work Order schema."
+                        }
+                    ]
+}

@@ -6,7 +6,7 @@ export type { AgentJobCredentials } from './agentJobDriver.js';
 /**
  * Server-owned autonomous job entrypoint. The durable runtime selects one
  * permitted action at a time and checkpoints every committed result. The HTTP
- * driver re-enters the authenticated public API, so authorization, idempotency, path jails,
+ * driver re-enters the process-authenticated internal lifecycle API, so authorization, idempotency, path jails,
  * snapshots, budgets, verification, rollback, and evidence remain mandatory.
  */
 export async function runAgentJob(jobId: string, credentials: AgentJobCredentials): Promise<void> {

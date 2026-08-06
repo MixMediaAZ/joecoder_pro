@@ -248,13 +248,11 @@ async function main() {
       `status=${survey.status} survey=${latestSurveyId || 'none'} keys=${Object.keys(survey.data || {}).join(',')}`
     );
 
-    const accept = await api.post('/api/v1/projects/' + projectId + '/accept', {});
-    await record('accept', accept.status === 200, 'status=' + accept.status);
-    const acceptAgain = await api.post('/api/v1/projects/' + projectId + '/accept', {});
+    const legacyAccept = await api.post('/api/v1/projects/' + projectId + '/accept', {});
     await record(
-      'accept_idempotent',
-      acceptAgain.status === 200 && acceptAgain.data?.alreadyAccepted === true,
-      'status=' + acceptAgain.status + ' alreadyAccepted=' + Boolean(acceptAgain.data?.alreadyAccepted)
+      'legacy_lifecycle_blocked',
+      legacyAccept.status === 410 && legacyAccept.data?.code === 'DURABLE_AGENT_RUNTIME_REQUIRED',
+      `status=${legacyAccept.status} code=${legacyAccept.data?.code || 'none'}`
     );
 
     const threads = await api.get('/api/v1/projects/' + projectId + '/threads');
@@ -264,104 +262,40 @@ async function main() {
     const typoReply = typoStatus.data?.reply?.content || '';
     await record(
       'status_typo_truth',
-      typoStatus.status === 200 && /project_accepted|read-only|active work order|no active work order/i.test(typoReply) && !/captured the requested outcome/i.test(typoReply),
+      typoStatus.status === 200 && /read-only|active work order|no active work order|surface_review_ready/i.test(typoReply) && !/captured the requested outcome/i.test(typoReply),
       `status=${typoStatus.status} reply=${JSON.stringify(typoReply).slice(0, 180)}`
     );
-    const draft = await api.post('/api/v1/work-orders/from-survey', {
-      surveyId: latestSurveyId,
-      objective: 'Export a read-only handoff of the e2e fixture survey.',
-      intent: 'inspect'
+
+    const readOnlyStart = await api.post(`/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`, {
+      objective: 'Inspect this project and export a read-only handoff.',
+      activeWorkOrderId: null
     });
-    const woId = draft.data?.workOrder?.id || draft.data?.id;
-    await record('draft_export', (draft.status === 200 || draft.status === 201) && Boolean(woId), `status=${draft.status} wo=${woId || 'none'}`);
-
-    const plannedObjective = draft.data?.workOrder?.objective;
-    const auth = await api.post('/api/v1/work-orders/' + woId + '/authorize', {
-      grantedBy: 'local-operator:e2e-auto',
-      automationGrant: {
-        mode: 'bounded_auto_job',
-        projectId,
-        threadId,
-        objective: plannedObjective,
-        maxAttempts: 1
-      }
-    });
-    await record(
-      'authorize_automatic',
-      auth.status === 200 &&
-        auth.data?.workOrder?.status === 'authorized' &&
-        Boolean(auth.data?.automationGrantEvidenceId),
-      'status=' + auth.status + ' grantEvidence=' + (auth.data?.automationGrantEvidenceId || 'none')
-    );
-    const apply = await api.post(`/api/v1/work-orders/${woId}/apply`, {
-      action: 'export_handoff'
-    }, 60000);
-    const evidenceId = apply.data?.evidenceId;
-    const exportPath = apply.data?.exportPath || apply.data?.workOrder?.execution?.exportPath;
-    await record(
-      'apply_export',
-      apply.status === 200 && (Boolean(evidenceId) || apply.data?.ok === true),
-      `status=${apply.status} evidence=${evidenceId || 'none'} path=${exportPath || 'n/a'}`
-    );
-
-    if (exportPath) {
-      try {
-        const summary = path.join(exportPath, 'job-summary.json');
-        await fs.access(summary);
-        await record('export_artifacts', true, summary);
-      } catch {
-        // exports may be under ROOT/.jc/exports
-        const exportsDir = path.join(SERVER_DATA, 'exports');
-        const entries = await fs.readdir(exportsDir).catch(() => []);
-        await record('export_artifacts', entries.length > 0, `exports=${entries.length}`);
-      }
-    } else {
-      const exportsDir = path.join(SERVER_DATA, 'exports');
-      const entries = await fs.readdir(exportsDir).catch(() => []);
-      await record('export_artifacts', entries.length > 0 || apply.status === 200, `exports=${entries.length}`);
+    const readOnlyJobId = readOnlyStart.data?.job?.id;
+    await record('agent_readonly_start', readOnlyStart.status === 202 && Boolean(readOnlyJobId), `status=${readOnlyStart.status} job=${readOnlyJobId || 'none'}`);
+    let readOnlyObserved = null;
+    const readOnlyDeadline = Date.now() + 120000;
+    while (readOnlyJobId && Date.now() < readOnlyDeadline) {
+      const status = await api.get(`/api/v1/agent-jobs/${readOnlyJobId}`);
+      readOnlyObserved = status.data;
+      if (['completed', 'failed', 'cancelled', 'interrupted'].includes(status.data?.job?.status)) break;
+      await sleep(300);
     }
-
-
-    // Repair path with mock model (or real model if present)
-    {
-      const fixture2 = path.join(tmpdir(), `jc-e2e-repair-${process.pid}-${randomBytes(3).toString('hex')}`);
-      await fs.mkdir(path.join(fixture2, 'src'), { recursive: true });
-      await fs.writeFile(path.join(fixture2, 'package.json'), JSON.stringify({ name: 'e2e-repair', private: true }, null, 2));
-      await fs.writeFile(path.join(fixture2, 'src', 'lib.js'), 'export function add(a,b){return a-b;}\n');
-      const reg2 = await api.post('/api/v1/projects', { name: 'E2E Repair', path: fixture2 });
-      const pid2 = reg2.data?.project?.id;
-      const survey2 = await api.post('/api/v1/survey', { path: fixture2, projectId: pid2, maxDepth: 4, maxEntries: 100, timeoutMs: 30000 }, 60000);
-      const proj2 = await api.get(`/api/v1/projects/${pid2}`);
-      const sid2 = proj2.data?.project?.latestSurveyId || survey2.data?.evidenceId;
-      await api.post(`/api/v1/projects/${pid2}/accept`, {});
-      const draft2 = await api.post('/api/v1/work-orders/from-survey', {
-        surveyId: sid2,
-        objective: 'Fix add() so it returns a+b instead of a-b.',
-        intent: 'repair'
-      }, 210000);
-      const wo2 = draft2.data?.workOrder?.id || draft2.data?.id;
-      const draftOk = (draft2.status === 200 || draft2.status === 201) && Boolean(wo2);
-      await record('repair_draft', draftOk, `status=${draft2.status} wo=${wo2 || 'none'} err=${JSON.stringify(draft2.data).slice(0,160)}`);
-      if (draftOk) {
-        const auth2 = await api.post(`/api/v1/work-orders/${wo2}/authorize`, { grantedBy: 'e2e' });
-        await record('repair_authorize', auth2.status === 200, `status=${auth2.status}`);
-        const apply2 = await api.post(`/api/v1/work-orders/${wo2}/apply`, { action: 'apply_edits' }, 180000);
-        const content = await fs.readFile(path.join(fixture2, 'src', 'lib.js'), 'utf8').catch(() => '');
-        const fixed = content.includes('a + b') || content.includes('a+b');
-        await record(
-          'repair_apply',
-          apply2.status === 200 && fixed,
-          `status=${apply2.status} fixed=${fixed} evidence=${apply2.data?.evidenceId || 'none'} body=${JSON.stringify(apply2.data).slice(0,180)}`
-        );
-      }
-      await fs.rm(fixture2, { recursive: true, force: true }).catch(() => {});
-    }
-
+    const readOnlyResult = readOnlyObserved?.job?.result || {};
+    const exportPath = readOnlyResult.exportPath || readOnlyResult.workOrder?.execution?.exportPath;
+    await record(
+      'agent_readonly_complete',
+      readOnlyObserved?.job?.status === 'completed' && Boolean(readOnlyObserved?.job?.workOrderId) && Boolean(readOnlyResult.evidenceId),
+      `status=${readOnlyObserved?.job?.status || 'timeout'} wo=${readOnlyObserved?.job?.workOrderId || 'none'} evidence=${readOnlyResult.evidenceId || 'none'}`
+    );
+    const exportsDir = path.join(SERVER_DATA, 'exports');
+    const exported = await fs.readdir(exportsDir).catch(() => []);
+    await record('export_artifacts', Boolean(exportPath) || exported.length > 0, `path=${exportPath || 'none'} exports=${exported.length}`);
     // Direct product path: one Send-equivalent request, server owns every stage.
     {
       const fixture3 = path.join(tmpdir(), `jc-e2e-agent-${process.pid}-${randomBytes(3).toString('hex')}`);
       await fs.mkdir(path.join(fixture3, 'src'), { recursive: true });
       await fs.writeFile(path.join(fixture3, 'package.json'), JSON.stringify({ name: 'e2e-agent', private: true }, null, 2));
+      await fs.writeFile(path.join(fixture3, 'package-lock.json'), JSON.stringify({ name: 'e2e-agent', lockfileVersion: 3, requires: true, packages: { '': { name: 'e2e-agent' } } }, null, 2));
       await fs.writeFile(path.join(fixture3, 'src', 'lib.js'), 'export function add(a,b){return a-b;}\n');
       const reg3 = await api.post('/api/v1/projects', { name: 'E2E Server Agent', path: fixture3 });
       const pid3 = reg3.data?.project?.id;

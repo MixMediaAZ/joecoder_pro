@@ -1844,3 +1844,11 @@ details.run-completion.compact > summary strong {
 #chat-form.codex-composer textarea#chat-input::placeholder{color:#716b62!important;opacity:1}
 @media(max-width:760px){.agent-mode-switch{width:100%;order:5}.agent-mode-switch button{flex:1}.automatic-job-account{grid-template-columns:1fr}.codex-composer-tools{flex-wrap:wrap}}
 .live-entry-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.live-category{padding:2px 6px;border-radius:999px;background:#3a352d;color:#f7f1e7;font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.live-proof-link{margin-left:auto;color:#9ee3ad!important;text-decoration:underline;font-weight:700}.live-entry-links{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.live-entry-links button{border:0;background:transparent;color:#9fcaf5;padding:0;text-decoration:underline;font-size:.68rem;text-align:left}.live-tabs{overflow-x:auto}.live-tabs button{white-space:nowrap}
+/* Governance truth and ratified boundaries */
+.settings-overlay .governance-truth details{margin-top:10px;border:1px solid #5e554a;border-radius:9px;background:#171614}
+.settings-overlay .governance-truth summary{cursor:pointer;padding:11px 13px;color:#fffaf2;font-weight:700}
+.settings-overlay .settings-boundaries{display:grid;gap:8px;padding:0 10px 10px}
+.settings-overlay .settings-boundaries article{padding:11px;border:1px solid #4e4942;border-radius:7px;background:#24211d;color:#fffaf2}
+.settings-overlay .settings-boundaries strong,.settings-overlay .settings-boundaries small{display:block;color:#fffaf2}
+.settings-overlay .settings-boundaries small{margin-top:3px;color:#e5b985;font-size:.68rem}
+.settings-overlay .settings-boundaries p{margin:7px 0 0;color:#e7e1d7;line-height:1.5;font-size:.75rem}

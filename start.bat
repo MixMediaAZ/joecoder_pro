@@ -54,9 +54,9 @@ if not %RUNNING_CHECK% equ 0 (
 
 if not exist "node_modules" (
     echo [INFO] Installing dependencies...
-    call npm install --no-optional --ignore-scripts --prefer-offline
+    call npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
     if errorlevel 1 (
-        echo [ERROR] npm install failed.
+        echo [ERROR] Exact lockfile dependency install failed.
         pause
         exit /b 1
     )

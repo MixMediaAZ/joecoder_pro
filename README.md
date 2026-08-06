@@ -1,40 +1,32 @@
-# JoeCoder Pro 20.1 — repair-certified
+# JoeCoder Pro 20.1 — autonomous coding agent
 
-Evidence-gated local workshop: inspect → accept → draft → authorize → run (repair/build/export).
+JoeCoder is a chat-first coding agent with a server-owned safety and verification runtime.
 
-## Setup (Git Bash)
+## Use it
 
-```bash
-cd "/d/AI Builds-OM/0_PROJECTS/CODING_Builds/JoeCoder_Builds/JoeCoder_Pro_20.1"
-npm install
-npm run build
-npm start
+1. Run `start.bat`.
+2. JoeCoder opens a fresh private browser session automatically.
+3. Choose a build folder. Joe inspects it without changing files.
+4. Describe the outcome in ordinary language and send it in **Automatic** mode.
+5. Joe investigates, plans, protects, edits, tests, corrects within its limits, and reports the evidence. Use **Stop** if you want to interrupt the job.
+
+Questions and **Ask** or **Plan** mode stay read-only. A clear request in **Automatic** mode authorizes one bounded non-destructive job. Joe pauses only for a destructive action, a material scope increase, unavailable authority or secret, exhausted limits, or a decision it cannot safely infer.
+
+## Requirements
+
+- Windows
+- Node.js 22 or newer (22.23.1 is the certified version)
+- Ollama for real local-model work, unless an authorized cloud provider is configured
+
+The first launch installs the exact lockfile dependencies with lifecycle scripts disabled, then builds the current source. If JoeCoder is already running, `start.bat` opens a fresh session in that instance instead of starting a conflicting copy.
+
+## Verify the source
+
+```powershell
+npm ci --ignore-scripts --no-audit --no-fund
+npm run verify:release
 ```
 
-Open the **bootstrap URL** printed in the terminal (includes `#token=...`).  
-Do not open bare `app.html` — that cannot create a session.
+`JC_MOCK_MODEL=1` is used only by isolated certification fixtures. It is never evidence that a real project works.
 
-Hard-refresh the browser after start: **Ctrl+Shift+R**
-
-## Job pipeline (UI)
-
-1. Inspect → 2 Accept → 3 Draft → 4 Authorize → 5 Run → 6 Complete  
-
-Primary button = next required action. Confirm authorize/run/cancel appears **in the pipeline panel**.
-
-Legacy blocked Work Orders: **Cancel blocked…** → Confirm cancel → start over at Inspect.
-
-## Verify
-
-```bash
-npm run test:unit
-node tools/certify-mutation.mjs --self
-JC_MOCK_MODEL=1 node tools/e2e-live.mjs
-```
-
-`JC_MOCK_MODEL=1` is offline certification only. Real repairs need Ollama running (unset mock).
-
-## Notes
-
-- Always run commands from this project root (folder with `package.json`).
-- `node_modules` is not shipped — run `npm install` once.
+See [SUPPORTED_CAPABILITIES.md](SUPPORTED_CAPABILITIES.md) for the exact supported boundary and verified limitations.

@@ -70,8 +70,8 @@ function requiredDatabase(): DatabaseSync {
   return database;
 }
 
-function transaction<T>(operation: (db: DatabaseSync) => T): T {
-  const db = requiredDatabase();
+function transaction<T>(operation: (db: DatabaseSync) => T, target?: DatabaseSync): T {
+  const db = target || requiredDatabase();
   db.exec('BEGIN IMMEDIATE');
   try {
     const result = operation(db);
@@ -99,7 +99,7 @@ function listTableNames(db: DatabaseSync): string[] {
   ).all().map((row) => String(row.name));
 }
 
-function migrate(db: DatabaseSync): void {
+export function applyDatabaseMigrations(db: DatabaseSync, afterSql?: (version: number) => void): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -123,11 +123,12 @@ function migrate(db: DatabaseSync): void {
 
     transaction((transactionDb) => {
       transactionDb.exec(migration.sql);
+      afterSql?.(migration.version);
       transactionDb.prepare(
         'INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES(?,?,?,?)'
       ).run(migration.version, migration.name, checksum, Date.now());
       transactionDb.exec(`PRAGMA user_version = ${migration.version}`);
-    });
+    }, db);
   }
 }
 
@@ -142,7 +143,7 @@ export async function initializeDatabase(dataDirectory: string): Promise<Runtime
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA synchronous = FULL');
     db.exec('PRAGMA busy_timeout = 5000');
-    migrate(db);
+    applyDatabaseMigrations(db);
     seedWorkshopDefaults(db);
 
     const tables = listTableNames(db);
