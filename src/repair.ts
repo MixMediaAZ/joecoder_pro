@@ -244,6 +244,7 @@ const EDIT_SYSTEM = [
   '===FILE: relative/path.ext===',
   '<entire new file content>',
   '===END FILE===',
+  'Do not wrap the response in a markdown code fence; the file blocks are the whole response.',
   'Rules: output ONLY file blocks, no prose before, between, or after; include the',
   'ENTIRE file content for each changed file (never fragments, never diffs, never placeholders like',
   '"rest unchanged"); only files from the provided scope; if a scoped file needs no change, omit it;',
@@ -270,8 +271,24 @@ export function buildEditsPrompt(objective: string, approach: string, files: Sco
 
 const FILE_BLOCK = /===FILE:\s*([^=\r\n]+?)\s*===\r?\n([\s\S]*?)\r?\n?===END FILE===/g;
 
+/**
+ * The fence language labels the ENVELOPE, not the payload.
+ *
+ * This previously accepted only `text`/`plaintext`, which cost a real job: editing a Flutter
+ * project, qwen2.5-coder wrapped its block list in a ```dart fence -- the natural label when the
+ * files are Dart -- and both attempts died with STRUCTURED_TRANSPORT_REJECTED 'dart'. The whole
+ * job then failed safe. Any language-specific project hit the same wall, so a cosmetic label check
+ * was gating which stacks JoeCoder could repair at all.
+ *
+ * Widening the label is safe because it never did the validation. The structural guarantees come
+ * from FILE_BLOCK and the "no content outside blocks" check below, and both are unchanged:
+ * a fence containing real source instead of file blocks still fails, now with the accurate
+ * EDIT_PARSE_FAILED rather than a misleading transport error.
+ */
+const EDIT_TRANSPORT_LANGUAGE = /^[a-z0-9_-]*$/i;
+
 export function parseEditBlocks(text: string): ProposedEdit[] {
-  const normalized = unwrapWholeTransportFence(text, /^(text|plaintext)?$/i);
+  const normalized = unwrapWholeTransportFence(text, EDIT_TRANSPORT_LANGUAGE);
   const edits: ProposedEdit[] = [];
   const consumed: Array<[number, number]> = [];
   let match: RegExpExecArray | null;

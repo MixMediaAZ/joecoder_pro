@@ -19,8 +19,30 @@ test('strict edit parser accepts a whole text fence and rejects any outside clai
   assert.equal(parseEditBlocks(`~~~plaintext\n${blocks}\n~~~`)[0]?.relPath, 'src/app.js');
   assert.throws(() => parseEditBlocks(`prose\n${blocks}`), /content outside/);
   assert.throws(() => parseEditBlocks(`${blocks}\nclaim: tests passed`), /content outside/);
-  assert.throws(() => parseEditBlocks(`${fence}javascript\n${blocks}\n${fence}`), /STRUCTURED_TRANSPORT_REJECTED/);
 });
+
+test('a language-labelled transport fence is unwrapped, and its payload is still validated', () => {
+  // Regression: the edit transport accepted only text/plaintext, so a model editing Dart files
+  // wrapped its block list in ```dart and the job died with STRUCTURED_TRANSPORT_REJECTED after
+  // both attempts. The label describes the envelope; it never validated anything.
+  const dartBlocks = '===FILE: lib/main.dart===\nvoid main() {}\n===END FILE===';
+  assert.equal(parseEditBlocks(`${fence}dart\n${dartBlocks}\n${fence}`)[0]?.relPath, 'lib/main.dart');
+  assert.equal(parseEditBlocks(`${fence}typescript\n${blocksFor('src/a.ts')}\n${fence}`)[0]?.relPath, 'src/a.ts');
+  assert.equal(parseEditBlocks(`~~~python\n${blocksFor('app/main.py')}\n~~~`)[0]?.relPath, 'app/main.py');
+
+  // The protections that actually matter are unchanged. A fence carrying real source instead of
+  // file blocks still fails, and now fails with the accurate reason.
+  assert.throws(() => parseEditBlocks(`${fence}dart\nvoid main() { print('hi'); }\n${fence}`), /EDIT_PARSE_FAILED/);
+  // Prose smuggled inside a labelled fence alongside blocks is still rejected.
+  assert.throws(
+    () => parseEditBlocks(`${fence}dart\n${dartBlocks}\nclaim: all tests passed\n${fence}`),
+    /content outside/
+  );
+});
+
+function blocksFor(relPath: string): string {
+  return `===FILE: ${relPath}===\nconst value = 1;\n===END FILE===`;
+}
 test('effective edit guard rejects byte-identical corrections and keeps only real changes', () => {
   const files = [
     { relPath: 'src/a.js', exists: true, content: 'const a = 1;\n', truncated: false },
