@@ -2173,3 +2173,13 @@ body.resizing-rail #rail { pointer-events: none; }
   font-size: 0.68rem;
   color: var(--muted);
 }
+
+/* The composer dock is a flex sibling below .codex-scroll, so it does not overlap the thread --
+   but its top 18% is a transparent gradient, which visually crowds the last message when the
+   thread is scrolled to the end. Clear that band so no conversation content ever sits under it. */
+.codex-stream { padding-bottom: 56px; }
+
+/* Anchor the thread to the bottom while new content streams in, so growth pushes older messages
+   up instead of extending below the fold. */
+.codex-scroll { overflow-anchor: auto; }
+.chat-messages > :last-child { scroll-margin-bottom: 56px; }

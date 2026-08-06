@@ -275,6 +275,29 @@ function renderExplorer() {
   return `<section class="rail-explorer"><div class="rail-section-title"><strong>Files</strong><span>${escapeHtml(state.project?.name || '')}</span></div><form id="file-search"><input name="q" value="${escapeHtml(state.files.query)}" placeholder="Find a file"></form><div class="explorer-tree">${entries.map(entry => `<button type="button" class="explorer-entry" data-file-path="${escapeHtml(entry.path)}" data-directory="${Boolean(entry.directory || entry.type === 'directory')}"><span>${entry.directory || entry.type === 'directory' ? '▸' : '•'}</span>${escapeHtml(entry.name || entry.path)}</button>`).join('') || '<p>No visible files.</p>'}</div><p class="explorer-boundary">Live read-only view · never authority or proof</p></section>`;
 }
 
+// The conversation must follow new messages. render() replaces the whole tree, so the scroll
+// container is a brand-new element each time and starts at scrollTop 0 -- which left the latest
+// message below the fold with the composer as the only thing in view. Nothing in this client ever
+// scrolled the thread.
+//
+// Sticky only while the reader is already at the bottom: if they have scrolled up to read earlier
+// context, a background job update must not yank them back down.
+let stickToBottom = true;
+const STICK_THRESHOLD_PX = 80;
+
+function captureScrollIntent() {
+  const scroll = document.querySelector('.codex-scroll');
+  if (!scroll) return;
+  stickToBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= STICK_THRESHOLD_PX;
+}
+
+function applyScrollIntent() {
+  const scroll = document.querySelector('.codex-scroll');
+  if (!scroll) return;
+  if (stickToBottom) scroll.scrollTop = scroll.scrollHeight;
+  scroll.addEventListener('scroll', captureScrollIntent, { passive: true });
+}
+
 function render() {
   const app = document.getElementById('app');
   if (!state.csrfToken) {
@@ -282,8 +305,10 @@ function render() {
     document.getElementById('retry-session')?.addEventListener('click', boot);
     return;
   }
+  captureScrollIntent();
   app.innerHTML = `${renderHeader()}<div id="layout" class="with-activity${state.railCollapsed ? ' rail-collapsed' : ''}">${renderRail()}${renderRailResizer()}${renderMain()}${renderLive()}</div>${renderPanel()}`;
   bind();
+  applyScrollIntent();
   syncDetachedLive();
 }
 
@@ -364,6 +389,8 @@ async function sendMessage(text) {
   if (!content) return;
   state.busy = true;
   state.error = null;
+  // The user just acted, so follow the conversation regardless of where they had scrolled.
+  stickToBottom = true;
   render();
   try {
     if (state.mode === 'automatic' && isWorkRequest(content)) {
