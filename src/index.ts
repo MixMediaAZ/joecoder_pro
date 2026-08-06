@@ -646,8 +646,30 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         'I am running the projectÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s own build and test scripts to verify the change.'
       );
 
-      let installResult = null;
+      // A freshly written package.json with zero dependencies needs no install and no admission:
+      // the admission pipeline demands a committed lockfile, which a greenfield folder cannot
+      // have before its first install. Two live builds failed on DEPENDENCY_METADATA_REQUIRED
+      // for standard-library-only apps. Decide from the actual on-disk manifest, not plan paths.
+      let dependencyFreeManifest = false;
       if ((wo.scope?.operations || []).includes('install_dependencies')) {
+        try {
+          const manifest = JSON.parse(await fs.readFile(path.join(project.path, 'package.json'), 'utf8'));
+          const dependencyCount = Object.keys(manifest.dependencies || {}).length
+            + Object.keys(manifest.devDependencies || {}).length;
+          dependencyFreeManifest = dependencyCount === 0;
+        } catch { /* unreadable manifest: keep the full admission path */ }
+      }
+      if (dependencyFreeManifest) {
+        await narrateWorkOrder(
+          wo,
+          'repair.install_skipped',
+          'The written package.json declares zero dependencies, so no install or admission is required.',
+          'Dependency admission exists to gate third-party code; there is none to admit.',
+          'I am running verification next.'
+        );
+      }
+      let installResult = null;
+      if (!dependencyFreeManifest && (wo.scope?.operations || []).includes('install_dependencies')) {
         if (wo.execution) wo.execution.phase = 'installing';
         await saveWorkOrder(wo);
         await narrateWorkOrder(
