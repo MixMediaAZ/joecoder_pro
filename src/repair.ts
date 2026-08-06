@@ -185,6 +185,18 @@ export function validatePlanForObjective(
       'PLAN_REJECTED: the objective consolidates duplicated behavior into one shared place, but the plan names a single file. A consolidation must include every site that currently duplicates the behavior as well as the shared home; list all affected files.'
     );
   }
+  // Three live attempts across two model sizes planned only the shared home and never the
+  // duplication sites, so the consolidation completed without consolidating anything. The sites
+  // are evidence-discoverable: they score highest on objective-token overlap. Same deterministic
+  // pattern as the composed-multi-file rule below — evidence-ranked candidates complete the scope.
+  if (intent === 'repair' && describesConsolidation && survey) {
+    const candidates = rankPlanCandidates(objective, survey, 8).filter((file) =>
+      !isTestPath(file)
+      && !files.includes(file)
+      && /\.(?:js|jsx|ts|tsx|mjs|cjs|py|rs|go|cs|fs|java|kt|dart)$/i.test(file)
+    );
+    files = [...files, ...candidates].slice(0, 6);
+  }
 
   const describesComposedMultiFileWork = /\b(multi[- ]file|interacting|composed|across (?:multiple )?files)\b/i.test(objective);
   if (intent === 'repair' && describesComposedMultiFileWork && files.length < 2 && survey) {
