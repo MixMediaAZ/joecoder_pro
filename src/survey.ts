@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { BuildCondition, ContentSample, PackageSummary, SurveyFindings, SurveyResult } from './types.js';
 import { discoverStackProfiles } from './stackProfiles.js';
+import { diagnoseDependencyConsistency, type ManifestFile } from './dependencyDoctor.js';
 
 async function readPackageSummary(projectRoot: string): Promise<PackageSummary | null> {
   try {
@@ -136,8 +137,13 @@ async function collectContentSamples(
   keyFiles: string[],
   entries: SurveyResult['entries']
 ): Promise<ContentSample[]> {
+  // Shallowest key files first: the root manifest is the one the toolchain reads, and it must be
+  // in the samples a planner sees before any nested copy with the same filename.
+  const keyFilesRootFirst = [...keyFiles].sort(
+    (a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length
+  );
   const preferred = [
-    ...keyFiles,
+    ...keyFilesRootFirst,
     ...entries
       .filter((e) => e.type === 'file')
       .map((e) => e.path.replace(/\\/g, '/'))
@@ -359,6 +365,32 @@ export async function performSurvey(
   }
 
   const { findings, buildCondition } = buildFindings(base as Omit<SurveyResult, 'findings' | 'buildCondition'>);
+
+  // Offline dependency-consistency evidence: cross-check each ecosystem's root manifest against
+  // its committed lockfile. Pure file reads — no network, no execution — so it is legal at
+  // read-only inspection, and it is the only way a survey can establish "dependencies cannot
+  // install" as evidence: installers themselves need the network the survey is denied.
+  // Without this, planning was blind to install failures and a local model scoped a stale nested
+  // manifest instead of the root one the toolchain reads.
+  const manifestNames = new Set(['pubspec.yaml', 'pubspec.lock', 'package.json', 'package-lock.json']);
+  const manifestFiles: ManifestFile[] = [];
+  for (const entry of base.entries) {
+    if (entry.type !== 'file') continue;
+    const rel = entry.path.replace(/\\/g, '/');
+    const name = rel.split('/').pop() || '';
+    if (!manifestNames.has(name)) continue;
+    if (/(^|\/)(node_modules|\.git|\.jc|build|\.dart_tool|ephemeral)(\/|$)/.test(rel)) continue;
+    if (rel.split('/').length > 3 || manifestFiles.length >= 12) continue;
+    try {
+      const buffer = await fs.readFile(path.join(targetPath, rel));
+      if (buffer.length <= 512 * 1024 && !buffer.includes(0)) {
+        manifestFiles.push({ path: rel, content: buffer.toString('utf8') });
+      }
+    } catch { /* unreadable — no finding rather than a false one */ }
+  }
+  const dependencyDiagnosis = diagnoseDependencyConsistency(manifestFiles);
+  findings.broken.push(...dependencyDiagnosis.broken);
+  findings.questionable.push(...dependencyDiagnosis.questionable);
 
   const contentSamples = await collectContentSamples(targetPath, base.keyFiles, base.entries);
   if (contentSamples.length) {
