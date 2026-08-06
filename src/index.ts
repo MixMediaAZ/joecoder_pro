@@ -2787,7 +2787,13 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
               ...(surveyResult.findings?.broken || []).slice(0, 6).map(
                 (finding: string) => `Recorded failure evidence: ${finding.slice(0, 400)}`
               ),
-              `Model plan (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`
+              `Model plan (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`,
+              // The edit model writes the file contents; it must carry the build constraint the
+              // planner was given, or it reintroduces third-party dependencies whose admission a
+              // greenfield folder cannot satisfy (three live builds wrote express and rolled back).
+              ...(intent === 'build'
+                ? ['Build constraint: use ONLY the platform standard library (for Node: node:http, node:fs, node:path). package.json must declare zero dependencies ("dependencies": {}) and a plain "start": "node server.js" script. Do not add express or any other package.']
+                : [])
             ],
             evidenceTargets: (surveyResult.dependencyTargets || []).filter(
               (target: string) => plan.files.includes(target)
