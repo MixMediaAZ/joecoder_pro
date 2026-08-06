@@ -2008,3 +2008,116 @@ body.resizing-rail #rail { pointer-events: none; }
 /* Collapsed rail: the toggle now reaches these. */
 #rail.collapsed .rail-open-project { font-size: 0; padding: 8px; }
 #rail.collapsed .rail-open-project::before { content: '+'; font-size: 1rem; }
+
+/* ── Side-panel scrolling ──────────────────────────────────────────────────────
+   The rail never scrolled. .workshop-rail-scroll is flex:1 with no overflow rule
+   and no min-height, so as a flex child it grew to its content height instead of
+   scrolling, while #rail kept overflow:hidden. Measured at 1280x800: 3841px of
+   content in a 742px column, which left the entire file explorer (3057px of it)
+   permanently out of reach with no way to get at it. A flex child needs min-height:0
+   before overflow can take effect. */
+.workshop-rail-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
+
+/* Both dark panels inherit ::-webkit-scrollbar-thumb from --border-strong, which the
+   dark shell sets to 0.20 alpha — technically present, visually not there against
+   #1e1d1a. The center pane reads clearly, so match that weight here. */
+.workshop-rail-scroll,
+#voice {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(244, 239, 230, 0.34) transparent;
+}
+
+.workshop-rail-scroll::-webkit-scrollbar,
+#voice::-webkit-scrollbar { width: 10px; }
+
+.workshop-rail-scroll::-webkit-scrollbar-thumb,
+#voice::-webkit-scrollbar-thumb {
+  background: rgba(244, 239, 230, 0.34);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.workshop-rail-scroll::-webkit-scrollbar-thumb:hover,
+#voice::-webkit-scrollbar-thumb:hover {
+  background: rgba(244, 239, 230, 0.55);
+  background-clip: content-box;
+}
+
+.workshop-rail-scroll::-webkit-scrollbar-track,
+#voice::-webkit-scrollbar-track { background: transparent; }
+
+/* A 10px reserved gutter out of a 56px icon strip is most of the label area, so drop
+   it wherever the rail is collapsed. */
+#rail.collapsed .workshop-rail-scroll { scrollbar-gutter: auto; }
+@media (max-width: 900px) {
+  .workshop-rail-scroll { scrollbar-gutter: auto; }
+}
+
+/* ── Form controls on the dark shell ───────────────────────────────────────────
+   Two controls never got dark styling and rendered as white boxes:
+     - #rail input[name=q] ("Find a file") — explicit background:#fff with near-black
+       text sitting on the dark rail.
+     - #voice #narration-detail — appearance:auto with color #1f1c18, so the browser
+       painted its own white chrome. A text-contrast pass cannot catch this one: the
+       computed backgroundColor is transparent and the white comes from the UA.
+   Both need appearance:none plus explicit surface, text and border. */
+#rail input,
+#rail select,
+#voice input,
+#voice select,
+#topbar input,
+#topbar select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: #26241f;
+  color: var(--text-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+#rail input::placeholder,
+#voice input::placeholder { color: var(--muted); opacity: 1; }
+
+#rail input:focus-visible,
+#rail select:focus-visible,
+#voice input:focus-visible,
+#voice select:focus-visible {
+  outline: 2px solid #f0ad6b;
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* appearance:none removes the native dropdown arrow, so draw one back. */
+#rail select,
+#voice select,
+#topbar select {
+  padding-right: 24px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) center, calc(100% - 9px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* The option list is painted by the OS, so give it a matching surface where honoured. */
+#rail select option,
+#voice select option,
+#topbar select option { background: #26241f; color: #f4efe6; }
+
+/* "Files" and the project name were adjacent inline elements with no separation,
+   rendering as "FilesBaby DAW Pro". */
+#rail .rail-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
