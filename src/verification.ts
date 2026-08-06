@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverStackProfiles, profilesForEditedFiles, type StackProfile, type StackVerificationCommand } from './stackProfiles.js';
@@ -154,7 +155,21 @@ let jailedEnvironmentSequence = 0;
 function jailedEnv(): NodeJS.ProcessEnv {
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
   const pathVal = process.env[pathKey] || process.env.PATH || '';
+  // Windows toolchains (flutter.bat and friends) dereference the standard system variables;
+  // stripping them made `flutter test` die on "%PROGRAMFILES(X86)% environment variable not
+  // found". These identify OS install locations, not secrets — the jail's purpose is to withhold
+  // credentials and project-external configuration, not to break the OS contract.
+  const windowsSystem: NodeJS.ProcessEnv = process.platform === 'win32'
+    ? Object.fromEntries(
+        ['SystemRoot', 'SystemDrive', 'ComSpec', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData',
+         'ProgramW6432', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'PUBLIC', 'TEMP', 'TMP',
+         'PATHEXT', 'windir', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']
+          .filter((name) => process.env[name] !== undefined)
+          .map((name) => [name, process.env[name]])
+      )
+    : {};
   return {
+    ...windowsSystem,
     [pathKey]: pathVal,
     PATH: pathVal,
     CI: '1',
@@ -193,6 +208,32 @@ async function collectProjectFiles(projectRoot: string, maxFiles = 2500): Promis
   return files;
 }
 
+/**
+ * Resolve a bare tool name to something spawnSync(shell:false) can actually launch on Windows.
+ * `flutter` ships as flutter.bat, and spawnSync cannot execute batch files without a shell — so
+ * every Flutter verification silently reported "not runnable" on Windows and jobs completed
+ * "without runnable project verification" while the toolchain sat on PATH the whole time.
+ * Prefers a real .exe; a .bat/.cmd is run through cmd.exe /d /s /c with shell still false.
+ */
+function resolveStackExecutable(name: string): { executable: string; prefixArgs: string[] } {
+  if (process.platform !== 'win32' || path.isAbsolute(name)) return { executable: name, prefixArgs: [] };
+  const pathVal = process.env.Path || process.env.PATH || '';
+  const exts = ['.exe', '.bat', '.cmd'];
+  for (const ext of exts) {
+    for (const dir of pathVal.split(path.delimiter)) {
+      if (!dir) continue;
+      const candidate = path.join(dir, name + ext);
+      try {
+        fsSync.accessSync(candidate);
+        return ext === '.exe'
+          ? { executable: candidate, prefixArgs: [] }
+          : { executable: process.env.ComSpec || 'cmd.exe', prefixArgs: ['/d', '/s', '/c', candidate] };
+      } catch { /* keep searching */ }
+    }
+  }
+  return { executable: name, prefixArgs: [] };
+}
+
 function runStackCommand(
   projectRoot: string,
   profile: StackProfile,
@@ -200,7 +241,8 @@ function runStackCommand(
   timeoutMs: number
 ): VerificationItem {
   const runRoot = path.resolve(projectRoot, profile.root);
-  const result = spawnSync(command.executable, command.args, {
+  const resolved = resolveStackExecutable(command.executable);
+  const result = spawnSync(resolved.executable, [...resolved.prefixArgs, ...command.args], {
     cwd: runRoot,
     shell: false,
     encoding: 'utf8',
