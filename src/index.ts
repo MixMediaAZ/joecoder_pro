@@ -511,7 +511,12 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
       const evidenceTargets = (wo.taskSpecific?.evidenceTargets || []).filter(
         (target) => wo.scope.exactPaths.includes(target)
       );
-      const editPrompt = [buildEditsPrompt(wo.objective, approach, scoped, evidenceTargets), executionContext].filter(Boolean).join('\n\n');
+      // Context BEFORE the edit prompt, never after. With ~3KB of preset/brain prose appended
+      // after the format contract, the local model deterministically dropped the ===END FILE===
+      // terminator (perfect content, rejected twice, captured in repair.generation_failed
+      // evidence EVC-1786055227972). Small models obey the last instruction they read; the block
+      // format must be it.
+      const editPrompt = [executionContext, buildEditsPrompt(wo.objective, approach, scoped, evidenceTargets)].filter(Boolean).join('\n\n');
       await narrateWorkOrder(
         wo,
         'repair.generating',
@@ -744,19 +749,23 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
             { generate: (request) => generateWithProvider(correctionProvider, request) },
             {
               system: EDIT_SYSTEM,
+              // Context and observation FIRST; the file blocks and format contract come last so
+              // the block format is the final instruction the model reads (same terminator-drop
+              // failure mode as the primary edit prompt; see EVC-1786055227972).
               prompt: [
-                [buildEditsPrompt(wo.objective, [
+                executionContext,
+                `OBSERVATION FROM VERIFICATION ATTEMPT ${correctionCycle}:`,
+                verificationObservation,
+                '',
+                buildEditsPrompt(wo.objective, [
                   'Treat the original approach as a disproven hypothesis, not an instruction.',
                   'Trace the observed output end-to-end through every current scoped file.',
                   `This is correction cycle ${correctionCycle}; ${history.length} fresh verification attempt(s) have failed.`,
                   'Change the smallest remaining implementation cause. Do not return content already present on disk.'
-                ].join(' '), correctionFiles), executionContext].filter(Boolean).join('\n\n'),
+                ].join(' '), correctionFiles),
                 '',
-                `OBSERVATION FROM VERIFICATION ATTEMPT ${correctionCycle}:`,
-                verificationObservation,
-                '',
-                'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change.'
-              ].join('\n'),
+                'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change, and close every block with ===END FILE===.'
+              ].filter(Boolean).join('\n'),
               parse: (text) => requireEffectiveEdits(parseEditBlocks(text), correctionFiles),
               maxTokens: 8192,
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),

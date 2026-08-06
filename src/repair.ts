@@ -297,7 +297,7 @@ export function buildEditsPrompt(
     ...sections,
     ...evidenceMandate,
     '',
-    'Produce the changed files now, using the exact block format.'
+    'Produce the changed files now, using the exact block format. Close every block with ===END FILE=== — a block without its ===END FILE=== terminator is rejected entirely.'
   ].join('\n');
 }
 
