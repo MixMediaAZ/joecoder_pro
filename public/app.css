@@ -2121,3 +2121,23 @@ body.resizing-rail #rail { pointer-events: none; }
   gap: 0.45rem;
   flex-wrap: wrap;
 }
+
+/* Keep the side-panel position bars present at all times.
+   With overflow-y:auto the bar disappears whenever the content happens to be short
+   -- Joe Live's tabs filter the log, so "Checked" with 3 entries showed no bar while
+   "Live" with 30 did (measured: scrollbarPx 1 vs 11), and the panel width jumped
+   10px on every tab switch. overflow-y:scroll keeps the track rendered, the stable
+   gutter stops the reflow, and a faint track colour makes the groove readable on the
+   dark surface even when there is nothing to scroll. */
+.workshop-rail-scroll,
+#voice {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgba(244, 239, 230, 0.34) rgba(244, 239, 230, 0.07);
+}
+
+.workshop-rail-scroll::-webkit-scrollbar-track,
+#voice::-webkit-scrollbar-track {
+  background: rgba(244, 239, 230, 0.07);
+  border-radius: 5px;
+}
