@@ -140,3 +140,46 @@ test('broken findings carry structured targets naming the file to correct', () =
   ]);
   assert.deepEqual(result.targets, ['pubspec.yaml']);
 });
+
+test('a caret constraint pinned BELOW the locked major is equally contradicted', () => {
+  // The second live failure: file_selector was fixed, then pub get died on audioplayers ^0.23.1
+  // while the committed lock proves 6.7.1 resolves. The one-sided declared>locked rule missed it.
+  const spec = [
+    'name: app',
+    'dependencies:',
+    '  audioplayers: ^0.23.1',
+    '  share_plus: ^3.0.0',
+    '  flutter_lints: ^3.0.0',
+    ''
+  ].join('\n');
+  const lock = [
+    'packages:',
+    '  audioplayers:',
+    '    version: "6.7.1"',
+    '  share_plus:',
+    '    version: "10.1.4"',
+    '  flutter_lints:',
+    '    version: "3.0.2"',
+    ''
+  ].join('\n');
+  const result = diagnoseDependencyConsistency([
+    { path: 'pubspec.yaml', content: spec },
+    { path: 'pubspec.lock', content: lock }
+  ]);
+  const broken = result.broken.join(' | ');
+  assert.match(broken, /audioplayers \^0\.23\.1.*resolved audioplayers 6\.7\.1/);
+  assert.match(broken, /share_plus \^3\.0\.0.*resolved share_plus 10\.1\.4/);
+  assert.match(broken, /align it with the locked version/);
+  // Same-major caret stays clean.
+  assert.equal(broken.includes('flutter_lints'), false);
+  assert.deepEqual(result.targets, ['pubspec.yaml']);
+});
+
+test('a non-caret floor constraint below the lock is not flagged', () => {
+  // >=0.5.0 can legitimately resolve to 6.x; only caret pins the major.
+  const result = diagnoseDependencyConsistency([
+    { path: 'pubspec.yaml', content: 'name: app\ndependencies:\n  pkg: ">=0.5.0"\n' },
+    { path: 'pubspec.lock', content: 'packages:\n  pkg:\n    version: "6.0.0"\n' }
+  ]);
+  assert.deepEqual(result.broken, []);
+});

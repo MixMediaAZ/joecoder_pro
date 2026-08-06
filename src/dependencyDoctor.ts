@@ -140,10 +140,18 @@ function diagnoseDeclarations(
       continue;
     }
     const resolvedMajor = firstMajor(resolved);
-    if (declaredMajor !== null && resolvedMajor !== null && declaredMajor > resolvedMajor) {
+    if (declaredMajor === null || resolvedMajor === null) continue;
+    // A caret constraint pins its major, so a locked resolution on a DIFFERENT major contradicts
+    // it in either direction. The first live run only caught declared > locked; the same project
+    // then failed on audioplayers ^0.23.1 with the lock proving 6.7.1 — declared BELOW the lock,
+    // equally unresolvable, invisible to the one-sided rule. For non-caret ranges only the
+    // declared-above case is provably wrong offline (a floor like >=0.5 can still reach 6.x).
+    const caret = declaration.constraint.startsWith('^');
+    const contradicted = caret ? declaredMajor !== resolvedMajor : declaredMajor > resolvedMajor;
+    if (contradicted) {
       out.broken.push(
         `Dependency install cannot succeed: ${manifestPath} demands ${declaration.name} ${declaration.constraint}, but the committed ${lockPath} resolved ${declaration.name} ${resolved}. ` +
-        `The declared major version ${declaredMajor} exceeds anything that has ever resolved here (${resolved}); the constraint in ${manifestPath} is the file to correct.`
+        `The declared constraint pins major ${declaredMajor} while the lock proves major ${resolvedMajor} is what actually resolves here; the constraint in ${manifestPath} is the file to correct (align it with the locked version, e.g. ^${resolved}).`
       );
       if (!out.targets.includes(manifestPath)) out.targets.push(manifestPath);
     }
