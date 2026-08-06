@@ -524,7 +524,11 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         `The model sees only the ${scoped.length} authorized file(s); its output is parsed strictly and validated before any write.`,
         'Malformed or out-of-scope output fails closed with no changes.'
       );
-      const remainingMs = Math.max(30000, Math.min(deadlineAt - Date.now(), 300000));
+      // Bounded by the Work Order's own sealed duration budget, not an arbitrary constant. A
+      // multi-file consolidation on the 14b model needs more than 300s to emit complete files;
+      // the 300s clamp timed out a legitimately progressing generation while the job still had
+      // budget. The deadline (from budgets.maxDurationMs) remains the hard ceiling.
+      const remainingMs = Math.max(30000, deadlineAt - Date.now());
       const stopGenHeartbeat = startProgressHeartbeat(project.id, `Generating edits with ${provider.model}`);
       let structuredEdits;
       try {
