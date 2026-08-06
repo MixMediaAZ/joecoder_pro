@@ -285,6 +285,7 @@ function renderExplorer() {
 // Sticky only while the reader is already at the bottom: if they have scrolled up to read earlier
 // context, a background job update must not yank them back down.
 let stickToBottom = true;
+let lastRenderHtml = '';
 const STICK_THRESHOLD_PX = 80;
 
 function captureScrollIntent() {
@@ -304,12 +305,43 @@ function render() {
   const app = document.getElementById('app');
   if (!state.csrfToken) {
     app.innerHTML = renderSessionGate();
+    // Invalidate the render cache: the DOM now holds the gate, not the app, so the next real
+    // render must apply even if its markup matches whatever was on screen before the session ended.
+    lastRenderHtml = '';
     document.getElementById('retry-session')?.addEventListener('click', boot);
     return;
   }
+  const html = `${renderHeader()}<div id="layout" class="with-activity${state.railCollapsed ? ' rail-collapsed' : ''}">${renderRail()}${renderRailResizer()}${renderMain()}${renderLive()}</div>${renderPanel()}`;
+
+  // While a job runs the poll tick calls render() every 900ms, and this function replaces the
+  // entire tree each time. Most of those ticks produce byte-identical markup, so the rebuild was
+  // pure churn: it reset the scroll, dropped focus, cleared any text selection, and wiped whatever
+  // the user had typed into the composer. Skipping an unchanged render leaves the DOM -- and the
+  // user -- alone.
+  if (html === lastRenderHtml) return;
+
+  // When the markup genuinely changed, carry the volatile bits across the replacement.
+  const previous = document.getElementById('chat-input');
+  const draft = previous
+    ? { value: previous.value, start: previous.selectionStart, end: previous.selectionEnd, focused: document.activeElement === previous }
+    : null;
+
   captureScrollIntent();
-  app.innerHTML = `${renderHeader()}<div id="layout" class="with-activity${state.railCollapsed ? ' rail-collapsed' : ''}">${renderRail()}${renderRailResizer()}${renderMain()}${renderLive()}</div>${renderPanel()}`;
+  app.innerHTML = html;
+  lastRenderHtml = html;
   bind();
+
+  if (draft) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+      input.value = draft.value;
+      if (draft.focused) {
+        input.focus();
+        try { input.setSelectionRange(draft.start, draft.end); } catch { /* selection is best effort */ }
+      }
+    }
+  }
+
   applyScrollIntent();
   syncDetachedLive();
 }
