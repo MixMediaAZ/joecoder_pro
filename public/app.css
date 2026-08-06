@@ -2157,3 +2157,19 @@ body.resizing-rail #rail { pointer-events: none; }
   line-height: 1.45;
   color: var(--muted);
 }
+
+/* Project Brain: guidance already in force, shown as placeholder text so eight empty boxes do not
+   read as "nothing is configured". The preset guidance is injected on every job regardless. */
+#brain-form textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.field-inherited {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
