@@ -1,5 +1,17 @@
 # Assessment Remediation (2026-08-02)
 
+> **CORRECTED 2026-08-06 — this document contains a claim the mandate forbids.**
+>
+> Items 1 and 2 below label a run performed with `JC_MOCK_MODEL=1` as **"Live proof."** It is not proof of anything about a real project. `README.md` states the rule plainly: *"`JC_MOCK_MODEL=1` is used only by isolated certification fixtures. It is never evidence that a real project works."* The controlling finish specification lists "use mock-model output as product proof" as a hard-stop.
+>
+> Read every "Live proof" and "LIVE E2E PASSED" line below as **mock-model plumbing proof only**. It demonstrates that the request path executes end to end; it demonstrates nothing about model competence, real repairs, or product readiness.
+>
+> This wording was the documentary source of a real defect: `tools/e2e-live.mjs` forced `JC_MOCK_MODEL` to `1` unless overridden, and its receipts recorded no model provenance, so mock-derived evidence was indistinguishable on disk from real evidence. Fixed 2026-08-06 — receipts now carry `provenance.modelMode` and `observedModel`, and the suite runs against a real local model.
+>
+> Item 6 ("UI layering debt — Partial") remained open until 2026-08-06. See `UI_TEST_NOTES.md`.
+>
+> This file is retained at this path because `tools/verify-governance.mjs` reads it. Superseded architecture guidance lives in `HANDOFF_PLAN_v2.md`.
+
 ## Items addressed
 
 ### 1. Model dependency

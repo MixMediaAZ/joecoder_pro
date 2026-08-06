@@ -1,7 +1,18 @@
 # JoeCoder Pro 20 → Expert Coding Machine
 ## Defensible Handoff Plan v1.0
+
+> **SUPERSEDED IN PART — 2026-08-06. Read `HANDOFF_PLAN_v2.md` first.**
+>
+> §1 Governing Laws and §6 Risk & Stop-Loss are **retained and still binding**.
+>
+> **§3 Target State, §4 Simple Flowchart Rules, and §5 Phased Upgrade are superseded.** They describe a browser `Draft Work Order → human review → Authorize → Apply` sequence that the shipped product does not have and the current mandate forbids. The sealed authorization envelope still exists; it is a server-owned step inside the durable Agent Job, not an operator gesture.
+>
+> **§7 Acceptance item 2 is corrected** in v2 §4: the binding requirement is a real local model with its identity recorded in the receipt, not a "≤9B" ceiling.
+>
+> This file is retained at this path because `tools/verify-full-loop.mjs` asserts its presence. Do not use §3, §4, or §5 as implementation guidance.
+
 **Date:** 2026-08-02  
-**Authority:** This document is binding. Deviation requires a new numbered plan that explicitly supersedes named sections.
+**Authority:** Superseded in part by `HANDOFF_PLAN_v2.md` (2026-08-06). This document was binding and required that deviation be authorised by a new numbered plan explicitly superseding named sections; v2 is that plan.
 
 ### 1. Governing Laws (Non-Negotiable)
 

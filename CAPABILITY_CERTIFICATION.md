@@ -27,7 +27,7 @@
 - Mutation engine, snapshot, rollback, envelope, and recovery code are active.
 - `SOURCE_REPAIR_CAPABILITY.enabled = true`.
 - Export handoff and read-only inspection remain fully available.
-- Phase 2 (jailed verification runner) is the next required work.
+- ~~Phase 2 (jailed verification runner) is the next required work.~~ **Corrected 2026-08-06:** stale. The jailed verification runner was completed the same day this line was written (`HANDOFF_PLAN_v1.md` §5, Phase 2, and `src/verification.ts`). The next required work is acceptance item 2 in `HANDOFF_PLAN_v2.md` §4 — one ordinary-language request driving a real build or refactor on a real project under a real local model, which remains unproven.
 
 ## Stop-Loss
 
