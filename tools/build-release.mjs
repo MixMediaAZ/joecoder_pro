@@ -17,7 +17,8 @@ const payloadRoot = path.join(releaseRoot, 'payload');
 const signingRoot = path.join(root, '.jc', 'signing');
 const include = [
   'dist', 'public', 'schemas', 'package.json', 'package-lock.json', 'start.bat',
-  'README.md', 'README_RUN.md', 'WORKFLOW_GUIDE.md', 'CAPABILITY_CERTIFICATION.md', 'SUPPORTED_CAPABILITIES.md'
+  'README.md', 'README_RUN.md', 'WORKFLOW_GUIDE.md', 'CAPABILITY_CERTIFICATION.md', 'SUPPORTED_CAPABILITIES.md',
+  'plan/amendment-1.3.3'
 ];
 
 await fs.mkdir(payloadRoot, { recursive: true });
@@ -29,16 +30,18 @@ for (const relative of include) {
 }
 
 const inventory = await inventoryNpmDependencies(root);
+const governance = JSON.parse(await fs.readFile(path.join(root, 'plan', 'amendment-1.3.3', 'RATIFIED_LIMITATIONS.json'), 'utf8'));
+if (!Array.isArray(governance.limitations) || governance.limitations.length === 0) {
+  throw new Error('RELEASE_RATIFIED_LIMITATIONS_MISSING');
+}
+const verifiedLimitations = governance.limitations.map(item => ` / : `);
 const identity = await loadOrCreateSigningIdentity(signingRoot);
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
 const bundle = await createReleaseBundle(payloadRoot, inventory, {
   sourceCommit,
   builder: `joecoder-release/1 node/${process.version} ${process.platform}/${process.arch}`,
   tests: ['npm test', 'npm run verify:governance', 'npm run e2e:live'],
-  limitations: [
-    'Artifact metadata is signed by this machine-local Ed25519 identity; it is not Windows Authenticode.',
-    'A separate clean Windows user-account installation remains an external release qualification step.'
-  ]
+  limitations: verifiedLimitations
 });
 const envelope = signEnvelope(bundle, identity.privateKeyPem);
 await verifyReleaseBundle(payloadRoot, envelope, { trustedKeyId: identity.keyId });
