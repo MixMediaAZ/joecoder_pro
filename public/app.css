@@ -1852,3 +1852,95 @@ details.run-completion.compact > summary strong {
 .settings-overlay .settings-boundaries strong,.settings-overlay .settings-boundaries small{display:block;color:#fffaf2}
 .settings-overlay .settings-boundaries small{margin-top:3px;color:#e5b985;font-size:.68rem}
 .settings-overlay .settings-boundaries p{margin:7px 0 0;color:#e7e1d7;line-height:1.5;font-size:.75rem}
+/* ── Dark-shell contrast repair ────────────────────────────────────────────────
+   The shell is intentionally mixed: #topbar, #rail and #voice are dark; #main and
+   the composer are light and already read correctly. The dark shell was added by a
+   later patch that set surface colors and layout widths but never the text tokens,
+   so #topbar and #voice painted near-black text (--text #1f1c18, --muted #7a7468)
+   on near-black panels — measured 1.01–1.02:1 against the 4.5:1 the finish spec
+   requires, which also forbids low-contrast text outright.
+
+   Two traps this deliberately avoids:
+
+   1. --text is NOT redefined. #toggle-live, #logout and #open-project use
+      var(--text) as their BACKGROUND for an inverted button style; overriding the
+      variable turns them into white-on-white. The shell sets `color` to a literal
+      instead, so those buttons keep their dark background and white label.
+   2. Scoped to the dark regions. Redefining these tokens at :root would invert the
+      genuinely light #main and composer.
+
+   #rail also carries two contradictory background rules — an early
+   `background:#1e1d1a` and a later `background:var(--bg-panel)` (#fbfaf7), the
+   latter winning — so it declared a light surface while its dark children made it
+   look dark. .rail-explorer nests its own light panel inside. Both are settled dark
+   to match the visible design and the earlier rule. */
+#rail { background: #1e1d1a; }
+#rail .rail-explorer { background: transparent; }
+
+#topbar,
+#rail,
+#voice {
+  color: #f4efe6;
+  --text-soft: #d3ccc0;
+  --muted: #a89e8f;
+  --border: rgba(244, 239, 230, 0.12);
+  --border-strong: rgba(244, 239, 230, 0.20);
+}
+
+#topbar span,
+#topbar strong,
+#rail h3,
+#voice .live-entry-title { color: var(--text-soft); }
+
+#topbar .status-pill,
+#rail .rail-project small,
+#rail .explorer-boundary,
+#voice .live-entry-meta,
+#voice .live-entry-meaning,
+#voice .live-entry-next,
+#voice .voice-empty,
+#voice .live-tabs button { color: var(--muted); }
+
+/* Evidence links had no rule at all and fell through to the user-agent default
+   (#0000ee) on a dark panel — 1.79:1. These are the "Open proof" targets the UI
+   acceptance gate depends on. */
+#voice a,
+#topbar a,
+.live-entry a { color: #f0ad6b; text-decoration: underline; }
+
+#voice a:hover,
+.live-entry a:hover { color: #f7c795; }
+
+/* Visible focus indicator on the dark shell, required on every interactive element. */
+#topbar :focus-visible,
+#rail :focus-visible,
+#voice :focus-visible { outline: 2px solid #f0ad6b; outline-offset: 2px; }
+
+/* Remaining sub-4.5:1 text, measured. The light regions (#main, composer) inherit
+   --muted #7a7468, which lands at 3.78–4.49:1 on the cream surfaces — close enough
+   to look deliberate but still under AA. Darkening it clears them with margin; the
+   dark shell is unaffected because its #-scoped override outranks :root. */
+:root { --muted: #6a6459; }
+
+/* Rail glyph column (#777269 on #1e1d1a = 3.53:1) and the project initial badge
+   (--accent on #312e29 = 3.28:1). */
+#rail .rail-thread > span:first-child,
+#rail .rail-preset > span:first-child,
+#rail .rail-footer-button > span:first-child { color: var(--muted); }
+
+#rail .rail-project-mark { color: #e6a765; }
+
+/* Light-region text still under AA, measured: the accent (#b56b2a) used as small
+   bold label text reads 3.78:1 on the cream stream, .chat-role 4.49:1, and the
+   "Read-only" / model-route greys 3.94–4.06:1. Accent is fine as a fill or border
+   but needs a darker variant when it carries text on a light surface. */
+#main .conversation-kicker,
+#main .chat-role { color: #9a5a1c; }
+
+#main small,
+.codex-composer .model-route { color: var(--muted); }
+
+/* .chat-message.user is a dark bubble (#292621) inside the light stream, so the
+   darkened accent above would land dark-on-dark there. Its role label needs the
+   light-surface variant instead. */
+#main .chat-message.user .chat-role { color: #e6a765; }
