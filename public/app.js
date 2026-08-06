@@ -102,7 +102,7 @@ function renderSessionGate() {
 
 function renderHeader() {
   const provider = state.settings?.liveProviderStatus?.localModel || 'model unavailable';
-  return `<header id="topbar"><button class="icon-btn" id="toggle-rail" aria-label="Toggle projects">☰</button><strong>JoeCoder <span>PRO 2.0</span></strong><span>/</span><span>${escapeHtml(state.project?.name || 'Choose a project')}</span>${state.thread ? `<span>/</span><span>${escapeHtml(state.thread.title)}</span>` : ''}<span class="status-pill ${state.job?.status === 'running' ? 'working' : ''}">${escapeHtml(state.job?.status === 'running' ? 'Working' : terminalLabel(state.job))}</span><span>Automatic guardrails</span><span>${escapeHtml(provider)} · local</span><div class="topbar-spacer"></div><button id="toggle-live">Joe Live</button><button class="link-button" id="logout">End session</button></header>`;
+  return `<header id="topbar"><button class="icon-btn" id="toggle-rail" aria-label="Toggle projects">☰</button><strong>JoeCoder <span>PRO 20.1</span></strong><span>/</span><span>${escapeHtml(state.project?.name || 'Choose a project')}</span>${state.thread ? `<span>/</span><span>${escapeHtml(state.thread.title)}</span>` : ''}<span class="status-pill ${state.job?.status === 'running' ? 'working' : ''}">${escapeHtml(state.job?.status === 'running' ? 'Working' : terminalLabel(state.job))}</span><span>Automatic guardrails</span><span>${escapeHtml(provider)} · local</span><div class="topbar-spacer"></div><button id="toggle-live">Joe Live</button><button class="link-button" id="logout">End session</button></header>`;
 }
 
 function renderRail() {
