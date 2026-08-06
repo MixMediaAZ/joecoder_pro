@@ -34,7 +34,13 @@ const governance = JSON.parse(await fs.readFile(path.join(root, 'plan', 'amendme
 if (!Array.isArray(governance.limitations) || governance.limitations.length === 0) {
   throw new Error('RELEASE_RATIFIED_LIMITATIONS_MISSING');
 }
-const verifiedLimitations = governance.limitations.map(item => ` / : `);
+const verifiedLimitations = governance.limitations.map(item => {
+  if (typeof item.id !== 'string' || typeof item.lawId !== 'string' || typeof item.boundary !== 'string' ||
+      !item.id || !item.lawId || !item.boundary) {
+    throw new Error('RELEASE_RATIFIED_LIMITATION_MALFORMED');
+  }
+  return [item.id, '/', item.lawId + ':', item.boundary].join(' ');
+});
 const identity = await loadOrCreateSigningIdentity(signingRoot);
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
 const bundle = await createReleaseBundle(payloadRoot, inventory, {
