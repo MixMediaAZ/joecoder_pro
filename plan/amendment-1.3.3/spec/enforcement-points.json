@@ -609,15 +609,17 @@
                      },
                      {
                          "id":  "JC-DELIV-003",
-                         "status":  "partial",
+                         "status":  "enforced",
                          "modules":  [
                                          "src/capabilities.ts",
-                                         "public/app.js"
+                                         "public/app.js",
+                                         "tools/build-release.mjs"
                                      ],
                          "tests":  [
-                                       "src/uiWiring.test.ts"
+                                       "src/uiWiring.test.ts",
+                                       "src/releaseLayout.test.ts"
                                    ],
-                         "gap":  "Capability-disabled controls are labeled, but source still contains acknowledged stubs and the former placeholder registry required this amendment."
+                         "gap":  null
                      },
                      {
                          "id":  "JC-DELIV-004",

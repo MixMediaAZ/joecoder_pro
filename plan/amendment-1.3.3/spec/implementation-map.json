@@ -10,8 +10,8 @@
   ],
   "auditedOn": "2026-08-05",
   "summary": {
-    "enforced": 27,
-    "partial": 21,
+    "enforced": 28,
+    "partial": 20,
     "missing": 0
   },
   "mappings": [
@@ -659,16 +659,18 @@
     },
     {
       "id": "JC-DELIV-003",
-      "status": "partial",
+      "status": "enforced",
       "modules": [
         "src/capabilities.ts",
-        "public/app.js"
+        "public/app.js",
+        "tools/build-release.mjs"
       ],
       "tests": [
-        "src/uiWiring.test.ts"
+        "src/uiWiring.test.ts",
+        "src/releaseLayout.test.ts"
       ],
-      "gap": "Default automatic UI controls are live and tested and consequential legacy routes are blocked; earlier inactive renderer functions remain in public/app.js and are not production capability claims.",
-      "limitationId": "LIM-DELIV-003"
+      "gap": null,
+      "limitationId": null
     },
     {
       "id": "JC-DELIV-004",

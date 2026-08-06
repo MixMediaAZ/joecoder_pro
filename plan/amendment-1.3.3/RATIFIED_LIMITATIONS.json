@@ -23,11 +23,6 @@
                             "boundary":  "Automated startup, session, packaging, and restart checks run; a separately provisioned clean Windows user-account qualification remains external."
                         },
                         {
-                            "id":  "LIM-DELIV-003",
-                            "lawId":  "JC-DELIV-003",
-                            "boundary":  "Default automatic UI controls are live and tested and consequential legacy routes are blocked; earlier inactive renderer functions remain in public/app.js and are not production capability claims."
-                        },
-                        {
                             "id":  "LIM-DELIV-004",
                             "lawId":  "JC-DELIV-004",
                             "boundary":  "Unknown, skipped, limited, or integrity-only checks disqualify full verified completion; a general-purpose time-expiring waiver issuance workflow is not exposed."
