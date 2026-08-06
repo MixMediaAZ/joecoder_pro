@@ -1,0 +1,1 @@
+{"name":"acceptance-static-responsive-accessible","type":"module","scripts":{"test":"node --test"}}

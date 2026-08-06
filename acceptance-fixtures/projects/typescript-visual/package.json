@@ -1,0 +1,1 @@
+{"name":"acceptance-typescript-visual","type":"module","scripts":{"test":"node --test"}}

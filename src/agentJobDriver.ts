@@ -14,6 +14,7 @@ export interface AgentJobCredentials {
   cookie: string;
   csrfToken: string;
   runtimeToken: string;
+  jobId: string;
 }
 
 export class AgentJobHttpError extends Error {
@@ -42,7 +43,8 @@ async function callApi<T>(
   const headers: Record<string, string> = {
     Cookie: credentials.cookie,
     Origin: credentials.baseUrl,
-    'X-JC-Agent-Runtime': credentials.runtimeToken
+    'X-JC-Agent-Runtime': credentials.runtimeToken,
+    'X-JC-Agent-Job': credentials.jobId
   };
   if (method === 'POST') {
     headers['Content-Type'] = 'application/json';
@@ -88,11 +90,21 @@ function workOrderBudgets(workOrder: Record<string, any>): Record<string, unknow
   return workOrder.budgets && typeof workOrder.budgets === 'object' ? workOrder.budgets : {};
 }
 
-function successfulTerminal(result: Record<string, any>): {
+export function successfulTerminal(result: Record<string, any>): {
   terminalState: 'completed' | 'completed_with_limits';
   reason: string;
   proofLevel: string;
 } {
+  if (result.mockModel === true || result.model === 'jc-mock-model') {
+    const proofLevel = result.verification
+      ? verificationProofLevel(result.verification as VerificationReport)
+      : 'evidence';
+    return {
+      terminalState: 'completed_with_limits',
+      reason: 'The deterministic mock exercised the guarded workflow, but mock output cannot prove production coding capability.',
+      proofLevel
+    };
+  }
   if (!result.verification) {
     return {
       terminalState: 'completed',
@@ -154,7 +166,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
               credentials,
               actionKey,
               'inspection',
-              '/api/v1/survey',
+              '/api/v1/internal/survey',
               { method: 'POST', body: { path: project.path, projectId: job.projectId } }
             );
             surveyEvidenceId = survey.evidenceId ? String(survey.evidenceId) : surveyEvidenceId;
@@ -207,7 +219,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
               credentials,
               actionKey,
               'accept-project',
-              `/api/v1/projects/${job.projectId}/accept`,
+              `/api/v1/internal/projects/${job.projectId}/accept`,
               { method: 'POST', body: {} }
             );
             intent = inferIntent(job.objective, projectResponse.latestSurvey);
@@ -215,7 +227,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
               credentials,
               actionKey,
               'draft-work-order',
-              '/api/v1/work-orders/from-survey',
+              '/api/v1/internal/work-orders/from-survey',
               {
                 method: 'POST',
                 body: {
@@ -279,7 +291,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
               credentials,
               actionKey,
               'authorize',
-              `/api/v1/work-orders/${workOrderId}/authorize`,
+              `/api/v1/internal/work-orders/${workOrderId}/authorize`,
               {
                 method: 'POST',
                 body: {
@@ -334,7 +346,7 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             credentials,
             actionKey,
             'execute',
-            `/api/v1/work-orders/${workOrderId}/apply`,
+            `/api/v1/internal/work-orders/${workOrderId}/apply`,
             { method: 'POST', body: { action: applyAction } }
           );
           appendAgentJobMemory({

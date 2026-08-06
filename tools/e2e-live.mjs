@@ -2,11 +2,12 @@
 /**
  * U5 — Live HTTP e2e driver (release gate).
  *
- * Starts the built server, establishes a session, and drives:
- *   Register → Inspect → Accept → Draft(export/inspect) → Authorize → Apply export
+ * Starts the built server, establishes a session, and drives the public durable
+ * Agent Job contract for read-only inspection and a bounded repair. It also
+ * proves the superseded public lifecycle mutation routes are unavailable.
  *
- * Asserts evidence IDs and export artifacts. Repair path is attempted only when
- * a local model is available (otherwise recorded as skipped).
+ * Asserts committed events, evidence identities, and the evidence-derived
+ * terminal state. A local model is required for the repair branch.
  *
  * Usage: node tools/e2e-live.mjs
  * Exit: 0 on pass
@@ -225,34 +226,12 @@ async function main() {
       `status=${escapedPreview.status} code=${escapedPreview.data?.code || 'none'}`
     );
 
-    const survey = await api.post('/api/v1/survey', {
-      path: fixture,
-      projectId,
-      maxDepth: 4,
-      maxEntries: 200,
-      timeoutMs: 30000
-    }, 60000);
-    const surveyId = survey.data?.evidenceId || survey.data?.surveyId || survey.data?.id;
-    // survey response shape may nest
-    const nestedId =
-      surveyId ||
-      survey.data?.evidence?.id ||
-      survey.data?.result?.evidenceId ||
-      null;
-    // Prefer latestSurveyId from project after survey
-    const projAfter = await api.get(`/api/v1/projects/${projectId}`);
-    const latestSurveyId = projAfter.data?.project?.latestSurveyId || nestedId;
-    await record(
-      'inspect',
-      survey.status === 200 && Boolean(latestSurveyId),
-      `status=${survey.status} survey=${latestSurveyId || 'none'} keys=${Object.keys(survey.data || {}).join(',')}`
-    );
-
+    const legacySurvey = await api.post('/api/v1/survey', {});
     const legacyAccept = await api.post('/api/v1/projects/' + projectId + '/accept', {});
     await record(
-      'legacy_lifecycle_blocked',
-      legacyAccept.status === 410 && legacyAccept.data?.code === 'DURABLE_AGENT_RUNTIME_REQUIRED',
-      `status=${legacyAccept.status} code=${legacyAccept.data?.code || 'none'}`
+      'public_lifecycle_absent',
+      legacySurvey.status === 404 && legacyAccept.status === 404,
+      `survey=${legacySurvey.status} accept=${legacyAccept.status}`
     );
 
     const threads = await api.get('/api/v1/projects/' + projectId + '/threads');
@@ -287,6 +266,13 @@ async function main() {
       readOnlyObserved?.job?.status === 'completed' && Boolean(readOnlyObserved?.job?.workOrderId) && Boolean(readOnlyResult.evidenceId),
       `status=${readOnlyObserved?.job?.status || 'timeout'} wo=${readOnlyObserved?.job?.workOrderId || 'none'} evidence=${readOnlyResult.evidenceId || 'none'}`
     );
+    const inspectedProject = await api.get(`/api/v1/projects/${projectId}`);
+    const latestSurveyId = inspectedProject.data?.project?.latestSurveyId;
+    await record(
+      'inspect_through_durable_job',
+      inspectedProject.status === 200 && Boolean(latestSurveyId),
+      `status=${inspectedProject.status} survey=${latestSurveyId || 'none'}`
+    );
     const exportsDir = path.join(SERVER_DATA, 'exports');
     const exported = await fs.readdir(exportsDir).catch(() => []);
     await record('export_artifacts', Boolean(exportPath) || exported.length > 0, `path=${exportPath || 'none'} exports=${exported.length}`);
@@ -317,12 +303,14 @@ async function main() {
       }
       const content3 = await fs.readFile(path.join(fixture3, 'src', 'lib.js'), 'utf8').catch(() => '');
       const fixed3 = content3.includes('a + b') || content3.includes('a+b');
-      const completed3 = observed3?.job?.status === 'completed';
+      const guardedMockResult = observed3?.job?.status === 'completed' &&
+        observed3?.job?.terminalState === 'completed_with_limits' &&
+        observed3?.job?.result?.mockModel === true;
       const stages3 = (observed3?.events || []).map((event) => event.stage);
       await record(
-        'agent_job_complete',
-        completed3 && fixed3 && Boolean(observed3?.job?.workOrderId) && stages3.includes('complete'),
-        `status=${observed3?.job?.status || 'timeout'} fixed=${fixed3} wo=${observed3?.job?.workOrderId || 'none'} stages=${stages3.join(',')} error=${observed3?.job?.errorMessage || 'none'}`
+        'agent_job_mock_guardrail',
+        guardedMockResult && fixed3 && Boolean(observed3?.job?.workOrderId) && stages3.includes('complete'),
+        `status=${observed3?.job?.status || 'timeout'} terminal=${observed3?.job?.terminalState || 'none'} mock=${Boolean(observed3?.job?.result?.mockModel)} fixed=${fixed3} wo=${observed3?.job?.workOrderId || 'none'} stages=${stages3.join(',')} error=${observed3?.job?.errorMessage || 'none'}`
       );
       await fs.rm(fixture3, { recursive: true, force: true }).catch(() => {});
     }

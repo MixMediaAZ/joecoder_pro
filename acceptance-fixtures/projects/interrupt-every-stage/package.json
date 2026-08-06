@@ -1,0 +1,1 @@
+{"name":"acceptance-interrupt-every-stage","type":"module","scripts":{"test":"node first-check.mjs"}}

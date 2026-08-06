@@ -6,16 +6,24 @@ import path from 'node:path';
 import test from 'node:test';
 import { applyEdits, rollbackToSnapshot, snapshotScopedFiles } from './mutation.js';
 import { runVerification, verificationProofLevel } from './verification.js';
+import { AcceptanceManifestSchema } from './acceptanceContract.js';
 
 test('Stage 10 manifest permanently covers every required isolated fixture class', async () => {
-  const manifest = JSON.parse(await fs.readFile('acceptance-fixtures/manifest.json', 'utf8')) as { fixtures: Array<{ id: string; proof: string }> };
+  const manifest = AcceptanceManifestSchema.parse(JSON.parse(await fs.readFile('acceptance-fixtures/manifest.json', 'utf8')));
   const expected = [
     'typescript-visual', 'node-api-database', 'python-unit-integration', 'static-responsive-accessible',
     'ambiguous-multifile', 'missing-dependencies-or-runner', 'windows-spaces-long-path',
     'interrupt-every-stage', 'prompt-injection-four-surfaces', 'scope-secret-budget-loop'
   ];
   assert.deepEqual(manifest.fixtures.map(item => item.id), expected);
-  assert.ok(manifest.fixtures.every(item => item.proof.trim().length > 10));
+  for (const item of manifest.fixtures) {
+    assert.ok(item.assertions.checks.length > 0);
+    assert.ok(item.assertions.untouchedPaths.length > 0);
+    assert.equal(item.assertions.evidenceIntegrity, true);
+    assert.equal(item.assertions.restartRecovery, true);
+    assert.match(item.assertions.rollback, /restore|no_mutation/);
+    assert.ok(item.assertions.truthfulTerminal.length > 0);
+  }
 });
 
 test('Python fixture repairs and verifies across a long Windows path', async () => {

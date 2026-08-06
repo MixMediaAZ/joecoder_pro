@@ -26,15 +26,16 @@ import { evaluateExportCompletion, evaluateRepairCompletion } from './completion
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
-  parsePlanResponse, buildEditsPrompt, parseEditBlocks, readScopedFiles,
+  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditBlocks, requireEffectiveEdits, readScopedFiles,
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
-import { runVerification, verificationProofLevel } from './verification.js';
+import { runVerification, verificationEvidenceFingerprint, verificationProofLevel } from './verification.js';
 import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
 import { compactEvidenceLinkedHistory } from './structuredControl.js';
 import { buildTaskMemoryPrompt } from './projectMemory.js';
 import { runJailedInstall } from './installDeps.js';
+import { needsDependencyInstall } from './dependencyPolicy.js';
 import { inventoryNpmDependencies, loadOrCreateSigningIdentity, signEnvelope } from './supplyChain.js';
 import { SOURCE_REPAIR_CAPABILITY, runtimeCapabilities, sourceRepairDeniedPayload } from './capabilities.js';
 import { sealAuthorizationEnvelope, verifyAuthorizationEnvelope } from './authorization.js';
@@ -53,6 +54,7 @@ import {
   recordIdempotencyUse,
   getIdempotencyRecord,
   completeIdempotencyUse,
+  releaseIncompleteIdempotencyUse,
   recordRecoveryCheckpoint,
   recordSessionCreated,
   recordSessionEnded,
@@ -256,6 +258,11 @@ async function recoverPersistedExecutions(): Promise<number> {
     let finalStatus: WorkOrder['status'] = 'failed';
     let detail: Record<string, unknown> = { decision };
 
+    if (decision.kind === 'safe_fail') {
+      finalStatus = 'authorized';
+      detail = { decision, restored: false, sourceWritesProven: false };
+    }
+
     if (decision.kind === 'rollback') {
       const validSnapshotId = /^SNAP-\d+(?:-[a-f0-9]+)?$/.test(decision.snapshotId);
       const manifest = validSnapshotId
@@ -263,7 +270,7 @@ async function recoverPersistedExecutions(): Promise<number> {
         : null;
       if (manifest && manifest.snapshotId === decision.snapshotId) {
         const rollback = await rollbackToSnapshot(SNAPSHOTS_DIR, manifest);
-        finalStatus = rollback.failures.length === 0 ? 'rolled_back' : 'failed';
+        finalStatus = rollback.failures.length === 0 ? 'authorized' : 'failed';
         detail = { decision, rollback };
       } else {
         detail = { decision, error: 'RECOVERY_SNAPSHOT_MISSING_OR_INVALID' };
@@ -278,7 +285,7 @@ async function recoverPersistedExecutions(): Promise<number> {
         phase: 'legacy_unknown',
         startedAt: workOrder.updatedAt
       }),
-      phase: finalStatus === 'rolled_back' ? 'recovered_rolled_back' : 'recovery_blocked',
+      phase: finalStatus === 'authorized' ? 'recovered_ready' : 'recovery_blocked',
       recoveredAt: new Date().toISOString(),
       recoveryReason: decision.reason
     };
@@ -286,18 +293,18 @@ async function recoverPersistedExecutions(): Promise<number> {
     recordRecoveryCheckpoint({
       workOrderId: workOrder.id,
       phase: 'startup_execution_recovery',
-      state: finalStatus === 'rolled_back' ? 'recovered' : 'failed',
+      state: finalStatus === 'authorized' ? 'recovered' : 'failed',
       detail
     });
     await recordEvent('work_order.startup_recovered', {
       id: workOrder.id,
       status: finalStatus,
-      what: finalStatus === 'rolled_back'
-        ? 'I restored the interrupted Work Order from its recorded snapshot.'
+      what: finalStatus === 'authorized'
+        ? 'I restored the interrupted Work Order to a safe resumable boundary.'
         : 'I blocked the interrupted Work Order because safe completion or rollback could not be proven.',
       meaning: decision.reason,
-      next: finalStatus === 'rolled_back'
-        ? 'Review the recovery record before planning new work.'
+      next: finalStatus === 'authorized'
+        ? 'Resume the same durable job; its original scope, authorization, and budgets remain sealed.'
         : 'Inspect the recovery detail and establish fresh evidence before any new mutation.'
     });
     recovered += 1;
@@ -466,7 +473,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           {
             system: EDIT_SYSTEM,
             prompt: editPrompt,
-            parse: parseEditBlocks,
+            parse: (text) => requireEffectiveEdits(parseEditBlocks(text), scoped),
             maxTokens: 8192,
             timeoutMs: remainingMs,
             temperature: 0.2,
@@ -524,6 +531,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
       );
       if (wo.execution) wo.execution.phase = 'committing';
       await saveWorkOrder(wo);
+      if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'write') await new Promise((resolve) => setTimeout(resolve, 2_000));
       let applyResult = await applyEdits(project.path, edits, {
         scopeRelPaths: wo.scope.exactPaths,
         maxFiles: wo.budgets.maxFiles,
@@ -586,6 +594,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         verify: async (attempt) => {
           if (wo.execution) wo.execution.phase = `verifying_${attempt}`;
           await saveWorkOrder(wo);
+          if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'verification') await new Promise((resolve) => setTimeout(resolve, 2_000));
           const stopVerifyHeartbeat = startProgressHeartbeat(project.id, `Running project verification attempt ${attempt}`);
           try {
             return await runVerification(project.path, {
@@ -605,12 +614,13 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           return {
             passed: candidateProof !== 'failed',
             reason: candidate.detail,
-            evidenceFingerprint: createHash('sha256').update(JSON.stringify(candidate)).digest('hex')
+            evidenceFingerprint: verificationEvidenceFingerprint(candidate)
           };
         },
-        correct: async ({ correctionCycle, failedVerification }) => {
+        correct: async ({ correctionCycle, failedVerification, history }) => {
           if (wo.execution) wo.execution.phase = `correcting_${correctionCycle}`;
           await saveWorkOrder(wo);
+          if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'correction') await new Promise((resolve) => setTimeout(resolve, 2_000));
           await narrateWorkOrder(
             wo,
             'repair.correction_started',
@@ -644,14 +654,19 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
             {
               system: EDIT_SYSTEM,
               prompt: [
-                [buildEditsPrompt(wo.objective, approach, correctionFiles), executionContext].filter(Boolean).join('\n\n'),
+                [buildEditsPrompt(wo.objective, [
+                  'Treat the original approach as a disproven hypothesis, not an instruction.',
+                  'Trace the observed output end-to-end through every current scoped file.',
+                  `This is correction cycle ${correctionCycle}; ${history.length} fresh verification attempt(s) have failed.`,
+                  'Change the smallest remaining implementation cause. Do not return content already present on disk.'
+                ].join(' '), correctionFiles), executionContext].filter(Boolean).join('\n\n'),
                 '',
                 `OBSERVATION FROM VERIFICATION ATTEMPT ${correctionCycle}:`,
                 verificationObservation,
                 '',
-                'Diagnose this fresh evidence and correct the implementation. Return complete file blocks only.'
+                'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change.'
               ].join('\n'),
-              parse: parseEditBlocks,
+              parse: (text) => requireEffectiveEdits(parseEditBlocks(text), correctionFiles),
               maxTokens: 8192,
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
               temperature: 0.1,
@@ -826,6 +841,9 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         verification,
         correctionCycles: verificationLoop.corrections,
         verificationAttempts: verificationLoop.attempts.length,
+        provider: structuredEdits.provider,
+        model: structuredEdits.model,
+        mockModel: structuredEdits.model === 'jc-mock-model',
         evidenceId: env.id,
         message: proofLevel === 'runtime'
           ? `apply_edits completed: ${applyResult.applied.length} file(s) within authorized scope; runtime checks passed`
@@ -1032,9 +1050,28 @@ function requireConsequentialRequest(req: express.Request, res: express.Response
     if (persisted.completedAt !== null && persisted.responseStatus !== null) {
       return res.status(persisted.responseStatus).json(persisted.response);
     }
-    return res.status(409).json({
-      error: 'The original request is still being reconciled; it will not be executed twice.',
-      code: 'IDEMPOTENCY_IN_PROGRESS'
+    const resumedJobId = req.get('x-jc-agent-job') || '';
+    const resumedJob = resumedJobId ? getAgentJob(resumedJobId) : null;
+    const runtimeToken = req.get('x-jc-agent-runtime') || '';
+    const mayRetryAfterRestart = Boolean(
+      resumedJob && resumedJob.status === 'running' && resumedJob.resumeCount > 0 &&
+      persisted.sessionId !== req.jcSession.id && idempotencyKey.startsWith(`${resumedJob.id}-`) &&
+      constantTimeEqual(runtimeToken, AGENT_RUNTIME_TOKEN)
+    );
+    if (!mayRetryAfterRestart || !releaseIncompleteIdempotencyUse(idempotencyKey)) {
+      return res.status(409).json({
+        error: 'The original request is still being reconciled; it will not be executed twice.',
+        code: 'IDEMPOTENCY_IN_PROGRESS'
+      });
+    }
+    appendAgentJobEvent({
+      jobId: resumedJob!.id,
+      stage: resumedJob!.stage,
+      kind: 'decision',
+      what: 'I released an unfinished internal request after restart.',
+      meaning: 'The prior process ended before recording a response. The same durable job may retry the same request key; completed requests remain replay-only.',
+      next: 'Continue from the restored checkpoint.',
+      payload: { routePath: persisted.routePath, priorSessionId: persisted.sessionId, resumeCount: resumedJob!.resumeCount }
     });
   }
    const idempotencyCreatedAt = Date.now();
@@ -1223,6 +1260,15 @@ function requireConsequentialRequest(req: express.Request, res: express.Response
     } catch (e: unknown) {
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }
+  });
+
+  // Explicit local shutdown for launchers and release qualification.
+  // Session, CSRF, origin, and idempotency middleware already guard this route.
+  app.post('/api/v1/system/shutdown', (req, res) => {
+    const parsed = z.object({ confirm: z.literal('shutdown') }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Explicit shutdown confirmation is required.', code: 'SHUTDOWN_CONFIRMATION_REQUIRED' });
+    res.status(202).json({ ok: true, message: 'JoeCoder is shutting down cleanly.' });
+    res.once('finish', () => setImmediate(() => process.emit('SIGTERM')));
   });
 
   // Native folder picker (Windows) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â runs on the local machine, not in the browser
@@ -1676,14 +1722,15 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     }
   });
 
-  function agentJobCredentials(req: express.Request): AgentJobCredentials {
+  function agentJobCredentials(req: express.Request, jobId: string): AgentJobCredentials {
     const host = req.get('host');
     if (!host || !req.jcSession) throw new Error('A live local session is required to start Joe.');
     return {
       baseUrl: `${req.protocol}://${host}`,
       cookie: req.headers.cookie || '',
       csrfToken: req.jcSession.csrfToken,
-      runtimeToken: AGENT_RUNTIME_TOKEN
+      runtimeToken: AGENT_RUNTIME_TOKEN,
+      jobId
     };
   }
 
@@ -1761,7 +1808,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
         next: activeWorkOrder ? `Resume ${activeWorkOrder.id}.` : 'Establish current project evidence.',
         payload: { projectId: project.id, threadId: thread.id, activeWorkOrderId: activeWorkOrder?.id || null }
       });
-      const credentials = agentJobCredentials(req);
+      const credentials = agentJobCredentials(req, job.id);
       res.status(202).json({ ok: true, job });
       setImmediate(() => void runAgentJob(job.id, credentials));
     } catch (error: unknown) {
@@ -1786,7 +1833,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
         next: job.workOrderId ? `Continue ${job.workOrderId}.` : 'Re-establish the safe stage and continue.',
         payload: { resumeCount: job.resumeCount + 1 }
       });
-      const credentials = agentJobCredentials(req);
+      const credentials = agentJobCredentials(req, job.id);
       res.status(202).json({ ok: true, job: queued });
       setImmediate(() => void runAgentJob(job.id, credentials));
     } catch (error: unknown) {
@@ -1900,7 +1947,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Accept project for further work (R1 stage transition)
-  app.post('/api/v1/projects/:id/accept', async (req, res) => {
+  app.post('/api/v1/internal/projects/:id/accept', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const proj = projects.get(req.params.id);
@@ -2028,7 +2075,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     res.json({ ok: true, workOrder: wo });
   });
 
-  app.post('/api/v1/work-orders', async (req, res) => {
+  app.post('/api/v1/internal/work-orders', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const parsed = WorkOrderCreateSchema.safeParse(req.body || {});
@@ -2083,7 +2130,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Authorize a draft Work Order (B4)
-  app.post('/api/v1/work-orders/:id/authorize', async (req, res) => {
+  app.post('/api/v1/internal/work-orders/:id/authorize', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);
@@ -2227,7 +2274,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Completion is a reducer over verified evidence, never a direct command.
-  app.post('/api/v1/work-orders/:id/complete', (_req, res) => {
+  app.post('/api/v1/internal/work-orders/:id/complete', (_req, res) => {
     res.status(410).json({
       error: 'Direct completion is disabled. Run the authorized action; completion is derived from mandatory acceptance evidence.',
       code: 'COMPLETION_REQUIRES_VERIFIED_APPLY'
@@ -2235,7 +2282,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Cancel a draft or authorized Work Order  // Cancel a draft or authorized Work Order
-  app.post('/api/v1/work-orders/:id/cancel', async (req, res) => {
+  app.post('/api/v1/internal/work-orders/:id/cancel', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);
@@ -2288,7 +2335,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Create draft WO from an existing survey (B6) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same strict schema as POST /work-orders
-  app.post('/api/v1/work-orders/from-survey', async (req, res) => {
+  app.post('/api/v1/internal/work-orders/from-survey', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const surveyId = req.body?.surveyId;
@@ -2439,7 +2486,12 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             {
               system: planSystem,
               prompt: planPrompt,
-              parse: parsePlanResponse,
+              parse: (text) => validatePlanForObjective(
+                parsePlanResponse(text),
+                objective,
+                intent === 'build' ? 'build' : 'repair',
+                surveyResult
+              ),
               maxTokens: 1024,
               timeoutMs: 180000,
               temperature: 0.2,
@@ -2487,6 +2539,11 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
         });
         planEvidenceIds.push(planEnv.id);
 
+        const dependencyInstallRequired = needsDependencyInstall(
+          intent === 'build' ? 'build' : 'repair',
+          plan.files,
+          surveyResult.packageSummary
+        );
         candidate = {
           id,
           planVersion: '20.0',
@@ -2498,15 +2555,11 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
               'read_files',
               'edit_files',
               'verify_runtime',
-              ...((surveyResult.packageSummary || surveyResult.keyFiles.some((k) => k === 'package.json' || k.endsWith('/package.json')))
-                ? (['install_dependencies'] as const)
-                : [])
+              ...(dependencyInstallRequired ? (['install_dependencies'] as const) : [])
             ],
             network: [
               'loopback only',
-              ...((surveyResult.packageSummary || surveyResult.keyFiles.some((k) => k === 'package.json' || k.endsWith('/package.json')))
-                ? (['npm-registry (authorized install_dependencies only)'] as const)
-                : [])
+              ...(dependencyInstallRequired ? (['npm-registry (authorized install_dependencies only)'] as const) : [])
             ],
             providers: (provider.eligibleProviders || [provider.provider]).filter(Boolean) as string[]
           },
@@ -2633,7 +2686,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
   });
 
   // Survey
-  app.post('/api/v1/survey', async (req, res) => {
+  app.post('/api/v1/internal/survey', async (req, res) => {
     let narrationProjectId: string | undefined;
     let priorProjectStage: WorkflowStage | undefined;
     try {
@@ -2886,7 +2939,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
 
   // First authorized apply path ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â safe export_handoff only (no source-tree mutation)
-  app.post('/api/v1/work-orders/:id/apply', async (req, res) => {
+  app.post('/api/v1/internal/work-orders/:id/apply', async (req, res) => {
     if (!requireDurableAgentRuntime(req, res)) return;
     try {
       const wo = workOrders.get(req.params.id);

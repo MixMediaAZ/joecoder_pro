@@ -16,9 +16,9 @@ const releaseRoot = path.join(root, '.jc', 'releases', releaseId);
 const payloadRoot = path.join(releaseRoot, 'payload');
 const signingRoot = path.join(root, '.jc', 'signing');
 const include = [
-  'dist', 'public', 'schemas', 'package.json', 'package-lock.json', 'start.bat',
+  'src', 'dist', 'public', 'schemas', 'tools', 'acceptance-fixtures', 'tsconfig.json', 'package.json', 'package-lock.json', 'start.bat',
   'README.md', 'README_RUN.md', 'WORKFLOW_GUIDE.md', 'CAPABILITY_CERTIFICATION.md', 'SUPPORTED_CAPABILITIES.md',
-  'plan/amendment-1.3.3'
+  'plan'
 ];
 
 await fs.mkdir(payloadRoot, { recursive: true });

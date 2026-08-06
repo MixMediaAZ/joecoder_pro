@@ -1,0 +1,1 @@
+{"name":"acceptance-node-api-database","type":"module","scripts":{"test":"node --test"}}

@@ -1,0 +1,1 @@
+This collateral file must remain byte-identical.

@@ -38,7 +38,9 @@ const PLAN_SYSTEM = [
   '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
   'Rules: list ONLY the files that must be modified or created to meet the objective;',
   'use project-root-relative paths with forward slashes; never list paths under',
-  'node_modules, .git, or .jc; prefer the smallest correct file set (1-10 files).'
+  'node_modules, .git, or .jc; prefer the smallest correct file set (1-10 files).',
+  'Treat existing tests as acceptance contracts. Do not plan test changes merely to make a failing implementation pass unless the objective explicitly requires changing tests.',
+  'Trace the objective through all relevant provided content samples. For composed or ambiguous behavior, include every implementation file whose current logic contributes to the defect; do not stop at the first suspicious file.'
 ].join(' ');
 
 const BUILD_SYSTEM = [
@@ -125,10 +127,22 @@ export function buildPlanPrompt(projectName: string, objective: string, survey: 
   ].join('\n');
 }
 
+function unwrapWholeTransportFence(text: string, allowedLanguage: RegExp): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^~~~([a-z0-9_-]*)\s*\r?\n([\s\S]*?)\r?\n~~~$/i)
+    || trimmed.match(/^\x60{3}([a-z0-9_-]*)\s*\r?\n([\s\S]*?)\r?\n\x60{3}$/i);
+  if (!match) return trimmed;
+  const language = match[1] || '';
+  if (!allowedLanguage.test(language)) {
+    throw new Error("STRUCTURED_TRANSPORT_REJECTED: unsupported fence language '" + language + "'");
+  }
+  return (match[2] || '').trim();
+}
+
 export function parsePlanResponse(text: string): RepairPlan {
   let candidate: z.infer<typeof RepairPlanSchema>;
   try {
-    candidate = RepairPlanSchema.parse(JSON.parse(text.trim()));
+    candidate = RepairPlanSchema.parse(JSON.parse(unwrapWholeTransportFence(text, /^(json)?$/i)));
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`PLAN_PARSE_FAILED: response must be one strict schemaVersion=1 JSON object (${reason})`);
@@ -141,6 +155,49 @@ export function parsePlanResponse(text: string): RepairPlan {
     if (!cleaned.includes(rel)) cleaned.push(rel);
   }
   return { schemaVersion: 1, files: cleaned, approach: candidate.approach, risks: candidate.risks };
+}
+
+export function validatePlanForObjective(
+  plan: RepairPlan,
+  objective: string,
+  intent: 'repair' | 'build',
+  survey?: SurveyResult
+): RepairPlan {
+  const isTestPath = (file: string): boolean =>
+    /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[^/]+$/i.test(file);
+  const explicitlyChangesTests = /\b(add|create|change|update|repair|fix|rewrite)\s+(?:the\s+|existing\s+)?(?:(?:unit|integration|api|browser|visual)\s+)?tests?\b/i.test(objective)
+    || /\btests?\s+(?:files?\s+)?(?:must\s+be\s+)?(added|created|changed|updated|repaired|fixed|rewritten)\b/i.test(objective);
+  let files = explicitlyChangesTests ? plan.files : plan.files.filter((file) => !isTestPath(file));
+  if (!files.length) {
+    throw new Error('PLAN_REJECTED: the plan contained no authorized implementation files after preserving tests as acceptance contracts');
+  }
+  const describesComposedMultiFileWork = /\b(multi[- ]file|interacting|composed|across (?:multiple )?files)\b/i.test(objective);
+  if (intent === 'repair' && describesComposedMultiFileWork && files.length < 2 && survey) {
+    const evidenceRanked = rankPlanCandidates(objective, survey, 8)
+      .filter((file) =>
+        !isTestPath(file)
+        && !files.includes(file)
+        && /\.(?:js|jsx|ts|tsx|mjs|cjs|py|rs|go|cs|fs|java|kt|dart|html|css|scss)$/i.test(file)
+      );
+    files = [...files, ...evidenceRanked].slice(0, 2);
+  }
+  if (intent === 'repair' && describesComposedMultiFileWork && files.length < 2) {
+    throw new Error(
+      'PLAN_REJECTED: the objective explicitly describes composed or interacting multi-file behavior, but the plan traces only one implementation file'
+    );
+  }
+  const combinesAccessibilityAndLayout = /\b(accessib(?:le|ility)|semantic|label(?:ed|ling)?)\b/i.test(objective)
+    && /\b(responsive|overflow|viewport|layout|phone|desktop)\b/i.test(objective);
+  if (intent === 'repair' && combinesAccessibilityAndLayout && survey) {
+    const candidates = rankPlanCandidates(objective, survey, 12).filter((file) => !isTestPath(file));
+    const markup = candidates.find((file) => /\.(?:html|htm|jsx|tsx)$/i.test(file));
+    const stylesheet = candidates.find((file) => /\.(?:css|scss)$/i.test(file));
+    if (markup && stylesheet) {
+      if (!files.includes(markup)) files.push(markup);
+      if (!files.includes(stylesheet)) files.push(stylesheet);
+    }
+  }
+  return { ...plan, files };
 }
 
 export interface ScopedFileContent {
@@ -190,7 +247,8 @@ const EDIT_SYSTEM = [
   'Rules: output ONLY file blocks, no prose before, between, or after; include the',
   'ENTIRE file content for each changed file (never fragments, never diffs, never placeholders like',
   '"rest unchanged"); only files from the provided scope; if a scoped file needs no change, omit it;',
-  'preserve the existing code style of each file.'
+  'preserve the existing code style of each file;',
+  'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
 ].join(' ');
 
 export function buildEditsPrompt(objective: string, approach: string, files: ScopedFileContent[]): string {
@@ -213,10 +271,13 @@ export function buildEditsPrompt(objective: string, approach: string, files: Sco
 const FILE_BLOCK = /===FILE:\s*([^=\r\n]+?)\s*===\r?\n([\s\S]*?)\r?\n?===END FILE===/g;
 
 export function parseEditBlocks(text: string): ProposedEdit[] {
+  const normalized = unwrapWholeTransportFence(text, /^(text|plaintext)?$/i);
   const edits: ProposedEdit[] = [];
+  const consumed: Array<[number, number]> = [];
   let match: RegExpExecArray | null;
   FILE_BLOCK.lastIndex = 0;
-  while ((match = FILE_BLOCK.exec(text)) !== null) {
+  while ((match = FILE_BLOCK.exec(normalized)) !== null) {
+    consumed.push([match.index, FILE_BLOCK.lastIndex]);
     const relPath = (match[1] || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
     const content = match[2] ?? '';
     if (!relPath) continue;
@@ -226,7 +287,31 @@ export function parseEditBlocks(text: string): ProposedEdit[] {
   if (!edits.length) {
     throw new Error('EDIT_PARSE_FAILED: the model returned no well-formed file blocks');
   }
+  let cursor = 0;
+  const outside = [];
+  for (const [start, end] of consumed) {
+    outside.push(normalized.slice(cursor, start));
+    cursor = end;
+  }
+  outside.push(normalized.slice(cursor));
+  if (outside.join('').trim()) {
+    throw new Error('EDIT_PARSE_FAILED: response contains prose or content outside the required file blocks');
+  }
   return edits;
+}
+
+/** Reject or remove model output that would rewrite the current bytes unchanged. */
+export function requireEffectiveEdits(edits: ProposedEdit[], files: ScopedFileContent[]): ProposedEdit[] {
+  const current = new Map(files.map((file) => [file.relPath.replace(/\\/g, '/'), file]));
+  const effective = edits.filter((edit) => {
+    const relPath = edit.relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+    const existing = current.get(relPath);
+    return !existing || !existing.exists || existing.content !== edit.content;
+  });
+  if (!effective.length) {
+    throw new Error('EDIT_NO_PROGRESS: every proposed file is byte-identical to the current scoped file; diagnose another contributing scoped file from the verification evidence');
+  }
+  return effective;
 }
 
 const PLAN_SOURCE_EXTENSIONS = new Set([

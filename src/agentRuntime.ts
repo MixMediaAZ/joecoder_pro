@@ -268,7 +268,7 @@ function recordTerminal(
     status: coarseStatus(terminal),
     terminalState: terminal,
     stage: terminalStage(terminal),
-    message: terminalMessage(terminal),
+    message: reason,
     errorCode: terminal === 'completed' || terminal === 'completed_with_limits' ? null : job.errorCode,
     errorMessage: terminal === 'completed' || terminal === 'completed_with_limits' ? null : reason,
     finishedAt: Date.now(),
@@ -349,6 +349,9 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
         actionKey: key,
         payload: { action, actionKey: key }
       });
+      if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'inspection' && action === 'establish_evidence') {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
       outcome = await driver.execute({ job, state, action, actionKey: key });
       appendAgentJobJournal({
         jobId,

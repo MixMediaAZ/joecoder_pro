@@ -1,0 +1,1 @@
+import test from'node:test';import assert from'node:assert/strict';import{add}from'../src/math.mjs';import{label}from'../src/label.mjs';test('composed total',()=>assert.equal(label(add(2,3)),'Total: 5'));

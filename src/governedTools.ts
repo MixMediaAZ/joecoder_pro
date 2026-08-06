@@ -577,7 +577,7 @@ const definitions: AnyDefinition[] = [
       ])).min(1).max(30)
     }).strict(),
     execute: async (input, context) => {
-      const observed = await observeBrowserPage(input);
+      const observed = await observeBrowserPage({ ...input, interactions: input.interactions });
       const name = `${context.jobId}-interaction-${Date.now()}.png`;
       const full = safeArtifactPath(context, name);
       await fs.mkdir(path.dirname(full), { recursive: true });

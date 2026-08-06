@@ -36,7 +36,7 @@ Ask and Plan remain read-only. Automatic work does not require the user to draft
 - Browser visual and accessibility checks apply to loopback web projects, not every desktop, mobile, audio, or embedded project.
 - Unsupported, unavailable, skipped, limited, or integrity-only checks remain visible limitations and cannot produce fully verified completion.
 - Snapshots and restoration protect scoped files, but every job does not run in a separate complete version-tree workspace.
-- Consequential legacy lifecycle routes are blocked. Earlier inactive renderer functions remain in `public/app.js` and are not part of the production workflow.
+- Consequential lifecycle mutation routes are internal to the durable server runtime; the shipped browser has no manual lifecycle pipeline or public mutation compatibility path.
 - The durable Agent Job is authoritative. Legacy Work Order records do not implement every field of the current ratified schema.
 
 The application exposes the complete governed limitation registry in **Models & settings → Governance truth**. The generated implementation map is `plan/amendment-1.3.3/spec/implementation-map.json`.

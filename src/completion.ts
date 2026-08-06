@@ -128,7 +128,7 @@ export async function evaluateRepairCompletion(
           : 'Runtime verification (build/test) passed')
         : verification.status === 'no_scripts'
           ? 'No runnable scripts/hashes — verification inconclusive (not treated as failure)'
-          : 'Runtime verification (build/test) did not fail',
+          : 'Runtime verification (build/test) failed',
       passed: verification.status !== 'failed',
       evidenceIds: [applyEvidenceId],
       detail: `${verification.status}: ${verification.detail}`

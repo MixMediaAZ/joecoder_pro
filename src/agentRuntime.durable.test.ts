@@ -124,6 +124,7 @@ test('durable runtime resumes after every transition without repeating an action
     const completed = getAgentJob(job.id)!;
     assert.equal(completed.status, 'completed');
     assert.equal(completed.terminalState, 'completed');
+    assert.equal(completed.message, 'Runtime fixture passed.');
     assert.equal(completed.stateVersion, AGENT_ACTION_CATALOG.length);
     assert.deepEqual(completed.runtimeState.completedActions, [...AGENT_ACTION_CATALOG]);
     for (const action of AGENT_ACTION_CATALOG) assert.equal(calls.get(action), 1, `${action} repeated`);

@@ -1,0 +1,1 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{DatabaseSync}from'node:sqlite';import{migrate}from'../src/db.mjs';import{createUser}from'../src/api.mjs';test('migration and API',()=>{const db=new DatabaseSync(':memory:');migrate(db);createUser(db,'David');assert.equal(db.prepare('SELECT count(*) n FROM users').get().n,1);db.close()});

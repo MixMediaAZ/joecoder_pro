@@ -1,0 +1,1 @@
+{"name":"acceptance-ambiguous-multifile","type":"module","scripts":{"test":"node --test"}}

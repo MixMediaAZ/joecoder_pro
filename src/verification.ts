@@ -36,6 +36,24 @@ export interface VerificationReport {
 
 export type VerificationProofLevel = 'runtime' | 'integrity' | 'none' | 'failed';
 
+/** Stable fingerprint of observed behavior; excludes timing noise that cannot represent progress. */
+export function verificationEvidenceFingerprint(report: VerificationReport): string {
+  const stable = {
+    status: report.status,
+    detail: report.detail,
+    items: report.items.map((item) => ({
+      script: item.script,
+      command: item.command,
+      root: item.root,
+      exitCode: item.exitCode,
+      timedOut: item.timedOut,
+      passed: item.passed,
+      output: item.outputTail.filter((line) => !/^\s*(?:#\s*)?duration_ms:?\s*[\d.]+\s*$/i.test(line))
+    }))
+  };
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+}
+
 export function verificationProofLevel(report: VerificationReport): VerificationProofLevel {
   if (report.status === 'failed') return 'failed';
   const runtime = report.items.filter((item) => item.script !== 'file_integrity');
@@ -48,8 +66,16 @@ const PLACEHOLDER_TEST = 'no test specified';
 const MAX_TIMEOUT_MS = 180000;
 const DEFAULT_TIMEOUT_MS = 120000;
 
-function tail(text: string, lines: number): string[] {
-  return text.split(/\r?\n/).filter(Boolean).slice(-lines);
+export function diagnosticExcerpt(text: string, maxLines = 80): string[] {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length <= maxLines) return lines;
+  const headCount = Math.min(20, Math.floor(maxLines / 3));
+  const tailCount = maxLines - headCount - 1;
+  return [
+    ...lines.slice(0, headCount),
+    '... ' + (lines.length - headCount - tailCount) + ' line(s) omitted ...',
+    ...lines.slice(-tailCount)
+  ];
 }
 
 function sha256(content: Buffer | string): string {
@@ -129,7 +155,7 @@ function runStackCommand(
     exitCode: result.status,
     timedOut,
     passed: !timedOut && result.status === 0,
-    outputTail: [...tail(stdout, 15), ...tail(stderr, 15), ...(launchError ? [launchError] : [])]
+    outputTail: [...diagnosticExcerpt(stdout), ...diagnosticExcerpt(stderr), ...(launchError ? [launchError] : [])]
   };
 }
 async function readScripts(projectRoot: string): Promise<Record<string, string>> {
@@ -169,7 +195,7 @@ function runScript(
     exitCode,
     timedOut,
     passed: !timedOut && exitCode === 0,
-    outputTail: [...tail(stdout, 15), ...tail(stderr, 15)]
+    outputTail: [...diagnosticExcerpt(stdout), ...diagnosticExcerpt(stderr)]
   };
 }
 

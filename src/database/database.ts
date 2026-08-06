@@ -531,6 +531,12 @@ export function recordIdempotencyUse(input: {
   );
 }
 
+export function releaseIncompleteIdempotencyUse(key: string): boolean {
+  const result = requiredDatabase().prepare(`
+    DELETE FROM idempotency_records WHERE key_hash=? AND completed_at IS NULL
+  `).run(sha256(key));
+  return Number(result.changes) === 1;
+}
 export interface IdempotencyRecord {
   sessionId: string;
   keyHash: string;

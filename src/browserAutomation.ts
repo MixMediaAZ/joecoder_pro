@@ -16,10 +16,17 @@ interface PageObservation {
   screenshot: Buffer;
   title: string;
   url: string;
+  bodyText: string;
   console: Array<{ type: string; text: string }>;
   networkFailures: Array<{ url: string; reason: string; status?: number }>;
   viewport: { width: number; height: number; deviceScaleFactor: number };
   layout: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number };
+  interactions: Array<{
+    action: BrowserInteraction['action'];
+    selector?: string;
+    after?: { tagName: string; text: string; value: string; checked: boolean };
+    waitedMs?: number;
+  }>;
 }
 
 export interface BrowserInteraction {
@@ -186,6 +193,7 @@ async function navigate(
 ): Promise<PageObservation> {
   const console: PageObservation['console'] = [];
   const networkFailures: PageObservation['networkFailures'] = [];
+  const interactionResults: PageObservation['interactions'] = [];
   const offConsole = cdp.on('Runtime.consoleAPICalled', (params) => {
     console.push({ type: String(params.type || 'log'), text: consoleText(params) });
   });
@@ -211,24 +219,31 @@ async function navigate(
 
     for (const interaction of interactions) {
       if (interaction.action === 'wait') {
-        await new Promise((resolve) => setTimeout(resolve, interaction.milliseconds || 250));
+        const waitedMs = interaction.milliseconds || 250;
+        await new Promise((resolve) => setTimeout(resolve, waitedMs));
+        interactionResults.push({ action: 'wait', waitedMs });
         continue;
       }
       const selector = JSON.stringify(interaction.selector || '');
       const text = JSON.stringify(interaction.text || '');
       const expression = interaction.action === 'click'
-        ? `(() => { const el=document.querySelector(${selector}); if(!el) throw new Error('SELECTOR_NOT_FOUND'); el.click(); return true; })()`
-        : `(() => { const el=document.querySelector(${selector}); if(!el) throw new Error('SELECTOR_NOT_FOUND'); el.focus(); el.value=${text}; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); return true; })()`;
+        ? `(() => { const el=document.querySelector(${selector}); if(!el) throw new Error('SELECTOR_NOT_FOUND'); el.click(); return {tagName:el.tagName,text:(el.textContent||'').trim(),value:'value' in el?String(el.value):'',checked:'checked' in el?Boolean(el.checked):false}; })()`
+        : `(() => { const el=document.querySelector(${selector}); if(!el) throw new Error('SELECTOR_NOT_FOUND'); el.focus(); el.value=${text}; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); return {tagName:el.tagName,text:(el.textContent||'').trim(),value:String(el.value||''),checked:'checked' in el?Boolean(el.checked):false}; })()`;
       const result = await cdp.send<Record<string, any>>('Runtime.evaluate', {
         expression,
         returnByValue: true,
         awaitPromise: true
       });
       if (result.exceptionDetails) throw new Error(`BROWSER_INTERACTION_FAILED: ${result.exceptionDetails.text || 'unknown'}`);
+      interactionResults.push({
+        action: interaction.action,
+        selector: String(interaction.selector || ''),
+        after: result.result?.value
+      });
     }
 
     const page = await cdp.send<Record<string, any>>('Runtime.evaluate', {
-      expression: `({title:document.title,url:location.href,layout:{scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth,scrollHeight:document.documentElement.scrollHeight,clientHeight:document.documentElement.clientHeight}})`,
+      expression: `({title:document.title,url:location.href,bodyText:(document.body?.innerText||'').trim(),layout:{scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth,scrollHeight:document.documentElement.scrollHeight,clientHeight:document.documentElement.clientHeight}})`,
       returnByValue: true
     });
     const screenshot = await cdp.send<Record<string, any>>('Page.captureScreenshot', {
@@ -241,10 +256,12 @@ async function navigate(
       screenshot: Buffer.from(String(screenshot.data || ''), 'base64'),
       title: String(value.title || ''),
       url: String(value.url || url),
+      bodyText: String(value.bodyText || ''),
       console,
       networkFailures,
       viewport,
-      layout: value.layout || { scrollWidth: 0, clientWidth: 0, scrollHeight: 0, clientHeight: 0 }
+      layout: value.layout || { scrollWidth: 0, clientWidth: 0, scrollHeight: 0, clientHeight: 0 },
+      interactions: interactionResults
     };
   } finally {
     offConsole();

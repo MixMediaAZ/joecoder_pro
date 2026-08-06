@@ -9,6 +9,7 @@ import {
   getIdempotencyRecord,
   initializeDatabase,
   recordIdempotencyUse,
+  releaseIncompleteIdempotencyUse,
   recordSessionCreated
 } from './database/database.js';
 
@@ -56,4 +57,30 @@ test('completed consequential response replays across a fresh browser session', 
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+test('only an unfinished idempotency record can be released for restart retry', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-idempotency-incomplete-'));
+  try {
+    await initializeDatabase(root);
+    const now = Date.now();
+    recordSessionCreated({ id: 'sess-crashed', createdAt: now, lastSeenAt: now, expiresAt: now + 60_000 });
+    const unfinished = 'job-restart-execute-change-r1-a0-execute';
+    recordIdempotencyUse({
+      sessionId: 'sess-crashed', key: unfinished, method: 'POST', routePath: '/api/v1/work-orders/one/apply',
+      requestHash: 'b'.repeat(64), createdAt: now, expiresAt: now + 60_000
+    });
+    assert.equal(releaseIncompleteIdempotencyUse(unfinished), true);
+    assert.equal(getIdempotencyRecord('sess-crashed', unfinished), null);
 
+    const completed = 'job-restart-seal-authorization-r1-a0-authorize';
+    recordIdempotencyUse({
+      sessionId: 'sess-crashed', key: completed, method: 'POST', routePath: '/api/v1/work-orders/one/authorize',
+      requestHash: 'c'.repeat(64), createdAt: now + 1, expiresAt: now + 60_000
+    });
+    completeIdempotencyUse({ sessionId: 'sess-crashed', key: completed, responseStatus: 200, response: { ok: true } });
+    assert.equal(releaseIncompleteIdempotencyUse(completed), false);
+    assert.equal(getIdempotencyRecord('sess-crashed', completed)?.responseStatus, 200);
+  } finally {
+    closeDatabase();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

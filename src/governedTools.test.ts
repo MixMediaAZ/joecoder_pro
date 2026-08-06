@@ -225,6 +225,12 @@ test('real browser tools capture, inspect, interact, check responsive layout, an
       input: { url, width: 800, height: 600, interactions: [{ action: 'click', selector: '#change' }] }
     }, context);
     assert.equal(interacted.ok, true, interacted.ok ? '' : interacted.error);
+    if (interacted.ok) {
+      const interaction = (interacted.summary as any).interactions?.[0];
+      assert.equal(interaction?.action, 'click');
+      assert.equal(interaction?.selector, '#change');
+      assert.equal(interaction?.after?.text, 'Changed');
+    }
 
     const responsive = await executeGovernedTool({
       name: 'visual.responsive',

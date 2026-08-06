@@ -35,7 +35,14 @@ async function main() {
   checks.push({ id: 'near_empty_helper', ok: repair.includes('isNearEmptySurvey') });
   checks.push({ id: 'api_accepts_build', ok: index.includes("'build'") && index.includes('BUILD_REQUIRES_NEAR_EMPTY') });
   checks.push({ id: 'apply_allows_build', ok: index.includes("['repair', 'build']") });
-  checks.push({ id: 'ui_build_button', ok: ui.includes('btn-draft-build') && ui.includes("runFromSurvey('build')") });
+  checks.push({
+    id: 'durable_build_dispatch',
+    ok: ui.includes('function isWorkRequest')
+      && ui.includes('/agent-jobs')
+      && ui.includes('build|create|scaffold')
+      && !ui.includes('btn-draft-build')
+      && !ui.includes("runFromSurvey('build')"),
+  });
 
   checks.push({ id: 'near_empty_true_empty', ok: isNearEmptySurvey({ entries: [] }) });
   checks.push({ id: 'near_empty_readme_only', ok: isNearEmptySurvey({ entries: [{ type: 'file', path: 'README.md' }] }) });
