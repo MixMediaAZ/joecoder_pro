@@ -12,7 +12,7 @@ test('runtime loads the intact ratified registry through amendment 1.3.3', async
   assert.equal(bundle.laws.length, 48);
   assert.equal(new Set(bundle.laws.map((law) => law.id)).size, 48);
   assert.equal(bundle.sourceHash, 'a6281838e3503b8b4bb6362c0f80dddd656499ff10428adc28705b01cda12242');
-  assert.deepEqual(bundle.statusSummary, { enforced: 27, partial: 21, missing: 0 });
+  assert.deepEqual(bundle.statusSummary, { enforced: 28, partial: 20, missing: 0 });
   assert.ok(bundle.laws.some((law) => law.id === 'JC-TRUTH-001'));
   assert.ok(bundle.laws.some((law) => law.id === 'JC-DELIV-004'));
   assert.ok(bundle.laws.every((law) => !law.id.startsWith('JC-KER-')));
