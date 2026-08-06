@@ -23,10 +23,52 @@ const state = {
   liveTab: localStorage.getItem('jc_live_tab') || 'live',
   speech: localStorage.getItem('jc_speech') === '1',
   narration: localStorage.getItem('jc_narration') || 'normal',
+  railCollapsed: localStorage.getItem('jc_rail_collapsed') === '1',
   busy: false,
   error: null,
   notice: null
 };
+
+const RAIL_MIN = 180;
+const RAIL_MAX = 480;
+const RAIL_DEFAULT = 272;
+
+// Persisted rail width. Applied to the documentElement so the #layout grid template
+// (grid-template-columns: var(--rail-w) ...) picks it up without a re-render.
+function applyRailWidth(px) {
+  const width = Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(px)));
+  document.documentElement.style.setProperty('--rail-w', `${width}px`);
+  localStorage.setItem('jc_rail_w', String(width));
+  const handle = document.getElementById('rail-resizer');
+  if (handle) {
+    handle.setAttribute('aria-valuenow', String(width));
+    handle.setAttribute('aria-valuetext', `${width} pixels`);
+  }
+  return width;
+}
+
+function currentRailWidth() {
+  const declared = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--rail-w'), 10);
+  return Number.isFinite(declared) ? declared : RAIL_DEFAULT;
+}
+
+// Drag handle for the rail width. role="separator" with aria-orientation/valuenow is the
+// accessible pattern for a split pane; it is focusable and driven by arrow keys as well as
+// the pointer, because every interactive control needs a keyboard path.
+function renderRailResizer() {
+  if (state.railCollapsed) return '';
+  return `<div id="rail-resizer" role="separator" aria-orientation="vertical" tabindex="0"
+    aria-label="Resize projects panel"
+    aria-valuemin="${RAIL_MIN}" aria-valuemax="${RAIL_MAX}" aria-valuenow="${currentRailWidth()}"
+    title="Drag to resize · double-click to reset"></div>`;
+}
+
+function restoreRailWidth() {
+  const saved = Number(localStorage.getItem('jc_rail_w'));
+  if (Number.isFinite(saved) && saved >= RAIL_MIN && saved <= RAIL_MAX) {
+    document.documentElement.style.setProperty('--rail-w', `${saved}px`);
+  }
+}
 
 let pollTimer = null;
 let lastEventOrdinal = -1;
@@ -107,7 +149,7 @@ function renderHeader() {
 
 function renderRail() {
   const projects = state.projects.map(project => `<div class="rail-project-group ${project.id === state.project?.id ? 'active' : ''}"><button class="rail-project" data-project="${escapeHtml(project.id)}"><span class="rail-project-mark">${escapeHtml(project.name.slice(0, 1).toUpperCase())}</span><span class="rail-item-label"><strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(projectLabel(project))}</small></span></button>${project.id === state.project?.id ? `<div class="rail-threads">${state.threads.map(thread => `<button class="rail-thread ${thread.id === state.thread?.id ? 'current' : ''}" data-thread="${escapeHtml(thread.id)}"><span>#</span><span>${escapeHtml(thread.title)}</span></button>`).join('')}<button class="rail-thread" id="new-thread"><span>+</span><span>New conversation</span></button></div>` : ''}</div>`).join('');
-  return `<aside id="rail"><div class="workshop-rail-scroll"><button class="rail-open-project" id="open-project">+ Open build folder</button><h3>Projects &amp; conversations</h3>${projects || '<p class="rail-empty">Open a build folder to begin.</p>'}<h3>Job presets</h3>${(state.settings?.presets || []).map(preset => `<button class="rail-preset ${preset.id === currentPreset().id ? 'current' : ''}" data-preset="${escapeHtml(preset.id)}"><span>◇</span><span>${escapeHtml(preset.name)}</span></button>`).join('')}${state.project ? renderExplorer() : ''}</div><div class="rail-footer">${state.project ? '<button class="rail-footer-button" data-panel="brain"><span>◉</span><span class="rail-item-label">Project Brain</span></button>' : ''}<button class="rail-footer-button" data-panel="settings"><span>⚙</span><span class="rail-item-label">Models &amp; settings</span></button></div></aside>`;
+  return `<aside id="rail" class="${state.railCollapsed ? 'collapsed' : ''}"><div class="workshop-rail-scroll"><button class="rail-open-project" id="open-project">+ Open build folder</button><h3>Projects &amp; conversations</h3>${projects || '<p class="rail-empty">Open a build folder to begin.</p>'}<h3>Job presets</h3>${(state.settings?.presets || []).map(preset => `<button class="rail-preset ${preset.id === currentPreset().id ? 'current' : ''}" data-preset="${escapeHtml(preset.id)}"><span>◇</span><span>${escapeHtml(preset.name)}</span></button>`).join('')}${state.project ? renderExplorer() : ''}</div><div class="rail-footer">${state.project ? '<button class="rail-footer-button" data-panel="brain"><span>◉</span><span class="rail-item-label">Project Brain</span></button>' : ''}<button class="rail-footer-button" data-panel="settings"><span>⚙</span><span class="rail-item-label">Models &amp; settings</span></button></div></aside>`;
 }
 
 function renderMessage(message) {
@@ -210,7 +252,7 @@ function render() {
     document.getElementById('retry-session')?.addEventListener('click', boot);
     return;
   }
-  app.innerHTML = `${renderHeader()}<div id="layout" class="with-activity">${renderRail()}${renderMain()}${renderLive()}</div>${renderPanel()}`;
+  app.innerHTML = `${renderHeader()}<div id="layout" class="with-activity${state.railCollapsed ? ' rail-collapsed' : ''}">${renderRail()}${renderRailResizer()}${renderMain()}${renderLive()}</div>${renderPanel()}`;
   bind();
   syncDetachedLive();
 }
@@ -349,6 +391,44 @@ function bind() {
   document.getElementById('brain-form')?.addEventListener('submit', saveBrain);
   document.getElementById('file-search')?.addEventListener('submit', searchFiles);
   document.querySelectorAll('[data-file-path]').forEach(button => button.addEventListener('click', () => openFile(button.dataset.filePath, button.dataset.directory === 'true')));
+  bindRailControls();
+}
+
+// The ☰ button rendered an aria-label but had no handler, and nothing ever applied
+// .rail-collapsed / #rail.collapsed, so all that CSS was unreachable and the control was dead.
+function bindRailControls() {
+  document.getElementById('toggle-rail')?.addEventListener('click', () => {
+    state.railCollapsed = !state.railCollapsed;
+    localStorage.setItem('jc_rail_collapsed', state.railCollapsed ? '1' : '0');
+    render();
+  });
+
+  const handle = document.getElementById('rail-resizer');
+  if (!handle) return;
+
+  handle.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    handle.setPointerCapture?.(event.pointerId);
+    document.body.classList.add('resizing-rail');
+    const onMove = moveEvent => applyRailWidth(moveEvent.clientX);
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.classList.remove('resizing-rail');
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+
+  handle.addEventListener('keydown', event => {
+    const step = event.shiftKey ? 48 : 16;
+    if (event.key === 'ArrowLeft') { event.preventDefault(); applyRailWidth(currentRailWidth() - step); }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); applyRailWidth(currentRailWidth() + step); }
+    else if (event.key === 'Home') { event.preventDefault(); applyRailWidth(RAIL_MIN); }
+    else if (event.key === 'End') { event.preventDefault(); applyRailWidth(RAIL_MAX); }
+  });
+
+  handle.addEventListener('dblclick', () => applyRailWidth(RAIL_DEFAULT));
 }
 
 async function pickFolder() {
@@ -445,6 +525,7 @@ function syncDetachedLive() {
 }
 
 async function boot() {
+  restoreRailWidth();
   try {
     const session = await api('/api/v1/session/status');
     state.csrfToken = session.csrfToken;

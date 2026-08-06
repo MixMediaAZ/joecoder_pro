@@ -1944,3 +1944,67 @@ details.run-completion.compact > summary strong {
    darkened accent above would land dark-on-dark there. Its role label needs the
    light-surface variant instead. */
 #main .chat-message.user .chat-role { color: #e6a765; }
+
+/* ── Rail: collapse behaviour and the width handle ─────────────────────────────
+   Below 900px the breakpoint shrank the grid to --rail-w-min (56px) and hid only
+   labels and headings, while .rail-explorer, .rail-preset and .rail-threads stayed
+   rendered inside a 56px column with overflow:hidden. Measured at 857px: #rail
+   clientW 55 vs scrollW 135, .rail-explorer 35px wide by 3777px tall — the file
+   tree and all 14 presets were painted into a sliver and clipped unreachable. Two
+   of the four required viewports (360x740, 768x1024) sit in that band.
+
+   The .collapsed rules already hid exactly the right things but nothing applied
+   them, so the narrow breakpoint now hides the same set directly. */
+@media (max-width: 900px) {
+  #rail .rail-explorer,
+  #rail .rail-preset,
+  #rail .rail-threads,
+  #rail .rail-footer .rail-item-label,
+  #rail .rail-project .rail-item-label { display: none; }
+  #rail .rail-open-project { font-size: 0; padding: 8px; }
+  #rail .rail-open-project::before { content: '+'; font-size: 1rem; }
+  #rail-resizer { display: none; }
+}
+
+/* Width handle. Sits on the rail's trailing edge; the grid template reads --rail-w,
+   so dragging only updates a custom property and never re-renders the tree. */
+#layout { position: relative; }
+
+#rail-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--rail-w) - 3px);
+  width: 6px;
+  z-index: 25;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  transition: background 120ms ease;
+  touch-action: none;
+}
+
+#rail-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+#rail-resizer:hover::after,
+#rail-resizer:focus-visible::after,
+body.resizing-rail #rail-resizer::after { background: #f0ad6b; }
+
+#rail-resizer:focus-visible { outline: 2px solid #f0ad6b; outline-offset: 1px; }
+
+/* Keep the pointer from selecting text or hovering other controls mid-drag. */
+body.resizing-rail { cursor: col-resize; user-select: none; }
+body.resizing-rail #main,
+body.resizing-rail #rail { pointer-events: none; }
+
+/* Collapsed rail: the toggle now reaches these. */
+#rail.collapsed .rail-open-project { font-size: 0; padding: 8px; }
+#rail.collapsed .rail-open-project::before { content: '+'; font-size: 1rem; }
