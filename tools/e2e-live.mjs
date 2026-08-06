@@ -256,6 +256,7 @@ async function main() {
 
     const readOnlyStart = await api.post(`/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`, {
       objective: 'Inspect this project and export a read-only handoff.',
+      mode: 'build',
       activeWorkOrderId: null
     });
     const readOnlyJobId = readOnlyStart.data?.job?.id;
@@ -298,6 +299,7 @@ async function main() {
       const thread3 = threads3.data?.selectedThreadId || threads3.data?.threads?.[0]?.id;
       const started3 = await api.post(`/api/v1/projects/${pid3}/threads/${thread3}/agent-jobs`, {
         objective: 'Fix add() so it returns a+b instead of a-b.',
+        mode: 'build',
         activeWorkOrderId: null
       });
       const jobId3 = started3.data?.job?.id;

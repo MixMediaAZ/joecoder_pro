@@ -19,7 +19,9 @@ const state = {
   job: null,
   workOrders: [],
   panel: null,
-  mode: localStorage.getItem('jc_mode') || 'automatic',
+  // 'automatic' was renamed to 'build' so the label states what the mode actually grants.
+  // Migrate any stored preference rather than silently falling back to a read-only mode.
+  mode: (localStorage.getItem('jc_mode') === 'automatic' ? 'build' : localStorage.getItem('jc_mode')) || 'build',
   liveTab: localStorage.getItem('jc_live_tab') || 'live',
   speech: localStorage.getItem('jc_speech') === '1',
   narration: localStorage.getItem('jc_narration') || 'normal',
@@ -179,10 +181,10 @@ function renderProof() {
 
 function renderComposer() {
   const running = ['queued', 'running'].includes(state.job?.status);
-  const modeHelp = state.mode === 'automatic'
-    ? (running ? 'Joe is working. Questions remain read-only; Stop before replacing the objective.' : 'One clear request starts one bounded job. Joe handles the guarded stages.')
-    : state.mode === 'ask' ? 'Read-only conversation. No job can start.' : 'Read-only planning. No job can start.';
-  return `<div class="codex-composer-dock"><form id="chat-form" class="codex-composer"><div class="codex-composer-tools"><button type="button" class="attach-context" data-panel="brain" aria-label="Open Project Brain">+</button><select id="composer-preset" aria-label="Job preset">${(state.settings?.presets || []).map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === currentPreset().id ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}</select><span class="model-route">${escapeHtml(state.settings?.liveProviderStatus?.localModel || 'guarded local route')}</span><div class="agent-mode-switch">${[['automatic','Automatic'],['ask','Ask'],['plan','Plan']].map(([id,label]) => `<button type="button" class="${state.mode === id ? 'active' : ''}" data-mode="${id}">${label}</button>`).join('')}</div></div><textarea id="chat-input" rows="3" maxlength="4000" required placeholder="Ask Joe, or describe the outcome you want..."></textarea><div class="codex-composer-footer"><span>${escapeHtml(modeHelp)}</span><button class="codex-send" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Working…' : 'Send'}</button></div></form></div>`;
+  const modeHelp = state.mode === 'build'
+    ? (running ? 'Joe is working. Stop before replacing the objective.' : 'Build is the permission to change code. Sending starts one bounded job.')
+    : state.mode === 'ask' ? 'Ask replies in text only. No plan, no job, no changes.' : 'Plan replies and writes a detailed plan of action. No changes.';
+  return `<div class="codex-composer-dock"><form id="chat-form" class="codex-composer"><div class="codex-composer-tools"><button type="button" class="attach-context" data-panel="brain" aria-label="Open Project Brain">+</button><select id="composer-preset" aria-label="Job preset">${(state.settings?.presets || []).map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === currentPreset().id ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}</select><span class="model-route">${escapeHtml(state.settings?.liveProviderStatus?.localModel || 'guarded local route')}</span><div class="agent-mode-switch">${[['build','Build'],['ask','Ask'],['plan','Plan']].map(([id,label]) => `<button type="button" class="${state.mode === id ? 'active' : ''}" data-mode="${id}">${label}</button>`).join('')}</div></div><textarea id="chat-input" rows="3" maxlength="4000" required placeholder="Ask Joe, or describe the outcome you want..."></textarea><div class="codex-composer-footer"><span>${escapeHtml(modeHelp)}</span><button class="codex-send" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Working…' : 'Send'}</button></div></form></div>`;
 }
 
 function renderMain() {
@@ -393,11 +395,15 @@ async function sendMessage(text) {
   stickToBottom = true;
   render();
   try {
-    if (state.mode === 'automatic' && isWorkRequest(content)) {
-      if (state.job && ['queued', 'running'].includes(state.job.status)) throw new Error('Joe is already handling the current job. Ask a question or stop it before replacing the objective.');
+    // Build is the permission to change code, so in Build every send starts one bounded job.
+    // This replaced an isWorkRequest() regex that guessed from wording: "make the login work"
+    // started a job while "the login is broken" silently did not. The mode is the trigger now,
+    // which is predictable and is what the server enforces.
+    if (state.mode === 'build') {
+      if (state.job && ['queued', 'running'].includes(state.job.status)) throw new Error('Joe is already handling the current job. Switch to Ask or Plan, or Stop it before replacing the objective.');
       await startJob(content);
     } else {
-      const data = await api(`/api/v1/projects/${state.project.id}/threads/${state.thread.id}/chat`, { method: 'POST', body: JSON.stringify({ content }) });
+      const data = await api(`/api/v1/projects/${state.project.id}/threads/${state.thread.id}/chat`, { method: 'POST', body: JSON.stringify({ content, mode: state.mode }) });
       state.messages = data.messages || [];
     }
   } catch (error) {
@@ -409,7 +415,8 @@ async function sendMessage(text) {
 }
 
 async function startJob(objective) {
-  const data = await api(`/api/v1/projects/${state.project.id}/threads/${state.thread.id}/agent-jobs`, { method: 'POST', body: JSON.stringify({ objective }) });
+  // mode travels with the request; the server refuses anything but 'build' here.
+  const data = await api(`/api/v1/projects/${state.project.id}/threads/${state.thread.id}/agent-jobs`, { method: 'POST', body: JSON.stringify({ objective, mode: state.mode }) });
   state.job = data.job;
   lastEventOrdinal = -1;
   startPolling();

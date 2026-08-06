@@ -341,7 +341,7 @@ async function runInterruptedFixture(fixture, runOrdinal) {
       const threads = await api.get(`/api/v1/projects/${projectId}/threads`);
       const threadId = threads.data?.selectedThreadId || threads.data?.threads?.[0]?.id;
       if (!threadId) throw new Error(`${boundary}: default conversation missing`);
-      const started = await api.post(`/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`, { objective: fixture.objective, activeWorkOrderId: null });
+      const started = await api.post(`/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`, { objective: fixture.objective, mode: 'build', activeWorkOrderId: null });
       const jobId = started.data?.job?.id;
       if (started.status !== 202 || !jobId) throw new Error(`${boundary}: one-request job did not start`);
       const reached = await waitForCrashBoundary(api, jobId, boundary);
@@ -421,7 +421,7 @@ async function runFixture(fixture, runOrdinal) {
     const threadId = threads.data?.selectedThreadId || threads.data?.threads?.[0]?.id;
     if (!threadId) throw new Error(`${fixture.id}: default conversation missing`);
     const started = await api.post(`/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`, {
-      objective: fixture.objective, activeWorkOrderId: null
+      objective: fixture.objective, mode: 'build', activeWorkOrderId: null
     });
     const jobId = started.data?.job?.id;
     if (started.status !== 202 || !jobId) throw new Error(`${fixture.id}: one-request job did not start`);

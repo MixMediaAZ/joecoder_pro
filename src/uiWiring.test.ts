@@ -50,18 +50,47 @@ test('only the durable server driver knows internal lifecycle routes', () => {
 test('fixed user workflow is directly represented', () => {
   assert.match(ui, /Open build folder/);
   assert.match(ui, /Open and inspect/);
-  assert.match(ui, /One clear request starts one bounded job/);
-  assert.match(ui, /Joe handles the guarded stages/);
+  assert.match(ui, /Sending starts one bounded job/);
+  assert.match(ui, /Build is the permission to change code/);
   assert.match(ui, /Files touched/);
   assert.match(ui, /Open latest inspection evidence/);
 });
 
-test('automatic is default while Ask and Plan remain explicitly read-only', () => {
-  assert.match(ui, /localStorage\.getItem\('jc_mode'\) \|\| 'automatic'/);
-  assert.match(ui, /\['automatic','Automatic'\],\['ask','Ask'\],\['plan','Plan'\]/);
-  assert.match(ui, /Read-only conversation\. No job can start/);
-  assert.match(ui, /Read-only planning\. No job can start/);
-  assert.match(ui, /state\.mode === 'automatic' && isWorkRequest\(content\)/);
+test('Build is default and is the only mode that may start work', () => {
+  // 'automatic' was renamed to 'build' so the control states the permission it grants. The
+  // stored preference is migrated rather than dropped into a read-only mode.
+  assert.match(ui, /localStorage\.getItem\('jc_mode'\) === 'automatic' \? 'build'/);
+  assert.match(ui, /\|\| 'build'/);
+  assert.match(ui, /\['build','Build'\],\['ask','Ask'\],\['plan','Plan'\]/);
+
+  // Each mode states its own contract.
+  assert.match(ui, /Ask replies in text only\. No plan, no job, no changes/);
+  assert.match(ui, /Plan replies and writes a detailed plan of action\. No changes/);
+
+  // Build is the trigger itself. The previous isWorkRequest() regex guessed intent from wording
+  // and must not come back as the gate.
+  assert.match(ui, /state\.mode === 'build'/);
+  assert.equal(/state\.mode === '\w+' && isWorkRequest\(content\)/.test(ui), false);
+
+  // Mode must travel with both requests so the server can enforce it.
+  assert.match(ui, /JSON\.stringify\(\{ objective, mode: state\.mode \}\)/);
+  assert.match(ui, /JSON\.stringify\(\{ content, mode: state\.mode \}\)/);
+});
+
+test('composer mode is a server-enforced permission, not a UI preference', () => {
+  // The client previously decided alone whether a message became a chat reply or a durable job,
+  // so "Ask and Plan are read-only" survived only a well-behaved browser. UX_FOUNDATION.md
+  // requires that UI state never create permission.
+  assert.match(server, /const ComposerModeSchema = z\.enum\(\['ask', 'plan', 'build'\]\)/);
+
+  // Required with no default on the job route: an absent mode must fail closed.
+  assert.match(server, /mode: ComposerModeSchema,/);
+  assert.match(server, /if \(input\.mode !== 'build'\)/);
+  assert.match(server, /MODE_NOT_PERMITTED/);
+
+  // Ask and Plan must produce genuinely different output; previously both hit the same prompt.
+  assert.match(server, /MODE: Plan\./);
+  assert.match(server, /MODE: Ask\./);
 });
 
 test('active jobs expose Stop and interrupted jobs expose Resume only', () => {
