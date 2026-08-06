@@ -17,7 +17,7 @@ declare module 'express-serve-static-core' {
 import { performSurvey, buildOverviewMarkdown } from './survey.js';
 import { createEvidenceEnvelope, getEvidenceById, getVerifiedEvidenceById, inspectEvidenceById, recordEvent, verifyEventLog, buildSurveyMarkdown, ensureEvidenceDirs, DATA_DIR, EVIDENCE_DIR, EVENTS_FILE, OVERVIEWS_DIR, EXPORTS_DIR } from './evidence.js';
 import { projects, workOrders, loadProjects, saveProjects, loadWorkOrders, saveWorkOrder, ensureStoreDirs } from './store.js';
-import { WorkOrderCreateSchema, buildDraftWorkOrder, getActiveMutatingWorkOrder, validateCommsCompliance, validateDAG, performDonorDisposition } from './workOrder.js';
+import { WorkOrderCreateSchema, buildDraftWorkOrder, getActiveMutatingWorkOrder, terminalStatusForDeadWorkOrder, validateCommsCompliance, validateDAG, performDonorDisposition } from './workOrder.js';
 import { appendConversationExchange, appendThreadConversationExchange, buildGuardedReply, ensureConversationDir, loadConversation, loadThreadMessages } from './chat.js';
 import { getAcceptanceState, reconcileTerminalWorkOrder } from './workflow.js';
 import { loadCanonicalLaws, type CanonicalLawsBundle } from './laws.js';
@@ -267,6 +267,7 @@ async function advanceLinkedProjectForWorkOrder(
   return null;
 }
 
+
 async function recoverPersistedExecutions(): Promise<number> {
   let recovered = 0;
   for (const workOrder of workOrders.values()) {
@@ -341,6 +342,39 @@ async function reconcilePersistedProjectStates(): Promise<number> {
   }
   return reconciled;
 }
+/**
+ * When a mutating job ends dead (failed or cancelled -- not interrupted, which stays resumable),
+ * retire its Work Order to a truthful terminal status and release the project's one-active slot.
+ *
+ * Without this, a job that failed safe left its order in `draft` or `authorized`: the slot stayed
+ * held, new requests were refused with "Resume that exact job", and resume only accepts
+ * `interrupted` jobs -- an instruction impossible to follow. Failing safe must free the project.
+ */
+async function releaseWorkOrderForDeadJob(jobId: string): Promise<void> {
+  try {
+    const job = getAgentJob(jobId);
+    if (!job || !job.workOrderId) return;
+    if (job.status !== 'failed' && job.status !== 'cancelled') return;
+    const wo = workOrders.get(job.workOrderId);
+    if (!wo) return;
+    const retired = terminalStatusForDeadWorkOrder(wo.status);
+    if (retired) {
+      wo.status = retired;
+      wo.updatedAt = new Date().toISOString();
+      await saveWorkOrder(wo);
+    }
+    for (const project of projects.values()) {
+      if (reconcileTerminalWorkOrder(project, wo)) {
+        projects.set(project.id, project);
+        await saveProjects();
+        break;
+      }
+    }
+  } catch (error: unknown) {
+    console.error(`releaseWorkOrderForDeadJob(${jobId}) failed:`, error instanceof Error ? error.message : String(error));
+  }
+}
+
 function findProjectForWorkOrder(workOrder: WorkOrder): Project | null {
   for (const project of projects.values()) {
     if (
@@ -1798,7 +1832,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     });
   });
 
-  app.post('/api/v1/projects/:id/threads/:threadId/agent-jobs', (req, res) => {
+  app.post('/api/v1/projects/:id/threads/:threadId/agent-jobs', async (req, res) => {
     try {
       const project = projects.get(req.params.id);
       if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -1826,13 +1860,37 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           activeJob: existingJob
         });
       }
-      const activeWorkOrder = project.activeWorkOrderId ? workOrders.get(project.activeWorkOrderId) : null;
+      let activeWorkOrder = project.activeWorkOrderId ? workOrders.get(project.activeWorkOrderId) : null;
+      let retiredWorkOrder: { id: string; from: string; to: string } | null = null;
       if (activeWorkOrder && input.activeWorkOrderId !== activeWorkOrder.id) {
-        return res.status(409).json({
-          error: `Work Order ${activeWorkOrder.id} is already active. Resume that exact job.`,
-          code: 'ACTIVE_WORK_ORDER_REQUIRES_RESUME',
-          activeWorkOrderId: activeWorkOrder.id
-        });
+        // "Resume that exact job" is only honest when a resumable job actually exists -- resume
+        // accepts `interrupted` only. If the recorded order's job died terminally (or no job
+        // references it at all), no exposed control can ever continue it, so holding the slot
+        // wedges the project permanently. Retire the order truthfully and release the slot.
+        const heldWorkOrderId = activeWorkOrder.id;
+        const resumableJob = listAgentJobs(project.id, 100).find(
+          candidate => candidate.workOrderId === heldWorkOrderId && candidate.status === 'interrupted'
+        );
+        if (resumableJob) {
+          return res.status(409).json({
+            error: `Work Order ${heldWorkOrderId} is held by interrupted job ${resumableJob.id}. Resume that exact job.`,
+            code: 'ACTIVE_WORK_ORDER_REQUIRES_RESUME',
+            activeWorkOrderId: heldWorkOrderId,
+            resumableJobId: resumableJob.id
+          });
+        }
+        const priorStatus = activeWorkOrder.status;
+        const retired = terminalStatusForDeadWorkOrder(activeWorkOrder.status);
+        if (retired) {
+          activeWorkOrder.status = retired;
+          activeWorkOrder.updatedAt = new Date().toISOString();
+          await saveWorkOrder(activeWorkOrder);
+        }
+        reconcileTerminalWorkOrder(project, activeWorkOrder);
+        projects.set(project.id, project);
+        await saveProjects();
+        retiredWorkOrder = { id: heldWorkOrderId, from: priorStatus, to: activeWorkOrder.status };
+        activeWorkOrder = null;
       }
       if (input.activeWorkOrderId && (!activeWorkOrder || activeWorkOrder.id !== input.activeWorkOrderId)) {
         return res.status(409).json({ error: 'The requested Work Order is not active.', code: 'WORK_ORDER_NOT_ACTIVE' });
@@ -1844,11 +1902,20 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
         what: 'I accepted this as one bounded job.',
         meaning: 'JoeCoder will own the guarded stages on the server; the browser only follows progress.',
         next: activeWorkOrder ? `Resume ${activeWorkOrder.id}.` : 'Establish current project evidence.',
-        payload: { projectId: project.id, threadId: thread.id, activeWorkOrderId: activeWorkOrder?.id || null }
+        payload: { projectId: project.id, threadId: thread.id, activeWorkOrderId: activeWorkOrder?.id || null, retiredWorkOrder }
       });
+      if (retiredWorkOrder) {
+        appendAgentJobEvent({
+          jobId: job.id, stage: 'understand', kind: 'decision',
+          what: `I retired stale Work Order ${retiredWorkOrder.id} (${retiredWorkOrder.from} -> ${retiredWorkOrder.to}).`,
+          meaning: 'Its job ended without a resumable checkpoint, so no control could ever continue it. The project slot is released.',
+          next: 'Establish current project evidence.',
+          payload: { category: 'Doing now', ...retiredWorkOrder }
+        });
+      }
       const credentials = agentJobCredentials(req, job.id);
       res.status(202).json({ ok: true, job });
-      setImmediate(() => void runAgentJob(job.id, credentials));
+      setImmediate(() => void runAgentJob(job.id, credentials).finally(() => void releaseWorkOrderForDeadJob(job.id)));
     } catch (error: unknown) {
       res.status(400).json({ error: error instanceof Error ? error.message : String(error), code: 'AGENT_JOB_START_FAILED' });
     }
@@ -1873,7 +1940,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
       });
       const credentials = agentJobCredentials(req, job.id);
       res.status(202).json({ ok: true, job: queued });
-      setImmediate(() => void runAgentJob(job.id, credentials));
+      setImmediate(() => void runAgentJob(job.id, credentials).finally(() => void releaseWorkOrderForDeadJob(job.id)));
     } catch (error: unknown) {
       res.status(400).json({ error: error instanceof Error ? error.message : String(error), code: 'AGENT_JOB_RESUME_FAILED' });
     }
@@ -2212,11 +2279,14 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
       }
       wo.dependencyCompletionState = wo.dependsOn.length > 0 ? 'satisfied' : 'none_required';
 
-      const active = getActiveMutatingWorkOrder(workOrders);
+      // Per project, not global: another project's in-flight work must never block this one.
+      const authorizeOwner = findProjectForWorkOrder(wo);
+      const active = getActiveMutatingWorkOrder(workOrders, authorizeOwner?.activeWorkOrderId);
       if (active && active.id !== wo.id) {
         return res.status(409).json({
           error: 'One active mutating Work Order rule',
-          activeWorkOrderId: active.id
+          activeWorkOrderId: active.id,
+          projectId: authorizeOwner?.id ?? null
         });
       }
 
@@ -3012,10 +3082,14 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           authorization: authorizationCheck
         });
       }
-      // One-active rule
-      const active = getActiveMutatingWorkOrder(workOrders);
+      // One-active rule, scoped to the owning project (law L3 is "per project", not global).
+      const active = getActiveMutatingWorkOrder(workOrders, authorizationProject.activeWorkOrderId);
       if (active && active.id !== wo.id) {
-        return res.status(409).json({ error: 'One active mutating Work Order rule', activeWorkOrderId: active.id });
+        return res.status(409).json({
+          error: 'One active mutating Work Order rule',
+          activeWorkOrderId: active.id,
+          projectId: authorizationProject.id
+        });
       }
 
       if (action === 'apply_edits') {

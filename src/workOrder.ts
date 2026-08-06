@@ -196,13 +196,48 @@ export function buildDraftWorkOrder(body: z.infer<typeof WorkOrderCreateSchema>)
   return wo;
 }
 
-export function getActiveMutatingWorkOrder(workOrders: Map<string, WorkOrder>): WorkOrder | null {
-  for (const wo of workOrders.values()) {
-    if (wo.status === 'authorized' || wo.status === 'executing') {
-      return wo;
-    }
-  }
-  return null;
+/**
+ * The active mutating Work Order **for one project**.
+ *
+ * This previously scanned every Work Order in the application and returned the first authorized or
+ * executing one, with no project filter -- so a single in-flight or stuck job on any project
+ * blocked mutating work on every other project. Law L3 and the shipped documentation all state the
+ * rule is per project ("One active Work Order per project", "One active mutating job is allowed
+ * per project"), so the global scan was both a capability defect and a law violation.
+ *
+ * WorkOrder carries no projectId, so ownership comes from the project's own activeWorkOrderId,
+ * which is the existing linkage. Callers pass that id; undefined or null means the project holds
+ * no slot and mutating work may begin.
+ */
+export function getActiveMutatingWorkOrder(
+  workOrders: Map<string, WorkOrder>,
+  projectActiveWorkOrderId: string | null | undefined
+): WorkOrder | null {
+  if (!projectActiveWorkOrderId) return null;
+  const wo = workOrders.get(projectActiveWorkOrderId);
+  if (!wo) return null;
+  return wo.status === 'authorized' || wo.status === 'executing' ? wo : null;
+}
+
+export const TERMINAL_WORK_ORDER_STATUSES = new Set<WorkOrder['status']>([
+  'completed', 'failed', 'rolled_back', 'cancelled'
+]);
+
+/**
+ * The truthful terminal status for a Work Order whose job died without one.
+ *
+ * A job that fails safe records its own terminal state but previously left its Work Order in
+ * `draft` or `authorized` forever. The project slot then stayed held, every new request was
+ * refused with "Resume that exact job" -- and resume only accepts `interrupted` jobs, so the
+ * instruction was impossible to follow. The tool wedged itself with no exposed way out.
+ *
+ * Mapping: a draft never held authority, so it is `cancelled`; an authorized or executing order
+ * had authority and did not finish, so it is `failed`. Returns null when the order is already
+ * terminal (nothing to retire).
+ */
+export function terminalStatusForDeadWorkOrder(status: WorkOrder['status']): 'cancelled' | 'failed' | null {
+  if (TERMINAL_WORK_ORDER_STATUSES.has(status)) return null;
+  return status === 'draft' ? 'cancelled' : 'failed';
 }
 
 // N2: Real DAG enforcement + cycle detection (founding 1.3.2 point 4)
