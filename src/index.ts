@@ -30,7 +30,7 @@ import {
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
-import { runVerification, verificationEvidenceFingerprint, verificationProofLevel } from './verification.js';
+import { adjustVerificationForBaseline, runVerification, verificationEvidenceFingerprint, verificationProofLevel } from './verification.js';
 import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
 import { compactEvidenceLinkedHistory } from './structuredControl.js';
 import { buildTaskMemoryPrompt } from './projectMemory.js';
@@ -592,6 +592,32 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         'Every scoped file was copied with a sha256 hash before any write, so the change is fully reversible.',
         'I am now writing the validated edits within the authorized budgets.'
       );
+      // Baseline verification BEFORE any write: the starting condition, established as evidence.
+      // The post-change report is judged against this — a check already failing here is a recorded
+      // limitation of the project, not a verdict on the change (see adjustVerificationForBaseline).
+      let baselineVerification: Awaited<ReturnType<typeof runVerification>> | null = null;
+      {
+        const stopBaselineHeartbeat = startProgressHeartbeat(project.id, 'Recording the pre-change verification baseline');
+        try {
+          baselineVerification = await runVerification(project.path, {
+            timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
+            editedRelPaths: wo.scope.exactPaths
+          });
+        } catch {
+          baselineVerification = null; // no baseline means the post-change report stands unadjusted
+        } finally {
+          stopBaselineHeartbeat();
+        }
+        await narrateWorkOrder(
+          wo,
+          'repair.baseline_recorded',
+          `I recorded the pre-change verification baseline (${baselineVerification?.status ?? 'unavailable'}).`,
+          baselineVerification?.status === 'failed'
+            ? `The project already fails ${baselineVerification.items.filter((item) => !item.passed).length} check(s) before any change; the edit will be judged on regressions, not inherited defects.`
+            : 'The post-change checks will be compared against this recorded starting condition.',
+          'I am now writing the validated edits within the authorized budgets.'
+        );
+      }
       if (wo.execution) wo.execution.phase = 'committing';
       await saveWorkOrder(wo);
       if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'write') await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -660,7 +686,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           if (process.env.NODE_ENV === 'test' && process.env.JC_ACCEPTANCE_CRASH_BOUNDARY === 'verification') await new Promise((resolve) => setTimeout(resolve, 2_000));
           const stopVerifyHeartbeat = startProgressHeartbeat(project.id, `Running project verification attempt ${attempt}`);
           try {
-            return await runVerification(project.path, {
+            const post = await runVerification(project.path, {
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
               editedRelPaths: applyResult.applied.map((change) => change.relPath),
               expectedHashes: applyResult.applied.map((change) => ({
@@ -668,6 +694,8 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                 expectedHash: change.newHash
               }))
             });
+            // No-regression standard: pre-existing failures are limitations, not verdicts.
+            return adjustVerificationForBaseline(baselineVerification, post);
           } finally {
             stopVerifyHeartbeat();
           }

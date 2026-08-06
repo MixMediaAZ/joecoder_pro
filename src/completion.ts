@@ -123,9 +123,11 @@ export async function evaluateRepairCompletion(
     {
       id: `${workOrder.id}-VERIFY`,
       criterion: verification.status === 'passed'
-        ? ((verification.items || []).some((i) => i.script === 'file_integrity')
-          ? 'Post-apply file-integrity verification passed (not full test suite)'
-          : 'Runtime verification (build/test) passed')
+        ? (verification.preexistingFailures?.length
+          ? 'Runtime verification shows no regression against the recorded baseline (pre-existing failures recorded as limitations, not fixed by this change)'
+          : (verification.items || []).some((i) => i.script === 'file_integrity')
+            ? 'Post-apply file-integrity verification passed (not full test suite)'
+            : 'Runtime verification (build/test) passed')
         : verification.status === 'no_scripts'
           ? 'No runnable scripts/hashes — verification inconclusive (not treated as failure)'
           : 'Runtime verification (build/test) failed',

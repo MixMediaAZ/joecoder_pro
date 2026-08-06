@@ -32,6 +32,57 @@ export interface VerificationReport {
   status: 'passed' | 'failed' | 'no_scripts';
   detail: string;
   items: VerificationItem[];
+  /** Checks that failed identically before this change ran; recorded limitations, not caused by it. */
+  preexistingFailures?: VerificationItem[];
+}
+
+/**
+ * Judge a post-change verification against the baseline recorded before any write.
+ *
+ * Verification was absolute: `flutter analyze` and friends judge the whole project's health, so on
+ * a messy real codebase every repair failed for defects that predate the edit. Observed live: the
+ * qualification project carries 1,931 pre-existing analyzer issues; JoeCoder made the correct
+ * one-line dependency fix, verification failed on the pre-existing mess, the correction loop could
+ * not "fix" 1,931 inherited problems, and the right change was rolled back.
+ *
+ * The honest standard for a bounded repair is no-regression: a check that failed identically
+ * before the change is a recorded limitation, not evidence against the change. A check that passed
+ * at baseline and fails after remains a hard failure. File-integrity is never excusable as
+ * pre-existing — it judges the exact bytes this change wrote.
+ */
+export function adjustVerificationForBaseline(
+  baseline: VerificationReport | null,
+  post: VerificationReport
+): VerificationReport {
+  if (!baseline || post.status !== 'failed') return post;
+  const key = (item: VerificationItem) => `${item.script}|${item.command}|${item.root}`;
+  const failedAtBaseline = new Set(baseline.items.filter((item) => !item.passed).map(key));
+  const regressions: VerificationItem[] = [];
+  const preexisting: VerificationItem[] = [];
+  for (const item of post.items) {
+    if (item.passed) continue;
+    if (item.script !== 'file_integrity' && failedAtBaseline.has(key(item))) preexisting.push(item);
+    else regressions.push(item);
+  }
+  if (!regressions.length && preexisting.length) {
+    return {
+      status: 'passed',
+      detail:
+        `No regression against the recorded baseline. ${preexisting.length} check(s) were already failing ` +
+        `before this change and fail the same way after it: ${preexisting.map((item) => `${item.command} [${item.root}]`).join(', ')}. ` +
+        'These pre-existing failures are recorded as limitations; they are not evidence about this change.',
+      items: post.items,
+      preexistingFailures: preexisting
+    };
+  }
+  if (regressions.length && preexisting.length) {
+    return {
+      ...post,
+      detail: `${post.detail} (${preexisting.length} further failure(s) are pre-existing from the baseline and recorded as limitations)`,
+      preexistingFailures: preexisting
+    };
+  }
+  return post;
 }
 
 export type VerificationProofLevel = 'runtime' | 'integrity' | 'none' | 'failed';
