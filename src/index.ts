@@ -2733,7 +2733,10 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             assumptions: [
               // Evidence FIRST, the model's own approach second. In replay a 7B model followed
               // its earlier (wrong) approach sentence over the evidence that came after it.
-              ...(surveyResult.findings?.broken || []).slice(0, 3).map(
+              // Cap 6, not 3: the qualification project has five contradicted constraints, and a
+              // replay proved the model faithfully fixes exactly the findings it receives — the
+              // two findings the old cap dropped were precisely the two constraints left broken.
+              ...(surveyResult.findings?.broken || []).slice(0, 6).map(
                 (finding: string) => `Recorded failure evidence: ${finding.slice(0, 400)}`
               ),
               `Model plan (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`
