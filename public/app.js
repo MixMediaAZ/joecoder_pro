@@ -397,7 +397,13 @@ async function saveBrain(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const keys = ['purpose','preferences','environment','architecture','constraints','decisions','knownIssues','verifiedTruth'];
-  const body = { guidancePresetId: form.get('guidancePresetId'), evidenceIds: state.brain?.evidenceIds || [] };
+  // freshnessAt is required by the strict server schema and owned by the record, not the form:
+  // projectMemory grades a brain stale without it. Round-trip it like evidenceIds, or Save 400s.
+  const body = {
+    guidancePresetId: form.get('guidancePresetId'),
+    evidenceIds: state.brain?.evidenceIds || [],
+    freshnessAt: state.brain?.freshnessAt ?? null
+  };
   for (const key of keys) body[key] = String(form.get(key) || '');
   const data = await api(`/api/v1/projects/${state.project.id}/brain`, { method: 'PUT', body: JSON.stringify(body) });
   state.brain = data.brain;
