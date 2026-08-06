@@ -130,4 +130,13 @@ test('unparseable input produces no findings rather than false ones', () => {
     { path: 'pubspec.yaml', content: ':::' }
   ]);
   assert.deepEqual(result.broken, []);
+  assert.deepEqual(result.targets, []);
+});
+
+test('broken findings carry structured targets naming the file to correct', () => {
+  const result = diagnoseDependencyConsistency([
+    { path: 'pubspec.yaml', content: ROOT_PUBSPEC },
+    { path: 'pubspec.lock', content: ROOT_LOCK }
+  ]);
+  assert.deepEqual(result.targets, ['pubspec.yaml']);
 });

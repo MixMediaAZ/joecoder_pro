@@ -25,6 +25,8 @@ export interface ManifestFile {
 export interface DependencyDiagnosis {
   broken: string[];
   questionable: string[];
+  /** Manifest paths a broken finding identifies as the file to correct. */
+  targets: string[];
 }
 
 interface ParsedDeclaration {
@@ -143,6 +145,7 @@ function diagnoseDeclarations(
         `Dependency install cannot succeed: ${manifestPath} demands ${declaration.name} ${declaration.constraint}, but the committed ${lockPath} resolved ${declaration.name} ${resolved}. ` +
         `The declared major version ${declaredMajor} exceeds anything that has ever resolved here (${resolved}); the constraint in ${manifestPath} is the file to correct.`
       );
+      if (!out.targets.includes(manifestPath)) out.targets.push(manifestPath);
     }
   }
 }
@@ -153,7 +156,7 @@ function diagnoseDeclarations(
  * toolchain reads, and deeper ones are flagged so a planner does not mistake them for it.
  */
 export function diagnoseDependencyConsistency(files: ManifestFile[]): DependencyDiagnosis {
-  const out: DependencyDiagnosis = { broken: [], questionable: [] };
+  const out: DependencyDiagnosis = { broken: [], questionable: [], targets: [] };
   const byName = (name: string) => files
     .filter((file) => file.path.split('/').pop() === name)
     .sort((a, b) => depth(a.path) - depth(b.path));

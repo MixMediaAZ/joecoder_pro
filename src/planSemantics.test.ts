@@ -80,3 +80,30 @@ test('combined accessibility and responsive repair includes evidence-backed mark
     ['style.css', 'index.html']
   );
 });
+test('recorded dependency evidence forces the implicated manifest into a dependency-repair scope', () => {
+  // Regression from the live Stage 2 runs: the survey proved the ROOT pubspec.yaml constraint
+  // blocks installation, yet the 7B planner still scoped only the stale nested manifest whose
+  // path matched the package name. Evidence outranks the model's file choice (L9).
+  const survey = { dependencyTargets: ['pubspec.yaml'] } as unknown as SurveyResult;
+
+  const forced = validatePlanForObjective(
+    plan(['baby_daw_pro/pubspec.yaml']),
+    "The project can't install its dependencies. Find out why and fix it so dependencies install.",
+    'repair',
+    survey
+  );
+  assert.equal(forced.files[0], 'pubspec.yaml', 'evidence target leads the scope');
+  assert.ok(forced.files.includes('baby_daw_pro/pubspec.yaml'), 'model choice is kept, not erased');
+
+  // Already-correct plans are unchanged.
+  assert.deepEqual(
+    validatePlanForObjective(plan(['pubspec.yaml']), 'Fix dependency install.', 'repair', survey).files,
+    ['pubspec.yaml']
+  );
+
+  // An unrelated objective must NOT have its scope widened by dependency evidence.
+  assert.deepEqual(
+    validatePlanForObjective(plan(['src/app.dart']), 'Fix the volume slider jumping to zero.', 'repair', survey).files,
+    ['src/app.dart']
+  );
+});

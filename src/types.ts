@@ -199,4 +199,10 @@ export interface SurveyResult {
   truncatedReason?: string;
   /** Up to 8 text files, ≤48KB each, for model planning context only. */
   contentSamples?: ContentSample[];
+  /**
+   * Files that recorded dependency evidence identifies as the ones to correct (e.g. the root
+   * manifest whose constraint the committed lockfile contradicts). Plan validation uses these:
+   * evidence outranks a model's file choice.
+   */
+  dependencyTargets?: string[];
 }

@@ -186,6 +186,21 @@ export function validatePlanForObjective(
       'PLAN_REJECTED: the objective explicitly describes composed or interacting multi-file behavior, but the plan traces only one implementation file'
     );
   }
+  // Evidence outranks the model's file choice (L9). When the survey's offline dependency
+  // diagnosis has identified the exact manifest whose constraint blocks installation, and the
+  // objective is about dependencies installing, that manifest MUST be in scope. Observed twice
+  // live before this rule: with the evidence in its prompt, a 7B model still scoped a stale
+  // nested pubspec.yaml (its path matched the package name) and the job died on a no-op edit.
+  // Same deterministic pattern as the accessibility rule below: the server adds what recorded
+  // evidence requires, and only when the objective makes it relevant — an unrelated objective
+  // must not have its scope widened.
+  const dependencyObjective = /\b(dependenc\w*|install\w*|pub\s+get|npm\s+(?:ci|install)|version\s+solving|lockfile|package\s+resolution)\b/i.test(objective);
+  if (intent === 'repair' && dependencyObjective && survey?.dependencyTargets?.length) {
+    for (const target of survey.dependencyTargets) {
+      if (!files.includes(target)) files.unshift(target);
+    }
+  }
+
   const combinesAccessibilityAndLayout = /\b(accessib(?:le|ility)|semantic|label(?:ed|ling)?)\b/i.test(objective)
     && /\b(responsive|overflow|viewport|layout|phone|desktop)\b/i.test(objective);
   if (intent === 'repair' && combinesAccessibilityAndLayout && survey) {

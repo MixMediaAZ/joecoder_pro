@@ -391,6 +391,7 @@ export async function performSurvey(
   const dependencyDiagnosis = diagnoseDependencyConsistency(manifestFiles);
   findings.broken.push(...dependencyDiagnosis.broken);
   findings.questionable.push(...dependencyDiagnosis.questionable);
+  const dependencyTargets = dependencyDiagnosis.targets;
 
   const contentSamples = await collectContentSamples(targetPath, base.keyFiles, base.entries);
   if (contentSamples.length) {
@@ -417,6 +418,7 @@ export async function performSurvey(
     status: base.status,
     contentSamples
   };
+  if (dependencyTargets.length) result.dependencyTargets = dependencyTargets;
   if (base.truncatedReason !== undefined) {
     result.truncatedReason = base.truncatedReason;
   }
