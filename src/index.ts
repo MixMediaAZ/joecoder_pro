@@ -943,6 +943,19 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
     } catch (innerError: unknown) {
       const message = innerError instanceof Error ? innerError.message : String(innerError);
       const transactionError = innerError instanceof MutationTransactionError ? innerError : null;
+      // A generation that failed all bounded attempts must leave evidence of WHAT the model
+      // produced. "The model returned no well-formed file blocks" with no artifact is an
+      // unverifiable claim — and undiagnosable. Bounded text heads, model output only.
+      const failedAttempts = (innerError as { structuredAttempts?: unknown })?.structuredAttempts;
+      if (Array.isArray(failedAttempts) && failedAttempts.length) {
+        await createEvidenceEnvelope(null, {
+          type: 'repair.generation_failed',
+          projectId: project.id,
+          workOrderId: wo.id,
+          error: message.slice(0, 400),
+          parseAttempts: failedAttempts
+        }).catch(() => {});
+      }
       const attemptedWrite = wrote || Boolean(transactionError?.committedPaths.length);
       const rollback = attemptedWrite && snapshot
         ? await rollbackToSnapshot(SNAPSHOTS_DIR, snapshot)

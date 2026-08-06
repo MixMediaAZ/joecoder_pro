@@ -547,7 +547,19 @@ export async function generateStructured<T>(
     }
   }
 
-  throw new Error(
-    `STRUCTURED_PARSE_FAILED after ${maxAttempts} attempts (${options.label}): ${previousError}`
+  // Carry bounded attempt records on the failure so the caller can persist WHAT the model
+  // actually produced. Two live qualification runs failed with "no well-formed file blocks" and
+  // left no artifact of the rejected output — an unverifiable claim about model behavior, and
+  // nothing to diagnose from. The text heads are bounded; they contain model output only.
+  throw Object.assign(
+    new Error(`STRUCTURED_PARSE_FAILED after ${maxAttempts} attempts (${options.label}): ${previousError}`),
+    {
+      structuredAttempts: attempts.map((record) => ({
+        attempt: record.attempt,
+        parseError: record.parseError || null,
+        responseChars: record.text.length,
+        textHead: record.text.slice(0, 1500)
+      }))
+    }
   );
 }
