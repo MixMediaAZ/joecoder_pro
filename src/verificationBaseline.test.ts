@@ -68,3 +68,21 @@ test('a check new since baseline that fails is a failure, not pre-existing', () 
   assert.equal(adjusted.status, 'failed');
   assert.equal(adjusted.preexistingFailures, undefined);
 });
+
+test('a both-sides failure that got measurably worse is a regression, not pre-existing', () => {
+  // Live job-2 case: flutter analyze failed at baseline with 25 issues and after the edit with
+  // 39; pass/fail comparison alone called that "pre-existing" and let the job complete.
+  const before = item('analyze', 'flutter analyze', false);
+  before.outputTail = ['25 issues found. (ran in 5.1s)'];
+  const after = item('analyze', 'flutter analyze', false);
+  after.outputTail = ['39 issues found. (ran in 4.2s)'];
+  const adjusted = adjustVerificationForBaseline(report('failed', [before]), report('failed', [after]));
+  assert.equal(adjusted.status, 'failed');
+
+  // Same or fewer issues stays pre-existing.
+  const sameAfter = item('analyze', 'flutter analyze', false);
+  sameAfter.outputTail = ['25 issues found. (ran in 3.9s)'];
+  const same = adjustVerificationForBaseline(report('failed', [before]), report('failed', [sameAfter]));
+  assert.equal(same.status, 'passed');
+  assert.equal(same.preexistingFailures?.length, 1);
+});

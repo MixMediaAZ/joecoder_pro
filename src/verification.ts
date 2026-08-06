@@ -56,13 +56,28 @@ export function adjustVerificationForBaseline(
 ): VerificationReport {
   if (!baseline || post.status !== 'failed') return post;
   const key = (item: VerificationItem) => `${item.script}|${item.command}|${item.root}`;
-  const failedAtBaseline = new Set(baseline.items.filter((item) => !item.passed).map(key));
+  const baselineFailedByKey = new Map(
+    baseline.items.filter((item) => !item.passed).map((item) => [key(item), item] as const)
+  );
+  // A check that fails on both sides can still have gotten WORSE. Observed live: a one-file edit
+  // took flutter analyze from 25 to 39 issues, and pass/fail comparison called it "pre-existing"
+  // because analyze failed at baseline too. Where both outputs report a countable magnitude
+  // ("N issues found"), a larger count after the change is a regression, not an inherited state.
+  const magnitude = (item: VerificationItem): number | null => {
+    const joined = (item.outputTail || []).join('\n');
+    const match = joined.match(/(\d+)\s+issues?\s+found/i) || joined.match(/(\d+)\s+(?:error|failure)s?\b/i);
+    return match ? Number(match[1]) : null;
+  };
   const regressions: VerificationItem[] = [];
   const preexisting: VerificationItem[] = [];
   for (const item of post.items) {
     if (item.passed) continue;
-    if (item.script !== 'file_integrity' && failedAtBaseline.has(key(item))) preexisting.push(item);
-    else regressions.push(item);
+    const baselineItem = item.script !== 'file_integrity' ? baselineFailedByKey.get(key(item)) : undefined;
+    if (!baselineItem) { regressions.push(item); continue; }
+    const before = magnitude(baselineItem);
+    const after = magnitude(item);
+    if (before !== null && after !== null && after > before) regressions.push(item);
+    else preexisting.push(item);
   }
   if (!regressions.length && preexisting.length) {
     return {

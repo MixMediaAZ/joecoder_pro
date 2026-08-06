@@ -107,3 +107,20 @@ test('recorded dependency evidence forces the implicated manifest into a depende
     ['src/app.dart']
   );
 });
+
+test('a consolidation refactor rejects a single-file plan', () => {
+  // Live job-2 case: "each part creates its own engine -> share one" got a one-file plan and the
+  // duplication sites were never rewired. One file cannot consolidate anything.
+  const objective = 'Different parts of the app each create their own audio engine. Refactor so the whole app shares one audio engine instance instead of creating separate ones. Do not change any behavior.';
+  assert.throws(
+    () => validatePlanForObjective(plan(['lib/services/audio_engine.dart']), objective, 'repair'),
+    /consolidates duplicated behavior.*single file/s
+  );
+  assert.doesNotThrow(() => validatePlanForObjective(
+    plan(['lib/services/audio_engine.dart', 'lib/screens/project_screen.dart', 'lib/screens/calibration_screen.dart']),
+    objective,
+    'repair'
+  ));
+  // Ordinary single-file repairs are unaffected.
+  assert.doesNotThrow(() => validatePlanForObjective(plan(['src/app.ts']), 'Fix the crash when saving.', 'repair'));
+});

@@ -171,6 +171,21 @@ export function validatePlanForObjective(
   if (!files.length) {
     throw new Error('PLAN_REJECTED: the plan contained no authorized implementation files after preserving tests as acceptance contracts');
   }
+  // A consolidation refactor by definition touches every duplication site plus the shared home.
+  // Observed live: "Different parts of the app each create their own audio engine. Refactor so
+  // the whole app shares one instance" produced a one-file plan (the service alone), the three
+  // construction sites were never rewired, and the job completed without meeting the objective.
+  // One file cannot consolidate anything; reject the plan so the bounded re-prompt demands the
+  // call sites.
+  const describesConsolidation = /\brefactor\b/i.test(objective)
+    && /\b(shares?|shared|single|one|central(?:ise|ize)d?|consolidat\w*)\b/i.test(objective)
+    && /\b(each|every|separate|their own|duplicated?|different parts)\b/i.test(objective);
+  if (intent === 'repair' && describesConsolidation && files.length < 2) {
+    throw new Error(
+      'PLAN_REJECTED: the objective consolidates duplicated behavior into one shared place, but the plan names a single file. A consolidation must include every site that currently duplicates the behavior as well as the shared home; list all affected files.'
+    );
+  }
+
   const describesComposedMultiFileWork = /\b(multi[- ]file|interacting|composed|across (?:multiple )?files)\b/i.test(objective);
   if (intent === 'repair' && describesComposedMultiFileWork && files.length < 2 && survey) {
     const evidenceRanked = rankPlanCandidates(objective, survey, 8)
