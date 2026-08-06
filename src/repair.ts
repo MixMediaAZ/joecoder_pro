@@ -267,21 +267,58 @@ const EDIT_SYSTEM = [
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
 ].join(' ');
 
-export function buildEditsPrompt(objective: string, approach: string, files: ScopedFileContent[]): string {
+export function buildEditsPrompt(
+  objective: string,
+  approach: string,
+  files: ScopedFileContent[],
+  evidenceTargets: string[] = []
+): string {
   const sections = files.map((file) => [
     `===FILE: ${file.relPath}===`,
     file.exists ? file.content : '(this file does not exist yet — create it)',
     '===END FILE==='
   ].join('\n'));
+  // Recorded evidence must dominate the model's own approach sentence. Observed live: with both
+  // in the prompt, a 7B model followed its earlier (wrong) plan wording and edited a stale nested
+  // manifest while the evidence named the root one. The mandate line is placed directly above the
+  // final instruction — the position small models weight most.
+  const evidenceMandate = evidenceTargets.length
+    ? [
+        '',
+        `RECORDED EVIDENCE identifies the file(s) that must be corrected: ${evidenceTargets.join(', ')}.`,
+        'Your response MUST include a corrected block for each of those files. A response that does not change them will be rejected.'
+      ]
+    : [];
   return [
     `Objective: ${objective}`,
     `Approach: ${approach}`,
     '',
     'Current scoped files:',
     ...sections,
+    ...evidenceMandate,
     '',
     'Produce the changed files now, using the exact block format.'
   ].join('\n');
+}
+
+/**
+ * Rules-level backstop for the mandate above: an edit response that changes none of the
+ * evidence-identified files is rejected before any write, which routes it into the bounded
+ * re-prompt with this exact reason. Prevents the worse-than-failure outcome observed in replay:
+ * the model "fixing" a bystander file and the job claiming limited success while the recorded
+ * cause remains untouched.
+ */
+export function requireEvidenceTargetEdits(edits: ProposedEdit[], evidenceTargets: string[]): ProposedEdit[] {
+  if (!evidenceTargets.length) return edits;
+  const normalize = (rel: string) => rel.replace(/\\/g, '/').replace(/^\.\//, '');
+  const touched = new Set(edits.map((edit) => normalize(edit.relPath)));
+  const missed = evidenceTargets.map(normalize).filter((target) => !touched.has(target));
+  if (missed.length === evidenceTargets.length) {
+    throw new Error(
+      `EDIT_MISSES_EVIDENCE_TARGET: recorded evidence identifies ${evidenceTargets.join(', ')} as the file(s) to correct, but the response changed none of them`
+    );
+  }
+  return edits;
 }
 
 const FILE_BLOCK = /===FILE:\s*([^=\r\n]+?)\s*===\r?\n([\s\S]*?)\r?\n?===END FILE===/g;

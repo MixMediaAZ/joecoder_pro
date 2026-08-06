@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseEditBlocks, parsePlanResponse, requireEffectiveEdits } from './repair.js';
+import { buildEditsPrompt, parseEditBlocks, parsePlanResponse, requireEffectiveEdits, requireEvidenceTargetEdits } from './repair.js';
 
 const fence = String.fromCharCode(96).repeat(3);
 const planJson = '{"schemaVersion":1,"files":["src/x.js"],"approach":"fix","risks":[]}';
@@ -56,4 +56,43 @@ test('effective edit guard rejects byte-identical corrections and keeps only rea
     { relPath: 'src/a.js', content: 'const a = 1;\n' },
     { relPath: 'src/b.js', content: 'const b = 2;\n' }
   ], files), [{ relPath: 'src/b.js', content: 'const b = 2;\n' }]);
+});
+test('an edit response that changes none of the evidence targets is rejected before any write', () => {
+  // Observed in replay against the live model: with the root manifest and a stale nested one both
+  // in scope, the model "fixed" the nested bystander and left the recorded cause untouched. Had
+  // that parsed live, the job would have written a useless change and claimed limited success.
+  const edits = [{ relPath: 'baby_daw_pro/pubspec.yaml', content: 'name: inner\n' }];
+  assert.throws(
+    () => requireEvidenceTargetEdits(edits, ['pubspec.yaml']),
+    /EDIT_MISSES_EVIDENCE_TARGET.*pubspec\.yaml/
+  );
+
+  // Touching any evidence target passes, extra files alongside are fine.
+  const good = [
+    { relPath: 'pubspec.yaml', content: 'file_selector: ^1.1.0\n' },
+    { relPath: 'baby_daw_pro/pubspec.yaml', content: 'name: inner\n' }
+  ];
+  assert.equal(requireEvidenceTargetEdits(good, ['pubspec.yaml']), good);
+
+  // Path normalisation: backslashes and leading ./ do not defeat the check.
+  assert.equal(
+    requireEvidenceTargetEdits([{ relPath: String.raw`.\pubspec.yaml`, content: 'x\n' }], ['pubspec.yaml']).length,
+    1
+  );
+
+  // No targets recorded -> no constraint imposed.
+  assert.equal(requireEvidenceTargetEdits(edits, []), edits);
+});
+
+test('the edits prompt carries a mandate line for evidence targets', () => {
+  const files = [
+    { relPath: 'pubspec.yaml', exists: true, content: 'file_selector: ^3.0.0\n', truncated: false },
+    { relPath: 'baby_daw_pro/pubspec.yaml', exists: true, content: 'name: inner\n', truncated: false }
+  ];
+  const withTargets = buildEditsPrompt('fix installs', 'approach', files, ['pubspec.yaml']);
+  assert.match(withTargets, /RECORDED EVIDENCE identifies the file\(s\) that must be corrected: pubspec\.yaml\./);
+  assert.match(withTargets, /MUST include a corrected block for each/);
+
+  const without = buildEditsPrompt('fix installs', 'approach', files);
+  assert.equal(without.includes('RECORDED EVIDENCE'), false);
 });

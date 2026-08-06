@@ -89,6 +89,8 @@ export interface WorkOrder {
     constraints: string[];
     risks: string[];
     evidenceArtifacts: string[];
+    /** Files recorded evidence identifies as the ones to correct; the edit stage must touch them. */
+    evidenceTargets?: string[];
   };
   donorDisposition?: {
     origin: string;
