@@ -50,7 +50,13 @@ const BUILD_SYSTEM = [
   '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
   'Rules: use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; prefer the smallest correct starter set (1-10 files);',
-  'include package.json when a Node app is implied; do not invent unrelated features.'
+  'include package.json when a Node app is implied; do not invent unrelated features.',
+  // Third-party dependencies require a governed admission step with a committed lockfile, which a
+  // greenfield folder cannot have yet — a first live build died on DEPENDENCY_METADATA_REQUIRED
+  // because the plan assumed express. The standard library covers small apps entirely.
+  'CRITICAL: use ONLY the platform standard library (for Node: node:http, node:fs, node:path).',
+  'Do NOT plan any third-party dependency unless the objective explicitly names one; package.json,',
+  'when included, must have an empty dependencies object and a plain "start": "node server.js" script.'
 ].join(' ');
 
 export function buildBuildPlanPrompt(projectName: string, objective: string, survey: SurveyResult): string {
