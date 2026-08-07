@@ -526,7 +526,9 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         }
         return Array.from(byArea.values()).flatMap((group) => {
           const chunks: Array<typeof scoped> = [];
-          for (let offset = 0; offset < group.length; offset += 4) chunks.push(group.slice(offset, offset + 4));
+          // Two-file batches keep local-model responses short enough to preserve verbatim
+          // patch anchors while still coordinating the full aggregate before any write.
+          for (let offset = 0; offset < group.length; offset += 2) chunks.push(group.slice(offset, offset + 2));
           return chunks;
         });
       })();
