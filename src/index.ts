@@ -596,7 +596,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                   ? `Recorded evidence requires a corrected block for: ${batchEvidenceTargets.join(', ')}.`
                   : '',
                 substantialGeneration
-                  ? 'Return only genuine changes from this batch. Omit correct files; use ===NO CHANGES=== only when every assigned file is already correct.'
+                  ? 'Return only genuine changes from this batch. Omit correct files; use ===NO CHANGES=== only when every assigned file is already correct. Use at most one consolidated PATCH block per existing file, or return that file as one complete FILE block.'
                   : 'Return complete replacement blocks only for files that actually need changes.'
               ].filter(Boolean).join(' '),
               onAttempt: async (update) => {

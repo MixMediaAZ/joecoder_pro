@@ -388,7 +388,7 @@ const EDIT_SYSTEM = [
   '===END PATCH===',
   'Do not wrap the response in a markdown code fence; the file blocks are the whole response.',
   'Rules: output ONLY complete-file or patch blocks; mixing is allowed only for different files when required; no prose before, between, or after;',
-  'a patch SEARCH must be copied exactly from the supplied file and occur exactly once; only files from the provided scope;',
+  'use at most one patch block per file; its SEARCH must be copied exactly from the supplied file and occur exactly once; only files from the provided scope;',
   'omit scoped files that need no change; never return byte-identical content or placeholders such as "rest unchanged";',
   'preserve the existing code style of each file;',
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
@@ -602,6 +602,7 @@ export function parseEditResponse(text: string, files: ScopedFileContent[]): Pro
     if (completeEdits.has(relPath)) throw new Error(`EDIT_PARSE_FAILED: '${relPath}' uses both complete-file and patch modes`);
     const file = current.get(relPath);
     if (!file?.exists) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not an existing scoped file`);
+    if (touched.includes(relPath)) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' has multiple patch blocks; return one consolidated patch or a complete ===FILE=== block`);
     if (!search.length) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' has an empty SEARCH block`);
     let location;
     try {
