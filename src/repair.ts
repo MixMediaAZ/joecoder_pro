@@ -352,7 +352,7 @@ const EDIT_SYSTEM = [
   'Do not wrap the response in a markdown code fence; the file blocks are the whole response.',
   'Rules: output ONLY complete-file or patch blocks; mixing is allowed only for different files when required; no prose before, between, or after;',
   'a patch SEARCH must be copied exactly from the supplied file and occur exactly once; only files from the provided scope;',
-  'if the user prompt assigns every supplied file, return a material edit for every assigned file; otherwise omit scoped files that need no change; never use placeholders such as "rest unchanged";',
+  'omit scoped files that need no change; never return byte-identical content or placeholders such as "rest unchanged";',
   'preserve the existing code style of each file;',
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
 ].join(' ');
@@ -393,8 +393,9 @@ export function buildEditsPrompt(
     ? [
         '',
         'This is one bounded implementation batch. Other batches are coordinated separately; do not plan, describe, or output them.',
-        `Return a material, complete edit for EVERY file in this batch: ${requiredEditPaths.join(', ')}.`,
-        'Keep interfaces consistent with the overall approach; omitting any assigned file rejects the whole batch before any write.'
+        `Inspect only these assigned candidates and return material edits where needed: ${requiredEditPaths.join(', ')}.`,
+        'Omit files that are already correct. If every assigned candidate is already correct, return exactly ===NO CHANGES===.',
+        'Keep interfaces consistent with the overall approach.'
       ]
     : [];
   return [
@@ -416,22 +417,27 @@ export function buildEditsPrompt(
   ].join('\n');
 }
 
-/** Require every file assigned to a bounded generation batch before aggregation. */
-export function requireAssignedEdits(edits: ProposedEdit[], requiredPaths: string[]): ProposedEdit[] {
+/** Validate uniqueness inside one batch; aggregate scope is enforced separately. */
+export function validateBatchEdits(edits: ProposedEdit[]): ProposedEdit[] {
   const normalize = (rel: string) => rel.replace(/\\/g, '/').replace(/^\.\//, '');
   const touched = new Set(edits.map((edit) => normalize(edit.relPath)));
   if (touched.size !== edits.length) throw new Error('EDIT_DUPLICATE_BATCH_PATH: each assigned file may appear only once');
-  const missed = requiredPaths.map(normalize).filter((target) => !touched.has(target));
-  if (missed.length) {
-    throw new Error(`EDIT_INCOMPLETE_BATCH: missing material edits for ${missed.join(', ')}`);
-  }
   return edits;
+}
+
+export function parseOptionalEditResponse(text: string, files: ScopedFileContent[]): ProposedEdit[] {
+  if (text.trim() === '===NO CHANGES===') return [];
+  return parseEditResponse(text, files);
 }
 
 /** Reject an undersized substantial implementation before it can reach the filesystem. */
 export function requireSubstantialEdits(edits: ProposedEdit[], objective: string): ProposedEdit[] {
   if (!isSubstantialObjective(objective)) return edits;
   const paths = edits.map((edit) => edit.relPath);
+  const normalized = paths.map((relPath) => relPath.replace(/\\/g, '/').replace(/^\.\//, ''));
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error('EDIT_DUPLICATE_AGGREGATE_PATH: each file may be changed only once');
+  }
   const areas = topLevelAreaCount(paths);
   if (paths.length < 8 || areas < 2) {
     throw new Error(
@@ -591,15 +597,21 @@ export function parseEditResponse(text: string, files: ScopedFileContent[]): Pro
 
 /** Reject or remove model output that would rewrite the current bytes unchanged. */
 export function requireEffectiveEdits(edits: ProposedEdit[], files: ScopedFileContent[]): ProposedEdit[] {
+  const effective = filterEffectiveEdits(edits, files);
+  if (!effective.length) {
+    throw new Error('EDIT_NO_PROGRESS: every proposed file is byte-identical to the current scoped file; diagnose another contributing scoped file from the verification evidence');
+  }
+  return effective;
+}
+
+/** Remove byte-identical proposals without requiring this individual batch to make progress. */
+export function filterEffectiveEdits(edits: ProposedEdit[], files: ScopedFileContent[]): ProposedEdit[] {
   const current = new Map(files.map((file) => [file.relPath.replace(/\\/g, '/'), file]));
   const effective = edits.filter((edit) => {
     const relPath = edit.relPath.replace(/\\/g, '/').replace(/^\.\//, '');
     const existing = current.get(relPath);
     return !existing || !existing.exists || existing.content !== edit.content;
   });
-  if (!effective.length) {
-    throw new Error('EDIT_NO_PROGRESS: every proposed file is byte-identical to the current scoped file; diagnose another contributing scoped file from the verification evidence');
-  }
   return effective;
 }
 

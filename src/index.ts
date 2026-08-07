@@ -26,7 +26,7 @@ import { evaluateExportCompletion, evaluateRepairCompletion, requiresRuntimeProo
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
-  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, requireAssignedEdits, requireSubstantialEdits, readScopedFiles,
+  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, parseOptionalEditResponse, requireEffectiveEdits, filterEffectiveEdits, requireEvidenceTargetEdits, validateBatchEdits, requireSubstantialEdits, readScopedFiles,
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan, type StructuredSuccess
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot, type ProposedEdit } from './mutation.js';
@@ -567,13 +567,20 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
               system: EDIT_SYSTEM,
               prompt: batchPrompt,
               parse: (text) => {
-                const effective = requireEvidenceTargetEdits(
-                  requireEffectiveEdits(parseEditResponse(text, batch), batch),
-                  batchEvidenceTargets
+                if (substantialGeneration) {
+                  const effective = requireEvidenceTargetEdits(
+                    filterEffectiveEdits(parseOptionalEditResponse(text, batch), batch),
+                    batchEvidenceTargets
+                  );
+                  return validateBatchEdits(effective);
+                }
+                return requireSubstantialEdits(
+                  requireEvidenceTargetEdits(
+                    requireEffectiveEdits(parseEditResponse(text, batch), batch),
+                    batchEvidenceTargets
+                  ),
+                  wo.objective
                 );
-                return substantialGeneration
-                  ? requireAssignedEdits(effective, batchPaths)
-                  : requireSubstantialEdits(effective, wo.objective);
               },
               maxTokens: substantialGeneration ? 24576 : 65536,
               timeoutMs: remainingMs,
@@ -589,7 +596,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                   ? `Recorded evidence requires a corrected block for: ${batchEvidenceTargets.join(', ')}.`
                   : '',
                 substantialGeneration
-                  ? 'Return one material complete-file or patch block for every assigned file; other batches are handled separately.'
+                  ? 'Return only genuine changes from this batch. Omit correct files; use ===NO CHANGES=== only when every assigned file is already correct.'
                   : 'Return complete replacement blocks only for files that actually need changes.'
               ].filter(Boolean).join(' '),
               onAttempt: async (update) => {
