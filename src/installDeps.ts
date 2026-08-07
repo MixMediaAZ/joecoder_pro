@@ -10,10 +10,10 @@
  * - Never installs outside project root
  */
 
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { verifyDependencyAdmission, type DependencyInventory, type SignedEnvelope } from './supplyChain.js';
+import { resolveCommand, runBoundedProcess } from './boundedProcess.js';
 
 export interface InstallDepsResult {
   attempted: boolean;
@@ -125,36 +125,25 @@ export async function runJailedInstall(
     };
   }
 
-  const started = Date.now();
-  const result = spawnSync(
-    'npm',
-    ['ci', '--ignore-scripts', '--no-audit', '--no-fund'],
-    {
-      cwd: root,
-      shell: false,
-      encoding: 'utf8',
-      timeout: timeoutMs,
-      windowsHide: true,
-      env: jailedEnv()
-    }
+  const resolved = resolveCommand('npm');
+  const result = await runBoundedProcess(
+    resolved.executable,
+    [...resolved.prefixArgs, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: root, timeoutMs, env: jailedEnv() }
   );
-  const durationMs = Date.now() - started;
-  const timedOut =
-    Boolean(result.error && (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') ||
-    result.signal === 'SIGTERM' ||
-    result.signal === 'SIGKILL';
-  const exitCode = result.status;
-  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
-  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
 
   return {
     attempted: true,
     skipped: false,
     command,
-    exitCode,
-    timedOut,
-    passed: !timedOut && exitCode === 0,
-    durationMs,
-    outputTail: [...tail(stdout, 20), ...tail(stderr, 20)]
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    passed: !result.timedOut && result.exitCode === 0,
+    durationMs: result.durationMs,
+    outputTail: [
+      ...tail(result.stdout, 20),
+      ...tail(result.stderr, 20),
+      ...(result.launchError ? [result.launchError] : [])
+    ]
   };
 }

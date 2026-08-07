@@ -11,13 +11,12 @@
  * - never treats missing scripts as a silent pass without recording why
  */
 
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverStackProfiles, profilesForEditedFiles, type StackProfile, type StackVerificationCommand } from './stackProfiles.js';
+import { resolveCommand, runBoundedProcess } from './boundedProcess.js';
 
 export interface VerificationItem {
   script: 'build' | 'test' | 'lint' | 'analyze' | 'file_integrity';
@@ -209,84 +208,8 @@ async function collectProjectFiles(projectRoot: string, maxFiles = 2500): Promis
 }
 
 /**
- * Resolve a bare tool name to something spawnSync(shell:false) can actually launch on Windows.
- * `flutter` ships as flutter.bat, and spawnSync cannot execute batch files without a shell — so
- * every Flutter verification silently reported "not runnable" on Windows and jobs completed
- * "without runnable project verification" while the toolchain sat on PATH the whole time.
- * Prefers a real .exe; a .bat/.cmd is run through cmd.exe /d /s /c with shell still false.
+ * Run a discovered stack command without blocking JoeCoder's API event loop.
  */
-function resolveStackExecutable(name: string): { executable: string; prefixArgs: string[] } {
-  if (process.platform !== 'win32' || path.isAbsolute(name)) return { executable: name, prefixArgs: [] };
-  const pathVal = process.env.Path || process.env.PATH || '';
-  const exts = ['.exe', '.bat', '.cmd'];
-  for (const ext of exts) {
-    for (const dir of pathVal.split(path.delimiter)) {
-      if (!dir) continue;
-      const candidate = path.join(dir, name + ext);
-      try {
-        fsSync.accessSync(candidate);
-        return ext === '.exe'
-          ? { executable: candidate, prefixArgs: [] }
-          : { executable: process.env.ComSpec || 'cmd.exe', prefixArgs: ['/d', '/s', '/c', candidate] };
-      } catch { /* keep searching */ }
-    }
-  }
-  return { executable: name, prefixArgs: [] };
-}
-
-interface CommandResult {
-  exitCode: number | null;
-  timedOut: boolean;
-  stdout: string;
-  stderr: string;
-  launchError: string;
-}
-
-function appendBounded(current: string, chunk: Buffer | string, maxCharacters = 512_000): string {
-  const combined = current + chunk.toString();
-  return combined.length <= maxCharacters ? combined : combined.slice(-maxCharacters);
-}
-
-async function runBoundedCommand(
-  executable: string,
-  args: string[],
-  cwd: string,
-  timeoutMs: number
-): Promise<CommandResult> {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    let launchError = '';
-    let timedOut = false;
-    let settled = false;
-    let forceTimer: NodeJS.Timeout | null = null;
-    const child = spawn(executable, args, {
-      cwd,
-      shell: false,
-      windowsHide: true,
-      env: jailedEnv(),
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    child.stdout.on('data', (chunk) => { stdout = appendBounded(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
-    child.on('error', (error) => { launchError = error.message; });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      forceTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
-    }, timeoutMs);
-    const finish = (exitCode: number | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
-      resolve({ exitCode, timedOut, stdout, stderr, launchError });
-    };
-    child.on('close', (code) => finish(code));
-    child.on('error', () => finish(null));
-  });
-}
-
 async function runStackCommand(
   projectRoot: string,
   profile: StackProfile,
@@ -294,12 +217,11 @@ async function runStackCommand(
   timeoutMs: number
 ): Promise<VerificationItem> {
   const runRoot = path.resolve(projectRoot, profile.root);
-  const resolved = resolveStackExecutable(command.executable);
-  const result = await runBoundedCommand(
+  const resolved = resolveCommand(command.executable);
+  const result = await runBoundedProcess(
     resolved.executable,
     [...resolved.prefixArgs, ...command.args],
-    runRoot,
-    timeoutMs
+    { cwd: runRoot, timeoutMs, env: jailedEnv() }
   );
   return {
     script: command.purpose,
@@ -331,12 +253,11 @@ async function runScript(
   script: 'build' | 'test',
   timeoutMs: number
 ): Promise<VerificationItem> {
-  const resolved = resolveStackExecutable('npm');
-  const result = await runBoundedCommand(
+  const resolved = resolveCommand('npm');
+  const result = await runBoundedProcess(
     resolved.executable,
     [...resolved.prefixArgs, 'run', script, '--silent'],
-    runRoot,
-    timeoutMs
+    { cwd: runRoot, timeoutMs, env: jailedEnv() }
   );
   return {
     script,
