@@ -43,6 +43,9 @@ const RepairPlanSchema = z.object({
 }).strict();
 
 const MAX_PLAN_FILES = 12;
+const RUNTIME_CONFIGURATION_BASENAME = /^(?:package(?:-lock)?\.json|tsconfig(?:\.[^/]+)?\.json|(?:vite|postcss|tailwind|drizzle|eslint|prettier)\.config\.[^/]+|\.env(?:\.[^/]+)?)$/i;
+const isRuntimeConfigurationPath = (file: string): boolean =>
+  RUNTIME_CONFIGURATION_BASENAME.test(file.replace(/\\/g, '/').split('/').pop() || file);
 // Real application entry points routinely exceed 48 KB. The old ceiling rejected a verified
 // 56 KB control-panel file after Joe had already selected and authorized it. Keep the read
 // bounded, but large enough for ordinary source modules supported by the long-context models.
@@ -239,12 +242,26 @@ export function validatePlanForObjective(
       survey.entries.filter((entry) => entry.type === 'file').map((entry) => entry.path.replace(/\\/g, '/'))
     );
     const runtimeConfiguration = [
-      'package.json', 'postcss.config.js', 'postcss.config.cjs', 'postcss.config.mjs',
-      'vite.config.ts', 'vite.config.js', 'tsconfig.json'
+      'package.json', 'vite.config.ts', 'vite.config.js', 'tsconfig.json',
+      'postcss.config.js', 'postcss.config.cjs', 'postcss.config.mjs'
     ].filter((file) => inventory.has(file));
-    for (const file of runtimeConfiguration) {
-      if (files.length >= MAX_PLAN_FILES) break;
-      if (!files.includes(file)) files.push(file);
+    // Reserve the two configuration slots for the manifest and primary build config. If the
+    // model spent them on ancillary config, replace that padding without reducing the required
+    // ten implementation files or expanding the sealed maximum.
+    for (const file of runtimeConfiguration.slice(0, 2)) {
+      if (files.includes(file)) continue;
+      if (files.length >= MAX_PLAN_FILES) {
+        let replaceIndex = -1;
+        for (let index = files.length - 1; index >= 0; index -= 1) {
+          if (isRuntimeConfigurationPath(files[index] || '')) { replaceIndex = index; break; }
+        }
+        if (replaceIndex < 0 && files.filter((candidate) => !isRuntimeConfigurationPath(candidate)).length > 10) {
+          replaceIndex = files.length - 1;
+        }
+        if (replaceIndex < 0) break;
+        files.splice(replaceIndex, 1);
+      }
+      files.push(file);
     }
   }
   // A consolidation refactor by definition touches every duplication site plus the shared home.
@@ -318,8 +335,7 @@ export function validatePlanForObjective(
   files = Array.from(new Set(files)).slice(0, MAX_PLAN_FILES);
   if (substantial) {
     const areaCount = topLevelAreaCount(files);
-    const runtimeConfig = /^(?:package(?:-lock)?\.json|tsconfig(?:\.[^/]+)?\.json|vite\.config\.[^/]+|postcss\.config\.[^/]+|tailwind\.config\.[^/]+)$/i;
-    const implementationFiles = files.filter((file) => !runtimeConfig.test(file.replace(/\\/g, '/').split('/').pop() || file));
+    const implementationFiles = files.filter((file) => !isRuntimeConfigurationPath(file));
     const responsibilityPaths = new Set((plan.fileResponsibilities || []).map((item) => item.path.replace(/\\/g, '/').replace(/^\.\//, '')));
     const uncovered = implementationFiles.filter((file) => !responsibilityPaths.has(file));
     if (intent === 'repair' && (uncovered.length || !plan.architecture)) {
