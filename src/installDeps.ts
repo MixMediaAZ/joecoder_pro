@@ -37,7 +37,17 @@ function tail(text: string, lines: number): string[] {
 function jailedEnv(): NodeJS.ProcessEnv {
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
   const pathVal = process.env[pathKey] || process.env.PATH || '';
+  const windowsSystem: NodeJS.ProcessEnv = process.platform === 'win32'
+    ? Object.fromEntries(
+        ['SystemRoot', 'SystemDrive', 'ComSpec', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData',
+         'ProgramW6432', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'PUBLIC', 'TEMP', 'TMP',
+         'PATHEXT', 'windir', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']
+          .filter((name) => process.env[name] !== undefined)
+          .map((name) => [name, process.env[name]])
+      )
+    : {};
   return {
+    ...windowsSystem,
     [pathKey]: pathVal,
     PATH: pathVal,
     CI: '1',
