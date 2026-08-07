@@ -6,9 +6,10 @@
  * set AND the caller explicitly allows cloud (a Work Order must carry a
  * non-zero maxCloudCostUsd budget). Dependency-free by design: this package
  * installs with --ignore-scripts --prefer-offline, so both clients use the
- * Node 22 global fetch instead of SDKs.
+ * Node's built-in HTTP/fetch clients instead of SDKs.
  */
 
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http';
 import { ModelRouter, type ModelProviderAdapter, type ModelTaskType, type RoutedModelTurnRequest, type RoutedModelTurnResult } from './modelRouter.js';
 
 export type ProviderName = 'ollama' | 'anthropic';
@@ -213,16 +214,17 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
 async function generateOllama(model: string, request: ModelRequest): Promise<ModelResponse> {
   const startedAt = Date.now();
   const timeoutMs = request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  let activeRequest: ClientRequest | null = null;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    activeRequest?.destroy(new Error('OLLAMA_REQUEST_DEADLINE'));
+  }, timeoutMs);
   try {
-  // Streaming sends headers immediately. Non-streaming multi-file generations can exceed
-  // Undici's five-minute header deadline even while the Work Order still has time remaining.
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: controller.signal,
-    body: JSON.stringify({
+  // Direct loopback HTTP avoids Undici's hidden five-minute response-header deadline. Ollama
+  // may not flush headers until the first token after a large prompt, so our Work Order timer is
+  // the sole request deadline.
+  const body = JSON.stringify({
       model,
       stream: true,
       // Thinking-class models (qwen3.5, deepseek-r1, …) stream reasoning into a
@@ -240,13 +242,25 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
         num_predict: request.maxTokens ?? 4096,
         ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {})
       }
-    })
   });
-  if (!res.ok) {
-    throw new Error(`OLLAMA_HTTP_${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const endpoint = new URL('/api/chat', OLLAMA_BASE_URL);
+  const res = await new Promise<IncomingMessage>((resolve, reject) => {
+    const outgoing = httpRequest(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, resolve);
+    activeRequest = outgoing;
+    outgoing.once('error', reject);
+    outgoing.end(body);
+  });
+  if ((res.statusCode || 500) >= 400) {
+    let errorBody = '';
+    for await (const chunk of res) errorBody += chunk.toString();
+    throw new Error(`OLLAMA_HTTP_${res.statusCode || 500}: ${errorBody.slice(0, 300)}`);
   }
-  if (!res.body) throw new Error('OLLAMA_EMPTY_STREAM');
-  const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let pending = '';
   let text = '';
@@ -258,10 +272,8 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
     if (typeof chunk.message?.content === 'string') text += chunk.message.content;
     if (typeof chunk.message?.thinking === 'string') thinkingLen += chunk.message.thinking.length;
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    pending += decoder.decode(value, { stream: true });
+  for await (const value of res) {
+    pending += decoder.decode(value as Buffer, { stream: true });
     const lines = pending.split(/\r?\n/);
     pending = lines.pop() || '';
     for (const line of lines) consume(line);
@@ -277,7 +289,7 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
   }
   return { text, provider: 'ollama', model, durationMs: Date.now() - startedAt };
   } catch (error: unknown) {
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new Error(`MODEL_REQUEST_TIMEOUT after ${Math.round(timeoutMs / 1000)}s (${OLLAMA_BASE_URL}/api/chat)`);
     }
     throw error;
