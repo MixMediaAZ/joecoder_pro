@@ -518,7 +518,8 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         const byArea = new Map<string, typeof scoped>();
         for (const file of scoped) {
           const normalized = file.relPath.replace(/\\/g, '/');
-          const area = normalized.includes('/') ? (normalized.split('/')[0] || '.') : '.';
+          const top = normalized.includes('/') ? (normalized.split('/')[0] || '.') : '.';
+          const area = /^(?:backend|server|shared)$/i.test(top) ? 'service' : top;
           const group = byArea.get(area) || [];
           group.push(file);
           byArea.set(area, group);
@@ -555,8 +556,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
             executionContext,
             buildEditsPrompt(wo.objective, approach, batch, batchEvidenceTargets, substantialGeneration ? {
               enforceSubstantial: false,
-              requiredEditPaths: batchPaths,
-              overallScope: wo.scope.exactPaths
+              requiredEditPaths: batchPaths
             } : {})
           ].filter(Boolean).join('\n\n');
           const remainingMs = deadlineAt - Date.now();
@@ -575,13 +575,14 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                   ? requireAssignedEdits(effective, batchPaths)
                   : requireSubstantialEdits(effective, wo.objective);
               },
-              maxTokens: substantialGeneration ? 16384 : 65536,
+              maxTokens: substantialGeneration ? 24576 : 65536,
               timeoutMs: remainingMs,
               temperature: 0.2,
               label: substantialGeneration
                 ? `repair file batch ${batchIndex + 1}/${generationBatches.length}`
                 : 'repair file blocks',
               maxAttempts: substantialGeneration ? 2 : 4,
+              includeRejectedExcerpt: !substantialGeneration,
               recoveryContext: [
                 `Files assigned to this response: ${batchPaths.join(', ')}.`,
                 batchEvidenceTargets.length

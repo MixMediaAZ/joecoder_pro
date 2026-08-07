@@ -352,7 +352,7 @@ const EDIT_SYSTEM = [
   'Do not wrap the response in a markdown code fence; the file blocks are the whole response.',
   'Rules: output ONLY complete-file or patch blocks; mixing is allowed only for different files when required; no prose before, between, or after;',
   'a patch SEARCH must be copied exactly from the supplied file and occur exactly once; only files from the provided scope;',
-  'if a scoped file needs no change, omit it; never use placeholders such as "rest unchanged";',
+  'if the user prompt assigns every supplied file, return a material edit for every assigned file; otherwise omit scoped files that need no change; never use placeholders such as "rest unchanged";',
   'preserve the existing code style of each file;',
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
 ].join(' ');
@@ -362,7 +362,7 @@ export function buildEditsPrompt(
   approach: string,
   files: ScopedFileContent[],
   evidenceTargets: string[] = [],
-  options: { enforceSubstantial?: boolean; requiredEditPaths?: string[]; overallScope?: string[] } = {}
+  options: { enforceSubstantial?: boolean; requiredEditPaths?: string[] } = {}
 ): string {
   const patchRequired = files.filter((file) => file.exists && file.content.length > PATCH_REQUIRED_CHARACTERS).map((file) => file.relPath);
   const sections = files.map((file) => [
@@ -392,7 +392,7 @@ export function buildEditsPrompt(
   const batchMandate = requiredEditPaths.length
     ? [
         '',
-        `This is one bounded implementation batch from the overall authorized scope: ${(options.overallScope || files.map((file) => file.relPath)).join(', ')}.`,
+        'This is one bounded implementation batch. Other batches are coordinated separately; do not plan, describe, or output them.',
         `Return a material, complete edit for EVERY file in this batch: ${requiredEditPaths.join(', ')}.`,
         'Keep interfaces consistent with the overall approach; omitting any assigned file rejects the whole batch before any write.'
       ]
@@ -420,6 +420,7 @@ export function buildEditsPrompt(
 export function requireAssignedEdits(edits: ProposedEdit[], requiredPaths: string[]): ProposedEdit[] {
   const normalize = (rel: string) => rel.replace(/\\/g, '/').replace(/^\.\//, '');
   const touched = new Set(edits.map((edit) => normalize(edit.relPath)));
+  if (touched.size !== edits.length) throw new Error('EDIT_DUPLICATE_BATCH_PATH: each assigned file may appear only once');
   const missed = requiredPaths.map(normalize).filter((target) => !touched.has(target));
   if (missed.length) {
     throw new Error(`EDIT_INCOMPLETE_BATCH: missing material edits for ${missed.join(', ')}`);
@@ -663,7 +664,7 @@ export interface StructuredGenerateDeps {
     maxTokens?: number;
     timeoutMs?: number;
     temperature?: number;
-  }) => Promise<{ text: string; provider: string; model: string; durationMs: number }>;
+  }) => Promise<{ text: string; provider: string; model: string; durationMs: number; stopReason?: string }>;
 }
 
 export interface StructuredAttempt {
@@ -723,6 +724,7 @@ export async function generateStructured<T>(
     label: string;
     maxAttempts?: number;
     recoveryContext?: string;
+    includeRejectedExcerpt?: boolean;
     onAttempt?: (update: StructuredAttemptUpdate) => void | Promise<void>;
   }
 ): Promise<StructuredSuccess<T>> {
@@ -746,7 +748,7 @@ export async function generateStructured<T>(
           `Parse error: ${previousError}`,
           ...(options.recoveryContext ? ['', 'Additional verified project context:', options.recoveryContext] : []),
           '',
-          `Rejected response excerpt: ${previousText.slice(0, 2000)}`,
+          ...(options.includeRejectedExcerpt === false ? [] : [`Rejected response excerpt: ${previousText.slice(0, 2000)}`]),
           `Return ONLY the required structured format for ${options.label}. No prose, no markdown fences, no apology.`
         ].join('\n');
     let generated;
@@ -776,6 +778,13 @@ export async function generateStructured<T>(
       durationMs: generated.durationMs
     };
     attempts.push(record);
+    if (/^(?:length|max_tokens)$/i.test(generated.stopReason || '')) {
+      previousError = `MODEL_OUTPUT_TRUNCATED: provider stopped at ${generated.stopReason}`;
+      previousText = '';
+      record.parseError = previousError;
+      await options.onAttempt?.({ attempt, maxAttempts, phase: 'rejected', error: previousError });
+      continue;
+    }
     try {
       const value = options.parse(generated.text);
       await options.onAttempt?.({ attempt, maxAttempts, phase: 'accepted' });

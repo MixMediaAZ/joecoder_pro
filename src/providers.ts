@@ -29,6 +29,7 @@ export interface ModelResponse {
   provider: ProviderName;
   model: string;
   durationMs: number;
+  stopReason?: string;
 }
 
 export interface ProviderResolution {
@@ -265,12 +266,14 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
   let pending = '';
   let text = '';
   let thinkingLen = 0;
+  let stopReason = '';
   const consume = (line: string) => {
     if (!line.trim()) return;
-    const chunk = JSON.parse(line) as { message?: { content?: string; thinking?: string }; error?: string };
+    const chunk = JSON.parse(line) as { message?: { content?: string; thinking?: string }; error?: string; done_reason?: string };
     if (chunk.error) throw new Error(`OLLAMA_STREAM_ERROR: ${chunk.error}`);
     if (typeof chunk.message?.content === 'string') text += chunk.message.content;
     if (typeof chunk.message?.thinking === 'string') thinkingLen += chunk.message.thinking.length;
+    if (typeof chunk.done_reason === 'string') stopReason = chunk.done_reason;
   };
   for await (const value of res) {
     pending += decoder.decode(value as Buffer, { stream: true });
@@ -287,7 +290,7 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
         : 'OLLAMA_EMPTY_RESPONSE'
     );
   }
-  return { text, provider: 'ollama', model, durationMs: Date.now() - startedAt };
+  return { text, provider: 'ollama', model, durationMs: Date.now() - startedAt, ...(stopReason ? { stopReason } : {}) };
   } catch (error: unknown) {
     if (timedOut) {
       throw new Error(`MODEL_REQUEST_TIMEOUT after ${Math.round(timeoutMs / 1000)}s (${OLLAMA_BASE_URL}/api/chat)`);
@@ -328,7 +331,13 @@ async function generateAnthropic(model: string, request: ModelRequest): Promise<
   }
   const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('');
   if (!text.trim()) throw new Error('ANTHROPIC_EMPTY_RESPONSE');
-  return { text, provider: 'anthropic', model, durationMs: Date.now() - startedAt };
+  return {
+    text,
+    provider: 'anthropic',
+    model,
+    durationMs: Date.now() - startedAt,
+    ...(data.stop_reason ? { stopReason: data.stop_reason } : {})
+  };
 }
 
 function routedToLegacyRequest(request: RoutedModelTurnRequest): ModelRequest {
