@@ -22,7 +22,7 @@ import { appendConversationExchange, appendThreadConversationExchange, buildGuar
 import { getAcceptanceState, reconcileTerminalWorkOrder } from './workflow.js';
 import { loadCanonicalLaws, type CanonicalLawsBundle } from './laws.js';
 import { atomicWriteFile, readJsonIfPresent } from './persistence.js';
-import { evaluateExportCompletion, evaluateRepairCompletion } from './completion.js';
+import { evaluateExportCompletion, evaluateRepairCompletion, requiresRuntimeProof } from './completion.js';
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
@@ -736,7 +736,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         assess: (candidate) => {
           const candidateProof = verificationProofLevel(candidate);
           return {
-            passed: candidateProof !== 'failed',
+            passed: candidateProof !== 'failed' && (!requiresRuntimeProof(wo) || candidateProof === 'runtime'),
             reason: candidate.detail,
             evidenceFingerprint: verificationEvidenceFingerprint(candidate)
           };

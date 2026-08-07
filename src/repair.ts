@@ -212,6 +212,24 @@ export function validatePlanForObjective(
       );
     }
   }
+
+  // If the operator asks for a runnable application, its runtime manifest/configuration is part
+  // of the causal surface. Include the verified files that govern build/start behavior before
+  // authorization, rather than discovering after the write that they were out of scope.
+  const operationalObjective = /\b(run|runnable|start|launch|work(?:ing)?|end[ -]to[ -]end)\b/i.test(objective);
+  if (intent === 'repair' && operationalObjective && survey) {
+    const inventory = new Set(
+      survey.entries.filter((entry) => entry.type === 'file').map((entry) => entry.path.replace(/\\/g, '/'))
+    );
+    const runtimeConfiguration = [
+      'package.json', 'postcss.config.js', 'postcss.config.cjs', 'postcss.config.mjs',
+      'vite.config.ts', 'vite.config.js', 'tsconfig.json'
+    ].filter((file) => inventory.has(file));
+    for (const file of runtimeConfiguration) {
+      if (files.length >= MAX_PLAN_FILES) break;
+      if (!files.includes(file)) files.push(file);
+    }
+  }
   // A consolidation refactor by definition touches every duplication site plus the shared home.
   // Observed live: "Different parts of the app each create their own audio engine. Refactor so
   // the whole app shares one instance" produced a one-file plan (the service alone), the three

@@ -93,6 +93,46 @@ test('repair completion labels integrity-only proof as runtime unproven', async 
   assert.doesNotMatch(decision.reason, /runtime.*passed/i);
 });
 
+test('make-it-run repair cannot complete on inherited failures or integrity alone', async () => {
+  const wo = {
+    ...workOrder(),
+    intent: 'repair',
+    objective: 'Make the application run locally end to end.',
+    scope: {
+      exactPaths: ['server.js'],
+      operations: ['read_files', 'edit_files', 'verify_runtime'],
+      network: ['loopback only'],
+      providers: ['ollama']
+    }
+  } as WorkOrder;
+  const decision = await evaluateRepairCompletion(
+    wo,
+    {
+      applied: [{
+        relPath: 'server.js', action: 'replaced_file', previousHash: 'a', newHash: 'b',
+        linesBefore: 1, linesAfter: 2, changedLines: 1
+      }],
+      totalChangedLines: 1
+    },
+    {
+      status: 'passed',
+      detail: 'No regression against a failing baseline.',
+      items: [{
+        script: 'build', command: 'npm run build', root: '.', exitCode: 1,
+        timedOut: false, passed: false, outputTail: ['still failing']
+      }],
+      preexistingFailures: [{
+        script: 'build', command: 'npm run build', root: '.', exitCode: 1,
+        timedOut: false, passed: false, outputTail: ['already failing']
+      }]
+    },
+    'EVC-apply',
+    async () => true
+  );
+  assert.equal(decision.passed, false);
+  assert.equal(decision.results.find((result) => result.id.endsWith('-VERIFY'))?.passed, false);
+});
+
 test('completion fails closed when evidence is unverifiable', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-completion-'));
   try {

@@ -18,6 +18,11 @@ export interface CompletionDecision {
   reason: string;
 }
 
+export function requiresRuntimeProof(workOrder: WorkOrder): boolean {
+  return workOrder.intent === 'build'
+    || /\b(run|runnable|start|launch|work(?:ing)?|end[ -]to[ -]end)\b/i.test(workOrder.objective);
+}
+
 export async function evaluateExportCompletion(
   workOrder: WorkOrder,
   exportRoot: string,
@@ -95,6 +100,7 @@ export async function evaluateRepairCompletion(
     || applyResult.totalChangedLines <= workOrder.budgets.maxChangedLines;
   const applyVerified = await evidenceVerified(applyEvidenceId);
   const proofLevel = verificationProofLevel(verification);
+  const runtimeRequired = requiresRuntimeProof(workOrder);
 
   const observed = [
     {
@@ -131,7 +137,7 @@ export async function evaluateRepairCompletion(
         : verification.status === 'no_scripts'
           ? 'No runnable scripts/hashes — verification inconclusive (not treated as failure)'
           : 'Runtime verification (build/test) failed',
-      passed: verification.status !== 'failed',
+      passed: verification.status !== 'failed' && (!runtimeRequired || proofLevel === 'runtime'),
       evidenceIds: [applyEvidenceId],
       detail: `${verification.status}: ${verification.detail}`
     },

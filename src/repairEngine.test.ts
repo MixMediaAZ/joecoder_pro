@@ -41,6 +41,26 @@ test('substantial cross-layer objectives reject silently narrow plans', () => {
   }, 'Build a polished UI and HTTP API with durable state after restart.', 'build'), /at least 8 necessary/i);
 });
 
+test('runnable repair plans include verified runtime configuration before authorization', () => {
+  const plan = validatePlanForObjective({
+    schemaVersion: 1,
+    files: [
+      'server/index.ts', 'server/routes.ts', 'client/App.tsx', 'client/api.ts',
+      'client/styles.css', 'storage/store.ts', 'storage/schema.ts', 'shared/types.ts'
+    ],
+    approach: 'Restore the application.',
+    risks: []
+  }, 'Make the application run locally end to end.', 'repair', {
+    entries: [
+      { type: 'file', path: 'package.json' },
+      { type: 'file', path: 'postcss.config.js' }
+    ]
+  } as any);
+  assert.ok(plan.files.includes('package.json'));
+  assert.ok(plan.files.includes('postcss.config.js'));
+  assert.equal(plan.files.length, 10);
+});
+
 test('authorized changed-line budget scales for substantial plans and remains bounded', () => {
   assert.equal(changedLineBudgetForPlan(2), 800);
   assert.equal(changedLineBudgetForPlan(8), 2000);
