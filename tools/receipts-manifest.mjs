@@ -25,6 +25,7 @@ if (!['verify', 'sync'].includes(mode)) {
 }
 
 const STAGE_PREFIXES = [
+  ['SEALED-CRITERIA-', 'real-project-sealed-criteria'],
   ['CERT-STEP2-RELEASE-GATES-', 'stage2-release-gates'],
   ['CERT-STAGE12-ISOLATED-', 'stage12-isolated-release'],
   ['CERT-STAGE10-', 'stage10-acceptance-matrix'],
@@ -44,7 +45,7 @@ const sha256 = buffer => createHash('sha256').update(buffer).digest('hex');
 async function receiptFiles() {
   const entries = await fs.readdir(certificationDir).catch(() => []);
   return entries
-    .filter(name => name.startsWith('CERT-') && name.endsWith('.json'))
+    .filter(name => /^(?:CERT-|SEALED-CRITERIA-).+\.json$/.test(name))
     .sort();
 }
 
