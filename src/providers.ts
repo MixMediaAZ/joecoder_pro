@@ -212,12 +212,19 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
 }
 async function generateOllama(model: string, request: ModelRequest): Promise<ModelResponse> {
   const startedAt = Date.now();
-  const res = await fetchWithTimeout(`${OLLAMA_BASE_URL}/api/chat`, {
+  const timeoutMs = request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+  // Streaming sends headers immediately. Non-streaming multi-file generations can exceed
+  // Undici's five-minute header deadline even while the Work Order still has time remaining.
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: controller.signal,
     body: JSON.stringify({
       model,
-      stream: false,
+      stream: true,
       // Thinking-class models (qwen3.5, deepseek-r1, …) stream reasoning into a
       // separate `thinking` field and can exhaust num_predict before emitting any
       // content, which surfaces here as an empty response. JoeCoder consumes only
@@ -234,14 +241,34 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
         ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {})
       }
     })
-  }, request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS);
+  });
   if (!res.ok) {
     throw new Error(`OLLAMA_HTTP_${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
-  const data = await res.json() as { message?: { content?: string; thinking?: string } };
-  const text = data.message?.content;
-  if (typeof text !== 'string' || !text.trim()) {
-    const thinkingLen = data.message?.thinking?.length ?? 0;
+  if (!res.body) throw new Error('OLLAMA_EMPTY_STREAM');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = '';
+  let text = '';
+  let thinkingLen = 0;
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const chunk = JSON.parse(line) as { message?: { content?: string; thinking?: string }; error?: string };
+    if (chunk.error) throw new Error(`OLLAMA_STREAM_ERROR: ${chunk.error}`);
+    if (typeof chunk.message?.content === 'string') text += chunk.message.content;
+    if (typeof chunk.message?.thinking === 'string') thinkingLen += chunk.message.thinking.length;
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    pending += decoder.decode(value, { stream: true });
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() || '';
+    for (const line of lines) consume(line);
+  }
+  pending += decoder.decode();
+  consume(pending);
+  if (!text.trim()) {
     throw new Error(
       thinkingLen > 0
         ? `OLLAMA_EMPTY_RESPONSE: model produced ${thinkingLen} chars of thinking but no answer (token budget likely consumed by reasoning)`
@@ -249,6 +276,14 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
     );
   }
   return { text, provider: 'ollama', model, durationMs: Date.now() - startedAt };
+  } catch (error: unknown) {
+    if (controller.signal.aborted) {
+      throw new Error(`MODEL_REQUEST_TIMEOUT after ${Math.round(timeoutMs / 1000)}s (${OLLAMA_BASE_URL}/api/chat)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function generateAnthropic(model: string, request: ModelRequest): Promise<ModelResponse> {
