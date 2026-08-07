@@ -32,9 +32,18 @@ test('greenfield planning keeps new tests and requires separated runtime concern
   assert.match(BUILD_SYSTEM, /runnable test and build scripts/i);
 });
 
+test('substantial cross-layer objectives reject silently narrow plans', () => {
+  assert.throws(() => validatePlanForObjective({
+    schemaVersion: 1,
+    files: ['server.js', 'public/app.js'],
+    approach: 'Put everything in two files.',
+    risks: []
+  }, 'Build a polished UI and HTTP API with durable state after restart.', 'build'), /at least 8 necessary/i);
+});
+
 test('ordinary large source modules remain readable for governed repair', async () => {
   const root = await makeTempProject();
-  const content = 'x'.repeat(60 * 1024);
+  const content = 'x'.repeat(140 * 1024);
   await fs.writeFile(path.join(root, 'control_panel.py'), content);
   const [file] = await readScopedFiles(root, ['control_panel.py']);
   assert.equal(file?.content.length, content.length);

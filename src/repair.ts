@@ -32,7 +32,7 @@ const MAX_PLAN_FILES = 10;
 // Real application entry points routinely exceed 48 KB. The old ceiling rejected a verified
 // 56 KB control-panel file after Joe had already selected and authorized it. Keep the read
 // bounded, but large enough for ordinary source modules supported by the long-context models.
-const MAX_FILE_READ_BYTES = 128 * 1024;
+const MAX_FILE_READ_BYTES = 256 * 1024;
 
 const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
@@ -187,6 +187,23 @@ export function validatePlanForObjective(
     : plan.files.filter((file) => !isTestPath(file));
   if (!files.length) {
     throw new Error('PLAN_REJECTED: the plan contained no authorized implementation files after preserving tests as acceptance contracts');
+  }
+
+  // Requests that explicitly span user experience, application behavior, and durable state are
+  // substantial jobs. Accepting a tiny plan for them is not minimalism; it is silent scope loss.
+  const concernGroups = [
+    /\b(browser|ui|user|display|view|control panel|dashboard|polished)\b/i,
+    /\b(api|server|upload|analy[sz]e|cli|http|create|edit|delete|filter|complete)\b/i,
+    /\b(persist|durable|storage|restart|jsonl?|state|record)\b/i
+  ];
+  const substantial = concernGroups.filter((pattern) => pattern.test(objective)).length >= 3;
+  if (substantial) {
+    const topLevels = new Set(files.map((file) => file.includes('/') ? file.split('/')[0] : '.'));
+    if (files.length < 8 || topLevels.size < 2) {
+      throw new Error(
+        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${topLevels.size})`
+      );
+    }
   }
   // A consolidation refactor by definition touches every duplication site plus the shared home.
   // Observed live: "Different parts of the app each create their own audio engine. Refactor so

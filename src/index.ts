@@ -542,7 +542,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
             parse: (text) => requireEvidenceTargetEdits(requireEffectiveEdits(parseEditBlocks(text), scoped), evidenceTargets),
             // Complete-file transport is intentionally strict. Large but ordinary source modules
             // need enough output budget to be returned without truncation.
-            maxTokens: 32768,
+            maxTokens: 65536,
             timeoutMs: remainingMs,
             temperature: 0.2,
             label: 'repair file blocks',
@@ -795,7 +795,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                 'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change, and close every block with ===END FILE===.'
               ].filter(Boolean).join('\n'),
               parse: (text) => requireEffectiveEdits(parseEditBlocks(text), correctionFiles),
-              maxTokens: 32768,
+              maxTokens: 65536,
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
               temperature: 0.1,
               label: `verification correction ${correctionCycle} file blocks`,
@@ -2689,11 +2689,11 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
                 intent === 'build' ? 'build' : 'repair',
                 surveyResult
               ),
-              maxTokens: 1024,
+              maxTokens: 2048,
               timeoutMs: 180000,
               temperature: 0.2,
               label: intent === 'build' ? 'build plan JSON' : 'repair plan JSON',
-              maxAttempts: 2,
+              maxAttempts: 3,
               recoveryContext: buildPlanRecoveryContext(objective, surveyResult),
               onAttempt: async (update) => {
                 if (!surveyProject || update.phase !== 'rejected') return;
