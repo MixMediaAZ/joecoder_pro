@@ -289,9 +289,11 @@ export function validatePlanForObjective(
   files = Array.from(new Set(files)).slice(0, MAX_PLAN_FILES);
   if (substantial) {
     const areaCount = topLevelAreaCount(files);
-    if (files.length < 8 || areaCount < 2) {
+    const runtimeConfig = /^(?:package(?:-lock)?\.json|tsconfig(?:\.[^/]+)?\.json|vite\.config\.[^/]+|postcss\.config\.[^/]+|tailwind\.config\.[^/]+)$/i;
+    const implementationFiles = files.filter((file) => !runtimeConfig.test(file.replace(/\\/g, '/').split('/').pop() || file));
+    if (implementationFiles.length < 8 || areaCount < 2) {
       throw new Error(
-        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${areaCount})`
+        `PLAN_REJECTED: this objective requires at least 8 necessary, likely-material implementation files across 2 project areas; runtime configuration may be additional scope but cannot pad the threshold (received ${implementationFiles.length} implementation file(s), ${files.length} total, across ${areaCount} areas)`
       );
     }
   }
