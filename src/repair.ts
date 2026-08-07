@@ -693,6 +693,18 @@ export interface StructuredAttemptUpdate {
   error?: string;
 }
 
+function structuredAttemptEvidence(attempts: StructuredAttempt[]): Array<Record<string, unknown>> {
+  return attempts.map((record) => ({
+    attempt: record.attempt,
+    provider: record.provider,
+    model: record.model,
+    durationMs: record.durationMs,
+    parseError: record.parseError || null,
+    responseChars: record.text.length,
+    textHead: record.text.slice(0, 1500)
+  }));
+}
+
 /**
  * Bounded structured-output loop. Every response is parsed before use. Invalid
  * responses are returned to the model as observations, context is expanded on
@@ -737,13 +749,25 @@ export async function generateStructured<T>(
           `Rejected response excerpt: ${previousText.slice(0, 2000)}`,
           `Return ONLY the required structured format for ${options.label}. No prose, no markdown fences, no apology.`
         ].join('\n');
-    const generated = await deps.generate({
-      system: options.system,
-      prompt,
-      temperature,
-      ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
-    });
+    let generated;
+    try {
+      generated = await deps.generate({
+        system: options.system,
+        prompt,
+        temperature,
+        ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+      });
+    } catch (error: unknown) {
+      const providerError = error instanceof Error ? error.message : String(error);
+      throw Object.assign(
+        new Error(`STRUCTURED_PROVIDER_FAILED on attempt ${attempt} (${options.label}): ${providerError}`),
+        {
+          structuredAttempts: structuredAttemptEvidence(attempts),
+          structuredTransportError: providerError.slice(0, 400)
+        }
+      );
+    }
     const record: StructuredAttempt = {
       attempt,
       text: generated.text,
@@ -779,12 +803,7 @@ export async function generateStructured<T>(
   throw Object.assign(
     new Error(`STRUCTURED_PARSE_FAILED after ${maxAttempts} attempts (${options.label}): ${previousError}`),
     {
-      structuredAttempts: attempts.map((record) => ({
-        attempt: record.attempt,
-        parseError: record.parseError || null,
-        responseChars: record.text.length,
-        textHead: record.text.slice(0, 1500)
-      }))
+      structuredAttempts: structuredAttemptEvidence(attempts)
     }
   );
 }

@@ -8,6 +8,8 @@ import { verificationProofLevel, type VerificationReport } from './verification.
 import { buildAgentWorkingPlan, buildHypothesisLedger, frameObjective } from './investigationExecutionLoop.js';
 import type { SurveyResult, WorkOrder } from './types.js';
 import { appendAgentJobMemory } from './database/database.js';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 
 export interface AgentJobCredentials {
   baseUrl: string;
@@ -37,7 +39,7 @@ async function callApi<T>(
   actionKey: string,
   substep: string,
   route: string,
-  options: { method?: 'GET' | 'POST'; body?: unknown } = {}
+  options: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = {}
 ): Promise<T> {
   const method = options.method || 'GET';
   const headers: Record<string, string> = {
@@ -51,14 +53,36 @@ async function callApi<T>(
     headers['X-JC-CSRF'] = credentials.csrfToken;
     headers['Idempotency-Key'] = idempotencyKey(actionKey, substep);
   }
-  const request: RequestInit = { method, headers };
-  if (method === 'POST') request.body = JSON.stringify(options.body ?? {});
-  const response = await fetch(credentials.baseUrl + route, request);
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) {
-    const message = typeof payload.error === 'string' ? payload.error : `JoeCoder request failed (${response.status}).`;
-    const code = typeof payload.code === 'string' ? payload.code : `HTTP_${response.status}`;
-    throw new AgentJobHttpError(message, code, response.status, payload);
+  const body = method === 'POST' ? JSON.stringify(options.body ?? {}) : undefined;
+  if (body !== undefined) headers['Content-Length'] = String(Buffer.byteLength(body));
+  const endpoint = new URL(route, credentials.baseUrl);
+  const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? 15 * 60_000, 30 * 60_000));
+  const response = await new Promise<IncomingMessage>((resolve, reject) => {
+    const transport = endpoint.protocol === 'https:' ? httpsRequest : httpRequest;
+    const outgoing = transport(endpoint, { method, headers }, resolve);
+    const timer = setTimeout(() => {
+      outgoing.destroy(new Error(`AGENT_API_TIMEOUT after ${Math.round(timeoutMs / 1000)}s (${route})`));
+    }, timeoutMs);
+    outgoing.once('close', () => clearTimeout(timer));
+    outgoing.once('error', reject);
+    outgoing.end(body);
+  });
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 16 * 1024 * 1024) throw new Error(`AGENT_API_RESPONSE_TOO_LARGE (${route})`);
+    chunks.push(buffer);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  let payload: Record<string, unknown> = {};
+  try { payload = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { /* handled by status or empty payload */ }
+  const status = response.statusCode || 500;
+  if (status < 200 || status >= 300) {
+    const message = typeof payload.error === 'string' ? payload.error : `JoeCoder request failed (${status}).`;
+    const code = typeof payload.code === 'string' ? payload.code : `HTTP_${status}`;
+    throw new AgentJobHttpError(message, code, status, payload);
   }
   return payload as T;
 }
@@ -344,12 +368,17 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             ? current.workOrder.scope.operations as string[]
             : [];
           const applyAction = operations.includes('edit_files') ? 'apply_edits' : 'export_handoff';
+          const workOrderDuration = Number(current.workOrder.budgets?.maxDurationMs || 600_000);
           const result = await callApi<Record<string, any>>(
             credentials,
             actionKey,
             'execute',
             `/api/v1/internal/work-orders/${workOrderId}/apply`,
-            { method: 'POST', body: { action: applyAction } }
+            {
+              method: 'POST',
+              body: { action: applyAction },
+              timeoutMs: Math.min(30 * 60_000, Math.max(120_000, workOrderDuration + 120_000))
+            }
           );
           appendAgentJobMemory({
             jobId: job.id, kind: 'attempted_fix', content: `${applyAction} completed for ${workOrderId}.`,

@@ -27,9 +27,9 @@ import { resolveProvider, generateWithProvider, generateRoutedModelTurn, provide
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
   parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, requireAssignedEdits, requireSubstantialEdits, readScopedFiles,
-  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan
+  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan, type StructuredSuccess
 } from './repair.js';
-import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
+import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot, type ProposedEdit } from './mutation.js';
 import { adjustVerificationForBaseline, runVerification, verificationEvidenceFingerprint, verificationProofLevel } from './verification.js';
 import { runVerificationCorrectionLoop } from './investigationExecutionLoop.js';
 import { compactEvidenceLinkedHistory } from './structuredControl.js';
@@ -545,7 +545,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
       const stopGenHeartbeat = startProgressHeartbeat(project.id, `Generating edits with ${provider.model}`);
       let structuredEdits;
       try {
-        const generatedBatches = [];
+        const generatedBatches: Array<StructuredSuccess<ProposedEdit[]>> = [];
         for (let batchIndex = 0; batchIndex < generationBatches.length; batchIndex += 1) {
           const batch = generationBatches[batchIndex];
           if (!batch) throw new Error(`REPAIR_BATCH_MISSING: ${batchIndex + 1}`);
@@ -602,7 +602,29 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                 ).catch(() => {});
               }
             }
-          );
+          ).catch((error: unknown) => {
+            const priorAttempts = generatedBatches.flatMap((completedBatch) =>
+              completedBatch.attempts.map((attempt) => ({
+                attempt: attempt.attempt,
+                provider: attempt.provider,
+                model: attempt.model,
+                durationMs: attempt.durationMs,
+                parseError: attempt.parseError || null,
+                responseChars: attempt.text.length,
+                textHead: attempt.text.slice(0, 1500)
+              }))
+            );
+            const currentAttempts = (error as { structuredAttempts?: unknown })?.structuredAttempts;
+            if (error && typeof error === 'object') {
+              Object.assign(error, {
+                structuredAttempts: [
+                  ...priorAttempts,
+                  ...(Array.isArray(currentAttempts) ? currentAttempts : [])
+                ]
+              });
+            }
+            throw error;
+          });
           generatedBatches.push(generated);
         }
         const combinedEdits = requireSubstantialEdits(
@@ -1039,13 +1061,15 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
       // produced. "The model returned no well-formed file blocks" with no artifact is an
       // unverifiable claim — and undiagnosable. Bounded text heads, model output only.
       const failedAttempts = (innerError as { structuredAttempts?: unknown })?.structuredAttempts;
-      if (Array.isArray(failedAttempts) && failedAttempts.length) {
+      const transportError = (innerError as { structuredTransportError?: unknown })?.structuredTransportError;
+      if ((Array.isArray(failedAttempts) && failedAttempts.length) || typeof transportError === 'string') {
         await createEvidenceEnvelope(null, {
           type: 'repair.generation_failed',
           projectId: project.id,
           workOrderId: wo.id,
           error: message.slice(0, 400),
-          parseAttempts: failedAttempts
+          parseAttempts: Array.isArray(failedAttempts) ? failedAttempts : [],
+          ...(typeof transportError === 'string' ? { transportError: transportError.slice(0, 400) } : {})
         }).catch(() => {});
       }
       const attemptedWrite = wrote || Boolean(transactionError?.committedPaths.length);
