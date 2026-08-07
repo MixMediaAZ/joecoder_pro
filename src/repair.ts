@@ -20,16 +20,29 @@ export interface RepairPlan {
   files: string[];
   approach: string;
   risks: string[];
+  fileResponsibilities?: Array<{ path: string; responsibility: string; evidence: string; layer: string }>;
+  architecture?: { summary: string; contracts: string[]; persistence: string };
 }
 
 const RepairPlanSchema = z.object({
   schemaVersion: z.literal(1),
-  files: z.array(z.string().trim().min(1)).min(1).max(10),
+  files: z.array(z.string().trim().min(1)).min(1).max(12),
   approach: z.string().trim().min(1).max(2000),
-  risks: z.array(z.string().trim().min(1).max(500)).max(10)
+  risks: z.array(z.string().trim().min(1).max(500)).max(10),
+  fileResponsibilities: z.array(z.object({
+    path: z.string().trim().min(1),
+    responsibility: z.string().trim().min(10).max(400),
+    evidence: z.string().trim().min(5).max(400),
+    layer: z.string().trim().min(2).max(80)
+  }).strict()).max(12).optional(),
+  architecture: z.object({
+    summary: z.string().trim().min(20).max(800),
+    contracts: z.array(z.string().trim().min(5).max(300)).min(2).max(10),
+    persistence: z.string().trim().min(5).max(400)
+  }).strict().optional()
 }).strict();
 
-const MAX_PLAN_FILES = 10;
+const MAX_PLAN_FILES = 12;
 // Real application entry points routinely exceed 48 KB. The old ceiling rejected a verified
 // 56 KB control-panel file after Joe had already selected and authorized it. Keep the read
 // bounded, but large enough for ordinary source modules supported by the long-context models.
@@ -40,10 +53,11 @@ const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
   'You are given a read-only survey of a project and a repair objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
-  '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
+  '{"schemaVersion":1,"files":["relative/path.ext"],"approach":"one paragraph","risks":["..."],"fileResponsibilities":[{"path":"relative/path.ext","responsibility":"material change this file owns","evidence":"observed project fact requiring it","layer":"UI|service|storage|configuration"}],"architecture":{"summary":"shared design","contracts":["exact interface/API contract"],"persistence":"durable state contract"}}',
   'Rules: list ONLY the files that must be modified or created to meet the objective;',
   'use project-root-relative paths with forward slashes; never list paths under',
-  'node_modules, .git, or .jc; prefer the smallest correct file set (1-10 files).',
+  'node_modules, .git, or .jc; prefer the smallest correct file set (1-12 files).',
+  'For substantial cross-layer work, provide 10-12 likely-material implementation files plus fileResponsibilities for every listed path and one architecture contract shared by every file; configuration cannot pad the implementation count.',
   'Treat existing tests as acceptance contracts. Do not plan test changes merely to make a failing implementation pass unless the objective explicitly requires changing tests.',
   'Trace the objective through all relevant provided content samples. For composed or ambiguous behavior, include every implementation file whose current logic contributes to the defect; do not stop at the first suspicious file.'
 ].join(' ');
@@ -137,6 +151,9 @@ export function buildPlanPrompt(projectName: string, objective: string, survey: 
       : 'No content samples available — plan from inventory and findings only.',
     ...sampleBlocks,
     '',
+    ...(isSubstantialObjective(objective) ? [
+      'This is substantial cross-layer work: choose 10-12 evidence-backed implementation files across UI, service/API, and durable storage. Give every listed implementation path a concrete responsibility and observed evidence. Define shared API/type/persistence contracts once in architecture.'
+    ] : []),
     'Return the strict JSON plan now.'
   ].join('\n');
 }
@@ -175,7 +192,18 @@ export function parsePlanResponse(text: string): RepairPlan {
     if (/(^|\/)(node_modules|\.git|\.jc)(\/|$)/.test(rel)) throw new Error(`PLAN_REJECTED: protected path '${raw}'`);
     if (!cleaned.includes(rel)) cleaned.push(rel);
   }
-  return { schemaVersion: 1, files: cleaned, approach: candidate.approach, risks: candidate.risks };
+  const responsibilities = (candidate.fileResponsibilities || []).map((item) => ({
+    ...item,
+    path: item.path.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+  }));
+  return {
+    schemaVersion: 1,
+    files: cleaned,
+    approach: candidate.approach,
+    risks: candidate.risks,
+    ...(responsibilities.length ? { fileResponsibilities: responsibilities } : {}),
+    ...(candidate.architecture ? { architecture: candidate.architecture } : {})
+  };
 }
 
 export function validatePlanForObjective(
@@ -291,9 +319,16 @@ export function validatePlanForObjective(
     const areaCount = topLevelAreaCount(files);
     const runtimeConfig = /^(?:package(?:-lock)?\.json|tsconfig(?:\.[^/]+)?\.json|vite\.config\.[^/]+|postcss\.config\.[^/]+|tailwind\.config\.[^/]+)$/i;
     const implementationFiles = files.filter((file) => !runtimeConfig.test(file.replace(/\\/g, '/').split('/').pop() || file));
-    if (implementationFiles.length < 8 || areaCount < 2) {
+    const responsibilityPaths = new Set((plan.fileResponsibilities || []).map((item) => item.path.replace(/\\/g, '/').replace(/^\.\//, '')));
+    const uncovered = implementationFiles.filter((file) => !responsibilityPaths.has(file));
+    if (intent === 'repair' && (uncovered.length || !plan.architecture)) {
       throw new Error(
-        `PLAN_REJECTED: this objective requires at least 8 necessary, likely-material implementation files across 2 project areas; runtime configuration may be additional scope but cannot pad the threshold (received ${implementationFiles.length} implementation file(s), ${files.length} total, across ${areaCount} areas)`
+        `PLAN_REJECTED: substantial repair planning requires an evidence-backed responsibility for every scoped file and a shared architecture contract (uncovered: ${uncovered.join(', ') || 'none'}; architecture=${Boolean(plan.architecture)})`
+      );
+    }
+    if (implementationFiles.length < 10 || areaCount < 2) {
+      throw new Error(
+        `PLAN_REJECTED: this objective requires 10-12 necessary, likely-material implementation files to provide headroom for 8 genuine changes across 2 project areas; runtime configuration cannot pad the threshold (received ${implementationFiles.length} implementation file(s), ${files.length} total, across ${areaCount} areas)`
       );
     }
   }

@@ -2877,6 +2877,12 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
                 (finding: string) => `Recorded failure evidence: ${finding.slice(0, 400)}`
               ),
               `Model plan (${structuredPlan.provider}/${structuredPlan.model}): ${plan.approach}`,
+              ...(plan.architecture ? [
+                `Shared architecture contract: ${plan.architecture.summary} Contracts: ${plan.architecture.contracts.join(' | ')} Persistence: ${plan.architecture.persistence}`
+              ] : []),
+              ...(plan.fileResponsibilities?.length ? [
+                `File responsibility contract: ${plan.fileResponsibilities.map((item) => `${item.path} [${item.layer}] => ${item.responsibility}; evidence: ${item.evidence}`).join(' | ')}`
+              ] : []),
               // The edit model writes the file contents; it must carry the build constraint the
               // planner was given, or it reintroduces third-party dependencies whose admission a
               // greenfield folder cannot satisfy (three live builds wrote express and rolled back).
