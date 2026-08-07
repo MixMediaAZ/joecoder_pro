@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { WorkOrder } from './types.js';
 import type { ApplyEditsResult } from './mutation.js';
 import { verificationProofLevel, type VerificationReport } from './verification.js';
+import { isSubstantialObjective, requiresOperationalRuntimeProof, topLevelAreaCount } from './objectiveSemantics.js';
 
 export interface AcceptanceResult {
   id: string;
@@ -19,8 +20,7 @@ export interface CompletionDecision {
 }
 
 export function requiresRuntimeProof(workOrder: WorkOrder): boolean {
-  return workOrder.intent === 'build'
-    || /\b(run|runnable|start|launch|work(?:ing)?|end[ -]to[ -]end)\b/i.test(workOrder.objective);
+  return requiresOperationalRuntimeProof(workOrder.intent, workOrder.objective);
 }
 
 export async function evaluateExportCompletion(
@@ -101,6 +101,9 @@ export async function evaluateRepairCompletion(
   const applyVerified = await evidenceVerified(applyEvidenceId);
   const proofLevel = verificationProofLevel(verification);
   const runtimeRequired = requiresRuntimeProof(workOrder);
+  const substantialRequired = isSubstantialObjective(workOrder.objective);
+  const appliedPaths = applyResult.applied.map((change) => change.relPath);
+  const substantialCompleted = appliedPaths.length >= 8 && topLevelAreaCount(appliedPaths) >= 2;
 
   const observed = [
     {
@@ -125,6 +128,15 @@ export async function evaluateRepairCompletion(
       passed: withinFiles && withinLines,
       evidenceIds: [applyEvidenceId],
       detail: `files=${applyResult.applied.length}/${workOrder.budgets.maxFiles}; changedLines=${applyResult.totalChangedLines}/${workOrder.budgets.maxChangedLines ?? 'unlimited'}`
+    },
+    {
+      id: `${workOrder.id}-SUBSTANTIAL`,
+      criterion: 'Substantial objectives complete across at least eight files and two project areas',
+      passed: !substantialRequired || substantialCompleted,
+      evidenceIds: [applyEvidenceId],
+      detail: substantialRequired
+        ? `files=${appliedPaths.length}/8; areas=${topLevelAreaCount(appliedPaths)}/2`
+        : 'The objective does not require substantial multi-layer scope.'
     },
     {
       id: `${workOrder.id}-VERIFY`,

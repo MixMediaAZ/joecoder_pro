@@ -13,6 +13,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { SurveyResult } from './types.js';
 import { resolveJailedPath, type ProposedEdit } from './mutation.js';
+import { isSubstantialObjective, requiresOperationalRuntimeProof, topLevelAreaCount } from './objectiveSemantics.js';
 
 export interface RepairPlan {
   schemaVersion: 1;
@@ -199,16 +200,11 @@ export function validatePlanForObjective(
 
   // Requests that explicitly span user experience, application behavior, and durable state are
   // substantial jobs. Accepting a tiny plan for them is not minimalism; it is silent scope loss.
-  const concernGroups = [
-    /\b(browser|ui|user|display|view|control panel|dashboard|polished)\b/i,
-    /\b(api|server|upload|analy[sz]e|cli|http|create|edit|delete|filter|complete)\b/i,
-    /\b(persist|durable|storage|restart|jsonl?|state|record)\b/i
-  ];
-  const substantial = concernGroups.filter((pattern) => pattern.test(objective)).length >= 3;
+  const substantial = isSubstantialObjective(objective);
   // If the operator asks for a runnable application, its runtime manifest/configuration is part
   // of the causal surface. Include the verified files that govern build/start behavior before
   // authorization, rather than discovering after the write that they were out of scope.
-  const operationalObjective = /\b(run|runnable|start|launch|work(?:ing)?|end[ -]to[ -]end)\b/i.test(objective);
+  const operationalObjective = requiresOperationalRuntimeProof(intent, objective);
   if (intent === 'repair' && operationalObjective && survey) {
     const inventory = new Set(
       survey.entries.filter((entry) => entry.type === 'file').map((entry) => entry.path.replace(/\\/g, '/'))
@@ -292,10 +288,10 @@ export function validatePlanForObjective(
   }
   files = Array.from(new Set(files)).slice(0, MAX_PLAN_FILES);
   if (substantial) {
-    const topLevels = new Set(files.map((file) => file.includes('/') ? file.split('/')[0] : '.'));
-    if (files.length < 8 || topLevels.size < 2) {
+    const areaCount = topLevelAreaCount(files);
+    if (files.length < 8 || areaCount < 2) {
       throw new Error(
-        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${topLevels.size})`
+        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${areaCount})`
       );
     }
   }
