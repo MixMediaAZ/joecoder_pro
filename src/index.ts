@@ -526,9 +526,9 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
         }
         return Array.from(byArea.values()).flatMap((group) => {
           const chunks: Array<typeof scoped> = [];
-          // Two-file batches keep local-model responses short enough to preserve verbatim
-          // patch anchors while still coordinating the full aggregate before any write.
-          for (let offset = 0; offset < group.length; offset += 2) chunks.push(group.slice(offset, offset + 2));
+          // Three-file batches keep local-model responses bounded enough to preserve verbatim
+          // patch anchors without exhausting the sealed duration on excessive round trips.
+          for (let offset = 0; offset < group.length; offset += 3) chunks.push(group.slice(offset, offset + 3));
           return chunks;
         });
       })();
