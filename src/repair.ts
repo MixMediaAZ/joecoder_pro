@@ -379,7 +379,7 @@ const EDIT_SYSTEM = [
   '===FILE: relative/path.ext===',
   '<entire new file content>',
   '===END FILE===',
-  'For existing large files marked PATCH REQUIRED, return one or more exact replacement blocks:',
+  'For existing files, you may return one or more exact replacement blocks; files marked PATCH REQUIRED must use them:',
   '===PATCH: relative/path.ext===',
   '===SEARCH===',
   '<exact unique current text>',
@@ -450,6 +450,7 @@ export function buildEditsPrompt(
       'Use exact SEARCH/REPLACE patch blocks for those files so unchanged content is not retransmitted.'
     ] : []),
     '',
+    'For any other existing file, either a complete ===FILE=== block or an exact ===PATCH=== block is valid. New files require complete ===FILE=== blocks.',
     'Produce the changes now using the required block mode for each file. Close every complete file with ===END FILE=== or every patch with ===END PATCH===; unterminated blocks are rejected.'
   ].join('\n');
 }
@@ -601,9 +602,6 @@ export function parseEditResponse(text: string, files: ScopedFileContent[]): Pro
     if (completeEdits.has(relPath)) throw new Error(`EDIT_PARSE_FAILED: '${relPath}' uses both complete-file and patch modes`);
     const file = current.get(relPath);
     if (!file?.exists) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not an existing scoped file`);
-    if (file.content.length <= PATCH_REQUIRED_CHARACTERS) {
-      throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not marked PATCH REQUIRED; return a complete ===FILE=== block`);
-    }
     if (!search.length) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' has an empty SEARCH block`);
     let location;
     try {
