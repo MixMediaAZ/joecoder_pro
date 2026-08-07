@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0.0",
+  "state": "ratified_baseline",
+  "repository": "D:\\AI Builds-OM\\0_PROJECTS\\CODING_Builds\\JoeCoder_Builds\\JoeCoder_Pro_20.1",
+  "branch": "main",
+  "implementationCommit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
+  "baselineCommit": null,
+  "candidateVersion": "20.1.1-rc",
+  "candidateTag": "joecoder-20.1.1-rc-20260807T010544Z",
+  "capturedAt": "2026-08-07T01:03:43.1356654Z",
+  "worktreeCleanBeforeConstruction": true,
+  "tagsAtImplementationCommit": [],
+  "environment": {
+    "platform": "win32",
+    "osVersion": "Microsoft Windows NT 10.0.26200.0",
+    "node": "v22.23.1",
+    "npm": "10.8.2",
+    "databaseSchemaVersion": 6
+  },
+  "controllingSpec": {
+    "predecessorPath": "../JOECODER_PRO_20.1_CONTROLLING_FINISH_SPEC_v2.md",
+    "predecessorSha256": "50a4c62d2f62e0554ba8b52d5a0e8f7438e09d55f9980971b86edd622e0dd7fb",
+    "draftPath": "plan/JOECODER_PRO_20.1_CONTROLLING_FINISH_SPEC_v3_DRAFT.md",
+    "draftSha256": "577428236205d5ec08f8cfef8e891f572318d006efe522b00a3c78fd1ab87c9e",
+    "sealedPath": "../JOECODER_PRO_20.1_CONTROLLING_FINISH_SPEC_v3.md",
+    "sealedHashPath": "../SPEC-v3.sha256",
+    "sealedSha256": null
+  },
+  "identities": {
+    "ratificationManifestSha256": "2b773de2d425e2e8c029aae3463e37c3bcd3d1af8638679711e73b609f96246a",
+    "canonicalPlanRootHash": "39d9d5333f47f88f207f3d9dc94788f26fc1ab0dbb95d02d1b2561234c465d60",
+    "canonicalRulesSha256": "a6281838e3503b8b4bb6362c0f80dddd656499ff10428adc28705b01cda12242",
+    "implementationMapSha256": "2c70e6c0f282c269d0fc9f3693d565f3de983650aa5f079081c1cd6dc1237dbd",
+    "limitationsSha256": "d24f11b7994d75882a231b5c47e59b7880945a744f359ef8cdbd35d902f3d0d6",
+    "packageLockSha256": "df12d3d6342d1f58aed02c241e805f3bb794898d43c51fef2fedb55f6296e19b",
+    "databaseSchemaSourceSha256": "7569888ab0b995c1684821b7b7032f84d4b54dcff6acc68144e7f62d2484370c",
+    "traceabilityMatrixSha256": "9f79065242331a202849111ef001771f70b57e51aeb474cf22d672282dd0d7aa"
+  },
+  "receiptManifest": {
+    "path": ".jc/certification/RECEIPTS-MANIFEST.json",
+    "recordedEntriesAtFreeze": 819,
+    "keyId": "9e4b3ff870db16c37cf3b44e2cdfdaab2482bc6395c7a5afc0f1b797fd042aa7",
+    "verified": true
+  },
+  "operatorRatification": {
+    "status": "ratified",
+    "ratifiedBy": "David",
+    "ratifiedAt": "2026-08-07T01:05:44.2138464Z",
+    "decisionReceipt": "CERT-STAGE1-BASELINE-20260807T010544Z-bbd6dbd.json",
+    "wording": "I ratify this v3 identity-only successor for the candidate described here. No mandate requirement is weakened, and mandate compliance remains unproven."
+  },
+  "knownBlockers": [
+    "The complete release test suite does not currently pass and terminate cleanly.",
+    "The release E2E command defaults to a mock model instead of requiring a real model.",
+    "The three substantial real-project autonomy jobs have not been proved.",
+    "The final-product UI thresholds have not been qualified in a signed current receipt.",
+    "Two-provider live failure and recovery have not been proved.",
+    "Legacy database migration has not been qualified against copied real legacy databases.",
+    "The exact release payload interruption matrix has not been completed.",
+    "A clean Windows identity qualification has not been completed.",
+    "The operator has not issued a mandate-compliance verdict."
+  ],
+  "expectedDraftChanges": [
+    "plan/JOECODER_PRO_20.1_CONTROLLING_FINISH_SPEC_v3_DRAFT.md",
+    "plan/TRACEABILITY_MATRIX.md",
+    "plan/current-baseline.json",
+    "plan/traceability-matrix.json",
+    "schemas/traceability-matrix.v1.json",
+    "tools/verify-baseline.mjs"
+  ]
+}

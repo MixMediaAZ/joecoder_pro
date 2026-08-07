@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://joecoder.local/schemas/traceability-matrix.v1.json",
+  "title": "JoeCoder mandate traceability matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "candidateSourceCommit",
+    "controllingSpec",
+    "generatedAt",
+    "verifiedBy",
+    "clauses"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "candidateSourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "controllingSpec": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "verifiedBy": { "type": "string", "minLength": 1 },
+    "clauses": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/clause" }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "evidencePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["realModelRequired", "realProjectRequired", "operatorRatificationRequired"],
+      "properties": {
+        "realModelRequired": { "type": "boolean" },
+        "realProjectRequired": { "type": "boolean" },
+        "operatorRatificationRequired": { "type": "boolean" }
+      }
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clauseId",
+        "sourceSection",
+        "clauseText",
+        "implementation",
+        "tests",
+        "receipts",
+        "status",
+        "blockers",
+        "lastVerified",
+        "verifiedBy",
+        "evidencePolicy"
+      ],
+      "properties": {
+        "clauseId": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{2,63}$" },
+        "sourceSection": { "type": "string", "minLength": 1 },
+        "clauseText": { "type": "string", "minLength": 1 },
+        "implementation": { "$ref": "#/$defs/stringArray" },
+        "tests": { "$ref": "#/$defs/stringArray" },
+        "receipts": { "$ref": "#/$defs/stringArray" },
+        "status": {
+          "enum": ["proven", "partial", "unproven", "not-applicable", "operator-ratified"]
+        },
+        "blockers": { "$ref": "#/$defs/stringArray" },
+        "lastVerified": { "type": ["string", "null"], "format": "date-time" },
+        "verifiedBy": { "type": "string", "minLength": 1 },
+        "evidencePolicy": { "$ref": "#/$defs/evidencePolicy" }
+      }
+    }
+  }
+}
