@@ -75,9 +75,11 @@ function isSurveyResult(value: unknown): value is SurveyResult {
   );
 }
 
-function inferIntent(objective: string, survey: unknown): 'inspect' | 'repair' | 'build' {
+export function inferIntent(objective: string, survey: unknown): 'inspect' | 'repair' | 'build' {
   const text = objective.toLowerCase();
-  const asksForChange = /\b(fix|repair|change|update|refactor|redesign|replace|remove|add|implement|improve|finish|complete|wire|connect|correct|build|create|scaffold)\b/.test(text);
+  const asksForChange = /\b(fix|repair|change|update|refactor|redesign|replace|remove|add|implement|improve|finish|complete|wire|connect|correct|build|create|scaffold|restore|enable)\b/.test(text)
+    || /\bmake\b[\s\S]{0,160}\b(run|work|functional|usable|available|persist|survive)\b/.test(text)
+    || /\bensure\b[\s\S]{0,160}\b(run|work|persist|survive|prevent|reject|handle)\b/.test(text);
   const asksForReadOnly = /\b(inspect|review|audit|analy[sz]e|assess|survey|explain|investigate|diagnose|report|find bugs|look for bugs)\b/.test(text);
   if (asksForReadOnly && !asksForChange) return 'inspect';
   const candidate = survey as { summary?: { totalFiles?: number }; result?: { summary?: { totalFiles?: number } } } | null;
@@ -413,4 +415,3 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
     }
   };
 }
-

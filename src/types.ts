@@ -199,7 +199,7 @@ export interface SurveyResult {
   buildCondition: BuildCondition;
   status: 'complete' | 'truncated';
   truncatedReason?: string;
-  /** Up to 8 text files, ≤48KB each, for model planning context only. */
+  /** Up to 8 bounded text files for model planning context only. */
   contentSamples?: ContentSample[];
   /**
    * Files that recorded dependency evidence identifies as the ones to correct (e.g. the root

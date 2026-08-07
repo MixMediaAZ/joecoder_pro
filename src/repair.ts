@@ -29,7 +29,10 @@ const RepairPlanSchema = z.object({
 }).strict();
 
 const MAX_PLAN_FILES = 10;
-const MAX_FILE_READ_BYTES = 48 * 1024;
+// Real application entry points routinely exceed 48 KB. The old ceiling rejected a verified
+// 56 KB control-panel file after Joe had already selected and authorized it. Keep the read
+// bounded, but large enough for ordinary source modules supported by the long-context models.
+const MAX_FILE_READ_BYTES = 128 * 1024;
 
 const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
@@ -45,11 +48,14 @@ const PLAN_SYSTEM = [
 
 const BUILD_SYSTEM = [
   'You are Joe, a careful greenfield app planner inside an evidence-governed tool.',
-  'The target folder is empty or nearly empty. Propose the minimal file set to meet the objective.',
+  'The target folder is empty or nearly empty. Propose a complete, maintainable file set that meets the objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
   '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
   'Rules: use project-root-relative paths with forward slashes; never list paths under',
-  'node_modules, .git, or .jc; prefer the smallest correct starter set (1-10 files);',
+  'node_modules, .git, or .jc; use separate files for distinct browser UI, HTTP routing, validation,',
+  'persistent storage, and automated-test responsibilities when the objective spans those concerns (up to 10 files);',
+  'do not collapse a multi-feature full-stack application into one source file. Include runnable test and build scripts',
+  'and their implementation files so runtime verification is available on the first build;',
   'include package.json when a Node app is implied; do not invent unrelated features.',
   // Third-party dependencies require a governed admission step with a committed lockfile, which a
   // greenfield folder cannot have yet — a first live build died on DEPENDENCY_METADATA_REQUIRED
@@ -173,7 +179,12 @@ export function validatePlanForObjective(
     /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[^/]+$/i.test(file);
   const explicitlyChangesTests = /\b(add|create|change|update|repair|fix|rewrite)\s+(?:the\s+|existing\s+)?(?:(?:unit|integration|api|browser|visual)\s+)?tests?\b/i.test(objective)
     || /\btests?\s+(?:files?\s+)?(?:must\s+be\s+)?(added|created|changed|updated|repaired|fixed|rewritten)\b/i.test(objective);
-  let files = explicitlyChangesTests ? plan.files : plan.files.filter((file) => !isTestPath(file));
+  // A greenfield build has no acceptance contracts to weaken. Tests proposed as part of the new
+  // application are implementation deliverables and must remain in scope. For repairs, existing
+  // tests remain protected unless the objective explicitly authorizes changing them.
+  let files = intent === 'build' || explicitlyChangesTests
+    ? plan.files
+    : plan.files.filter((file) => !isTestPath(file));
   if (!files.length) {
     throw new Error('PLAN_REJECTED: the plan contained no authorized implementation files after preserving tests as acceptance contracts');
   }

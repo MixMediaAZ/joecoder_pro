@@ -11,7 +11,7 @@ import {
   rollbackToSnapshot,
   snapshotScopedFiles
 } from './mutation.js';
-import { parseEditBlocks, parsePlanResponse } from './repair.js';
+import { BUILD_SYSTEM, parseEditBlocks, parsePlanResponse, readScopedFiles, validatePlanForObjective } from './repair.js';
 import { findVerificationRoots, runVerification } from './verification.js';
 import { buildGuardedReply } from './chat.js';
 import type { Project } from './types.js';
@@ -19,6 +19,27 @@ import type { Project } from './types.js';
 async function makeTempProject(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'jc-repair-test-'));
 }
+
+test('greenfield planning keeps new tests and requires separated runtime concerns', () => {
+  const plan = validatePlanForObjective({
+    schemaVersion: 1,
+    files: ['package.json', 'server.js', 'test/workboard.test.js'],
+    approach: 'Build and verify the app.',
+    risks: []
+  }, 'Build a durable workboard.', 'build');
+  assert.deepEqual(plan.files, ['package.json', 'server.js', 'test/workboard.test.js']);
+  assert.match(BUILD_SYSTEM, /do not collapse a multi-feature full-stack application into one source file/i);
+  assert.match(BUILD_SYSTEM, /runnable test and build scripts/i);
+});
+
+test('ordinary large source modules remain readable for governed repair', async () => {
+  const root = await makeTempProject();
+  const content = 'x'.repeat(60 * 1024);
+  await fs.writeFile(path.join(root, 'control_panel.py'), content);
+  const [file] = await readScopedFiles(root, ['control_panel.py']);
+  assert.equal(file?.content.length, content.length);
+  assert.equal(file?.truncated, false);
+});
 
 test('jailed paths reject escapes and protected directories', async () => {
   const root = await makeTempProject();

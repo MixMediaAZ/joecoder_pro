@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { successfulTerminal } from './agentJobDriver.js';
+import { inferIntent, successfulTerminal } from './agentJobDriver.js';
+
+test('ordinary make-it-work language is classified as a repair', () => {
+  assert.equal(
+    inferIntent('Make this app run locally end to end and still work after restart.', { summary: { totalFiles: 20 } }),
+    'repair'
+  );
+});
+
+test('an explicit read-only analysis remains inspection', () => {
+  assert.equal(
+    inferIntent('Analyze this project and report what is broken.', { summary: { totalFiles: 20 } }),
+    'inspect'
+  );
+});
 
 const runtimeVerification = {
   status: 'passed' as const,
