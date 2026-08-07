@@ -204,15 +204,6 @@ export function validatePlanForObjective(
     /\b(persist|durable|storage|restart|jsonl?|state|record)\b/i
   ];
   const substantial = concernGroups.filter((pattern) => pattern.test(objective)).length >= 3;
-  if (substantial) {
-    const topLevels = new Set(files.map((file) => file.includes('/') ? file.split('/')[0] : '.'));
-    if (files.length < 8 || topLevels.size < 2) {
-      throw new Error(
-        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${topLevels.size})`
-      );
-    }
-  }
-
   // If the operator asks for a runnable application, its runtime manifest/configuration is part
   // of the causal surface. Include the verified files that govern build/start behavior before
   // authorization, rather than discovering after the write that they were out of scope.
@@ -298,6 +289,15 @@ export function validatePlanForObjective(
       if (!files.includes(stylesheet)) files.push(stylesheet);
     }
   }
+  files = Array.from(new Set(files)).slice(0, MAX_PLAN_FILES);
+  if (substantial) {
+    const topLevels = new Set(files.map((file) => file.includes('/') ? file.split('/')[0] : '.'));
+    if (files.length < 8 || topLevels.size < 2) {
+      throw new Error(
+        `PLAN_REJECTED: this objective spans UI, application behavior, and durable state; list at least 8 necessary implementation/test files across at least 2 top-level areas (received ${files.length} file(s) across ${topLevels.size})`
+      );
+    }
+  }
   return { ...plan, files };
 }
 
@@ -341,14 +341,21 @@ export async function readScopedFiles(projectRoot: string, relPaths: string[]): 
 const EDIT_SYSTEM = [
   'You are Joe, an exact code-repair engine inside an evidence-governed tool.',
   'You receive an objective, an approach, and the CURRENT full content of the only files you may change.',
-  'Return the COMPLETE new content for every file that must change, in this exact format:',
+  'For new and ordinary-sized files, return COMPLETE new content in this exact format:',
   '===FILE: relative/path.ext===',
   '<entire new file content>',
   '===END FILE===',
+  'For existing large files marked PATCH REQUIRED, return one or more exact replacement blocks:',
+  '===PATCH: relative/path.ext===',
+  '===SEARCH===',
+  '<exact unique current text>',
+  '===REPLACE===',
+  '<replacement text>',
+  '===END PATCH===',
   'Do not wrap the response in a markdown code fence; the file blocks are the whole response.',
-  'Rules: output ONLY file blocks, no prose before, between, or after; include the',
-  'ENTIRE file content for each changed file (never fragments, never diffs, never placeholders like',
-  '"rest unchanged"); only files from the provided scope; if a scoped file needs no change, omit it;',
+  'Rules: output ONLY complete-file or patch blocks; mixing is allowed only for different files when required; no prose before, between, or after;',
+  'a patch SEARCH must be copied exactly from the supplied file and occur exactly once; only files from the provided scope;',
+  'if a scoped file needs no change, omit it; never use placeholders such as "rest unchanged";',
   'preserve the existing code style of each file;',
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
 ].join(' ');
@@ -359,6 +366,7 @@ export function buildEditsPrompt(
   files: ScopedFileContent[],
   evidenceTargets: string[] = []
 ): string {
+  const patchRequired = files.filter((file) => file.exists && file.content.length > 48 * 1024).map((file) => file.relPath);
   const sections = files.map((file) => [
     `===FILE: ${file.relPath}===`,
     file.exists ? file.content : '(this file does not exist yet — create it)',
@@ -382,8 +390,13 @@ export function buildEditsPrompt(
     'Current scoped files:',
     ...sections,
     ...evidenceMandate,
+    ...(patchRequired.length ? [
+      '',
+      `PATCH REQUIRED for large existing files: ${patchRequired.join(', ')}.`,
+      'Use exact SEARCH/REPLACE patch blocks for those files so unchanged content is not retransmitted.'
+    ] : []),
     '',
-    'Produce the changed files now, using the exact block format. Close every block with ===END FILE=== — a block without its ===END FILE=== terminator is rejected entirely.'
+    'Produce the changes now using the required block mode for each file. Close every complete file with ===END FILE=== or every patch with ===END PATCH===; unterminated blocks are rejected.'
   ].join('\n');
 }
 
@@ -408,6 +421,7 @@ export function requireEvidenceTargetEdits(edits: ProposedEdit[], evidenceTarget
 }
 
 const FILE_BLOCK = /===FILE:\s*([^=\r\n]+?)\s*===\r?\n([\s\S]*?)\r?\n?===END FILE===/g;
+const PATCH_BLOCK = /===PATCH:\s*([^=\r\n]+?)\s*===\r?\n===SEARCH===\r?\n([\s\S]*?)\r?\n===REPLACE===\r?\n([\s\S]*?)\r?\n===END PATCH===/g;
 
 /**
  * The fence language labels the ENVELOPE, not the payload.
@@ -453,6 +467,62 @@ export function parseEditBlocks(text: string): ProposedEdit[] {
     throw new Error('EDIT_PARSE_FAILED: response contains prose or content outside the required file blocks');
   }
   return edits;
+}
+
+/** Convert strict exact-match patch blocks into complete replacement contents before mutation. */
+export function parseEditResponse(text: string, files: ScopedFileContent[]): ProposedEdit[] {
+  const normalized = unwrapWholeTransportFence(text, EDIT_TRANSPORT_LANGUAGE);
+  if (!normalized.includes('===PATCH:')) return parseEditBlocks(normalized);
+
+  const current = new Map(files.map((file) => [
+    file.relPath.replace(/\\/g, '/').replace(/^\.\//, ''),
+    { ...file, content: file.content }
+  ]));
+  const touched: string[] = [];
+  const consumed: Array<[number, number]> = [];
+  let match: RegExpExecArray | null;
+  const completeEdits = new Map<string, ProposedEdit>();
+  FILE_BLOCK.lastIndex = 0;
+  while ((match = FILE_BLOCK.exec(normalized)) !== null) {
+    consumed.push([match.index, FILE_BLOCK.lastIndex]);
+    const relPath = (match[1] || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
+    const content = match[2] ?? '';
+    if (!relPath || !content.trim()) throw new Error(`EDIT_PARSE_FAILED: empty complete-file block for '${relPath}'`);
+    if (completeEdits.has(relPath)) throw new Error(`EDIT_PARSE_FAILED: duplicate complete-file block for '${relPath}'`);
+    completeEdits.set(relPath, { relPath, content: content.endsWith('\n') ? content : `${content}\n` });
+  }
+  PATCH_BLOCK.lastIndex = 0;
+  while ((match = PATCH_BLOCK.exec(normalized)) !== null) {
+    consumed.push([match.index, PATCH_BLOCK.lastIndex]);
+    const relPath = (match[1] || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
+    const search = match[2] ?? '';
+    const replacement = match[3] ?? '';
+    if (completeEdits.has(relPath)) throw new Error(`EDIT_PARSE_FAILED: '${relPath}' uses both complete-file and patch modes`);
+    const file = current.get(relPath);
+    if (!file?.exists) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not an existing scoped file`);
+    if (!search.length) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' has an empty SEARCH block`);
+    const first = file.content.indexOf(search);
+    const second = first < 0 ? -1 : file.content.indexOf(search, first + search.length);
+    if (first < 0) throw new Error(`EDIT_PATCH_REJECTED: SEARCH text was not found in '${relPath}'`);
+    if (second >= 0) throw new Error(`EDIT_PATCH_REJECTED: SEARCH text is not unique in '${relPath}'`);
+    file.content = file.content.slice(0, first) + replacement + file.content.slice(first + search.length);
+    if (!touched.includes(relPath)) touched.push(relPath);
+  }
+  if (!consumed.length) throw new Error('EDIT_PARSE_FAILED: the model returned no well-formed patch blocks');
+  let cursor = 0;
+  const outside: string[] = [];
+  for (const [start, end] of consumed.sort((a, b) => a[0] - b[0])) {
+    outside.push(normalized.slice(cursor, start));
+    cursor = end;
+  }
+  outside.push(normalized.slice(cursor));
+  if (outside.join('').trim()) {
+    throw new Error('EDIT_PARSE_FAILED: response contains prose or content outside the required patch blocks');
+  }
+  return [
+    ...completeEdits.values(),
+    ...touched.map((relPath) => ({ relPath, content: current.get(relPath)!.content }))
+  ];
 }
 
 /** Reject or remove model output that would rewrite the current bytes unchanged. */

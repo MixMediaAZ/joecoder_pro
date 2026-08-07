@@ -26,7 +26,7 @@ import { evaluateExportCompletion, evaluateRepairCompletion, requiresRuntimeProo
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
-  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditBlocks, requireEffectiveEdits, requireEvidenceTargetEdits, readScopedFiles,
+  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, readScopedFiles,
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
@@ -539,7 +539,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           {
             system: EDIT_SYSTEM,
             prompt: editPrompt,
-            parse: (text) => requireEvidenceTargetEdits(requireEffectiveEdits(parseEditBlocks(text), scoped), evidenceTargets),
+            parse: (text) => requireEvidenceTargetEdits(requireEffectiveEdits(parseEditResponse(text, scoped), scoped), evidenceTargets),
             // Complete-file transport is intentionally strict. Large but ordinary source modules
             // need enough output budget to be returned without truncation.
             maxTokens: 65536,
@@ -794,7 +794,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                 '',
                 'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change, and close every block with ===END FILE===.'
               ].filter(Boolean).join('\n'),
-              parse: (text) => requireEffectiveEdits(parseEditBlocks(text), correctionFiles),
+              parse: (text) => requireEffectiveEdits(parseEditResponse(text, correctionFiles), correctionFiles),
               maxTokens: 65536,
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
               temperature: 0.1,

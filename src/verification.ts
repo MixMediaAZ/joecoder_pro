@@ -11,7 +11,7 @@
  * - never treats missing scripts as a silent pass without recording why
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -234,36 +234,85 @@ function resolveStackExecutable(name: string): { executable: string; prefixArgs:
   return { executable: name, prefixArgs: [] };
 }
 
-function runStackCommand(
+interface CommandResult {
+  exitCode: number | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
+  launchError: string;
+}
+
+function appendBounded(current: string, chunk: Buffer | string, maxCharacters = 512_000): string {
+  const combined = current + chunk.toString();
+  return combined.length <= maxCharacters ? combined : combined.slice(-maxCharacters);
+}
+
+async function runBoundedCommand(
+  executable: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number
+): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let launchError = '';
+    let timedOut = false;
+    let settled = false;
+    let forceTimer: NodeJS.Timeout | null = null;
+    const child = spawn(executable, args, {
+      cwd,
+      shell: false,
+      windowsHide: true,
+      env: jailedEnv(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    child.stdout.on('data', (chunk) => { stdout = appendBounded(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
+    child.on('error', (error) => { launchError = error.message; });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      forceTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+    }, timeoutMs);
+    const finish = (exitCode: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (forceTimer) clearTimeout(forceTimer);
+      resolve({ exitCode, timedOut, stdout, stderr, launchError });
+    };
+    child.on('close', (code) => finish(code));
+    child.on('error', () => finish(null));
+  });
+}
+
+async function runStackCommand(
   projectRoot: string,
   profile: StackProfile,
   command: StackVerificationCommand,
   timeoutMs: number
-): VerificationItem {
+): Promise<VerificationItem> {
   const runRoot = path.resolve(projectRoot, profile.root);
   const resolved = resolveStackExecutable(command.executable);
-  const result = spawnSync(resolved.executable, [...resolved.prefixArgs, ...command.args], {
-    cwd: runRoot,
-    shell: false,
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    windowsHide: true,
-    env: jailedEnv()
-  });
-  const timedOut = Boolean(result.error && (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT')
-    || result.signal === 'SIGTERM'
-    || result.signal === 'SIGKILL';
-  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
-  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
-  const launchError = result.error instanceof Error ? result.error.message : '';
+  const result = await runBoundedCommand(
+    resolved.executable,
+    [...resolved.prefixArgs, ...command.args],
+    runRoot,
+    timeoutMs
+  );
   return {
     script: command.purpose,
     command: command.display,
     root: profile.root,
-    exitCode: result.status,
-    timedOut,
-    passed: !timedOut && result.status === 0,
-    outputTail: [...diagnosticExcerpt(stdout), ...diagnosticExcerpt(stderr), ...(launchError ? [launchError] : [])]
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    passed: !result.timedOut && result.exitCode === 0,
+    outputTail: [
+      ...diagnosticExcerpt(result.stdout),
+      ...diagnosticExcerpt(result.stderr),
+      ...(result.launchError ? [result.launchError] : [])
+    ]
   };
 }
 async function readScripts(projectRoot: string): Promise<Record<string, string>> {
@@ -276,34 +325,31 @@ async function readScripts(projectRoot: string): Promise<Record<string, string>>
   }
 }
 
-function runScript(
+async function runScript(
   runRoot: string,
   rootLabel: string,
   script: 'build' | 'test',
   timeoutMs: number
-): VerificationItem {
-  const result = spawnSync('npm', ['run', script, '--silent'], {
-    cwd: runRoot,
-    shell: false,
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    windowsHide: true,
-    env: jailedEnv()
-  });
-  const timedOut = Boolean(result.error && (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT')
-    || result.signal === 'SIGTERM'
-    || result.signal === 'SIGKILL';
-  const exitCode = result.status;
-  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
-  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
+): Promise<VerificationItem> {
+  const resolved = resolveStackExecutable('npm');
+  const result = await runBoundedCommand(
+    resolved.executable,
+    [...resolved.prefixArgs, 'run', script, '--silent'],
+    runRoot,
+    timeoutMs
+  );
   return {
     script,
     command: `npm run ${script}`,
     root: rootLabel,
-    exitCode,
-    timedOut,
-    passed: !timedOut && exitCode === 0,
-    outputTail: [...diagnosticExcerpt(stdout), ...diagnosticExcerpt(stderr)]
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    passed: !result.timedOut && result.exitCode === 0,
+    outputTail: [
+      ...diagnosticExcerpt(result.stdout),
+      ...diagnosticExcerpt(result.stderr),
+      ...(result.launchError ? [result.launchError] : [])
+    ]
   };
 }
 
@@ -414,9 +460,12 @@ export async function runVerification(
   const nonNodeProfiles = selectedProfiles.filter((profile) => profile.kind !== 'node');
 
   if (nonNodeProfiles.length) {
-    const stackItems = nonNodeProfiles.flatMap((profile) =>
-      profile.commands.map((command) => runStackCommand(resolvedRoot, profile, command, timeoutMs))
-    );
+    const stackItems: VerificationItem[] = [];
+    for (const profile of nonNodeProfiles) {
+      for (const command of profile.commands) {
+        stackItems.push(await runStackCommand(resolvedRoot, profile, command, timeoutMs));
+      }
+    }
     if (!stackItems.length && options.expectedHashes?.length) {
       stackItems.push(await runFileIntegrityCheck(resolvedRoot, options.expectedHashes));
     }
@@ -462,7 +511,7 @@ export async function runVerification(
     // without node_modules. Missing-deps failures are real failures unless the
     // caller also supplied expectedHashes for integrity fallback after a skip.
     for (const script of runnable) {
-      items.push(runScript(runRoot, rootLabel, script, timeoutMs));
+      items.push(await runScript(runRoot, rootLabel, script, timeoutMs));
     }
   }
 
