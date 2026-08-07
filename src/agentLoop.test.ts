@@ -108,6 +108,6 @@ test('verified file ranking may guide schema repair but never substitutes a gues
         recoveryContext: buildPlanRecoveryContext('repair audio player', survey)
       }
     ),
-    /STRUCTURED_PARSE_FAILED after 2 attempts/
+    /STRUCTURED_PARSE_FAILED after 4 attempts/
   );
 });

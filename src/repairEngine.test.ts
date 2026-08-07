@@ -196,6 +196,7 @@ test('plan parsing requires one strict versioned object and rejects unsafe paths
   const plan = parsePlanResponse('{"schemaVersion":1,"files":["src/x.js",".\\\\src\\\\y.js"],"approach":"fix","risks":["r1"]}');
   assert.deepEqual(plan.files, ['src/x.js', 'src/y.js']);
   assert.equal(plan.approach, 'fix');
+  assert.equal(parsePlanResponse('{"schemaVersion":1,"files":["src/x.js"],"appro":"fix","risks":[]}').approach, 'fix');
   assert.throws(() => parsePlanResponse('no json here'), /PLAN_PARSE_FAILED/);
   assert.throws(() => parsePlanResponse('preamble {"schemaVersion":1,"files":["src/x.js"],"approach":"fix","risks":[]}'), /PLAN_PARSE_FAILED/);
   assert.throws(() => parsePlanResponse('{"schemaVersion":1,"files":[],"approach":"fix","risks":[]}'), /PLAN_PARSE_FAILED/);

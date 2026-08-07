@@ -154,7 +154,14 @@ function unwrapWholeTransportFence(text: string, allowedLanguage: RegExp): strin
 export function parsePlanResponse(text: string): RepairPlan {
   let candidate: z.infer<typeof RepairPlanSchema>;
   try {
-    candidate = RepairPlanSchema.parse(JSON.parse(unwrapWholeTransportFence(text, /^(json)?$/i)));
+    const decoded = JSON.parse(unwrapWholeTransportFence(text, /^(json)?$/i)) as Record<string, unknown>;
+    // Some local models consistently abbreviate this descriptive, non-authority field. Normalize
+    // that one harmless alias while keeping file scope, version, risks, and all unknown keys strict.
+    if (decoded && typeof decoded === 'object' && decoded.approach === undefined && typeof decoded.appro === 'string') {
+      decoded.approach = decoded.appro;
+      delete decoded.appro;
+    }
+    candidate = RepairPlanSchema.parse(decoded);
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`PLAN_PARSE_FAILED: response must be one strict schemaVersion=1 JSON object (${reason})`);
@@ -554,7 +561,7 @@ export async function generateStructured<T>(
     typeof options.temperature === 'number' ? options.temperature : STRUCTURED_MAX_TEMPERATURE,
     STRUCTURED_MAX_TEMPERATURE
   );
-  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 2, 2));
+  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 2, 4));
   const attempts: StructuredAttempt[] = [];
   let previousError = '';
   let previousText = '';
