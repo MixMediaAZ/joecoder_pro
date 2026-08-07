@@ -27,7 +27,7 @@ import { resolveProvider, generateWithProvider, generateRoutedModelTurn, provide
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
   parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditBlocks, requireEffectiveEdits, requireEvidenceTargetEdits, readScopedFiles,
-  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext
+  generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
 import { adjustVerificationForBaseline, runVerification, verificationEvidenceFingerprint, verificationProofLevel } from './verification.js';
@@ -2771,7 +2771,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
           ],
           budgets: {
             maxFiles: Math.max(plan.files.length, 3),
-            maxChangedLines: 800,
+            maxChangedLines: changedLineBudgetForPlan(plan.files.length),
             maxDurationMs: 600000,
             maxAttempts: 3,
             maxCloudCostUsd: 0

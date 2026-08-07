@@ -11,7 +11,7 @@ import {
   rollbackToSnapshot,
   snapshotScopedFiles
 } from './mutation.js';
-import { BUILD_SYSTEM, parseEditBlocks, parsePlanResponse, readScopedFiles, validatePlanForObjective } from './repair.js';
+import { BUILD_SYSTEM, changedLineBudgetForPlan, parseEditBlocks, parsePlanResponse, readScopedFiles, validatePlanForObjective } from './repair.js';
 import { findVerificationRoots, runVerification } from './verification.js';
 import { buildGuardedReply } from './chat.js';
 import type { Project } from './types.js';
@@ -39,6 +39,12 @@ test('substantial cross-layer objectives reject silently narrow plans', () => {
     approach: 'Put everything in two files.',
     risks: []
   }, 'Build a polished UI and HTTP API with durable state after restart.', 'build'), /at least 8 necessary/i);
+});
+
+test('authorized changed-line budget scales for substantial plans and remains bounded', () => {
+  assert.equal(changedLineBudgetForPlan(2), 800);
+  assert.equal(changedLineBudgetForPlan(8), 2000);
+  assert.equal(changedLineBudgetForPlan(20), 3000);
 });
 
 test('ordinary large source modules remain readable for governed repair', async () => {

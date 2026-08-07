@@ -499,6 +499,12 @@ export { PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM };
 /** Max temperature allowed for any structured plan/edit call. */
 export const STRUCTURED_MAX_TEMPERATURE = 0.2;
 
+/** A bounded write budget that grows with an explicitly authorized multi-file plan. */
+export function changedLineBudgetForPlan(fileCount: number): number {
+  const normalized = Math.max(1, Math.floor(fileCount));
+  return Math.min(3000, Math.max(800, normalized * 250));
+}
+
 export interface StructuredGenerateDeps {
   generate: (request: {
     system: string;
