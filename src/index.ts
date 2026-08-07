@@ -814,8 +814,12 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                 expectedHash: change.newHash
               }))
             });
-            // No-regression standard: pre-existing failures are limitations, not verdicts.
-            return adjustVerificationForBaseline(baselineVerification, post);
+            // A runnable end-state promise requires absolute runtime proof: its correction loop
+            // must see and fix inherited build failures rather than relabeling them limitations.
+            // Bounded repairs that do not promise a working runtime retain no-regression judging.
+            return requiresRuntimeProof(wo)
+              ? post
+              : adjustVerificationForBaseline(baselineVerification, post);
           } finally {
             stopVerifyHeartbeat();
           }
