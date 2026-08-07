@@ -11,7 +11,7 @@ import {
   rollbackToSnapshot,
   snapshotScopedFiles
 } from './mutation.js';
-import { BUILD_SYSTEM, changedLineBudgetForPlan, parseEditBlocks, parsePlanResponse, readScopedFiles, validatePlanForObjective } from './repair.js';
+import { BUILD_SYSTEM, changedLineBudgetForPlan, parseEditBlocks, parseEditResponse, parsePlanResponse, readScopedFiles, validatePlanForObjective } from './repair.js';
 import { findVerificationRoots, runVerification } from './verification.js';
 import { buildGuardedReply } from './chat.js';
 import type { Project } from './types.js';
@@ -245,6 +245,35 @@ test('edit block parsing extracts complete files and fails closed otherwise', ()
   assert.equal(edits[0]?.relPath, 'src/app.js');
   assert.ok(edits[0]?.content.endsWith('\n'));
   assert.throws(() => parseEditBlocks('the model rambled with no blocks'), /EDIT_PARSE_FAILED/);
+});
+
+test('exact patch transport updates large files and can create a separate scoped file', () => {
+  const edits = parseEditResponse([
+    '===PATCH: src/large.js===',
+    '===SEARCH===',
+    'const enabled = false;',
+    '===REPLACE===',
+    'const enabled = true;',
+    '===END PATCH===',
+    '===FILE: src/new.js===',
+    'export const ready = true;',
+    '===END FILE==='
+  ].join('\n'), [
+    { relPath: 'src/large.js', exists: true, content: 'header\nconst enabled = false;\nfooter\n', truncated: false },
+    { relPath: 'src/new.js', exists: false, content: '', truncated: false }
+  ]);
+  assert.equal(edits.find((edit) => edit.relPath === 'src/large.js')?.content, 'header\nconst enabled = true;\nfooter\n');
+  assert.equal(edits.find((edit) => edit.relPath === 'src/new.js')?.content, 'export const ready = true;\n');
+  assert.throws(() => parseEditResponse([
+    '===PATCH: src/large.js===',
+    '===SEARCH===',
+    'repeat',
+    '===REPLACE===',
+    'changed',
+    '===END PATCH==='
+  ].join('\n'), [
+    { relPath: 'src/large.js', exists: true, content: 'repeat repeat', truncated: false }
+  ]), /not unique/i);
 });
 
 test('verification reports no_scripts honestly for script-less projects', async () => {
