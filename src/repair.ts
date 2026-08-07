@@ -57,7 +57,8 @@ const PLAN_SYSTEM = [
   'Rules: list ONLY the files that must be modified or created to meet the objective;',
   'use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; prefer the smallest correct file set (1-12 files).',
-  'For substantial cross-layer work, provide 10-12 likely-material implementation files plus fileResponsibilities for every listed path and one architecture contract shared by every file; configuration cannot pad the implementation count.',
+  'For substantial cross-layer work, list exactly 10 likely-material source implementation files and at most 2 runtime configuration files (12 total maximum), plus fileResponsibilities for every listed path and one architecture contract shared by every file.',
+  'package.json, tsconfig files, and Vite, PostCSS, Drizzle, lint, or environment configuration are configuration, never source implementation; they cannot count toward the 10 implementation files.',
   'Treat existing tests as acceptance contracts. Do not plan test changes merely to make a failing implementation pass unless the objective explicitly requires changing tests.',
   'Trace the objective through all relevant provided content samples. For composed or ambiguous behavior, include every implementation file whose current logic contributes to the defect; do not stop at the first suspicious file.'
 ].join(' ');
@@ -152,7 +153,7 @@ export function buildPlanPrompt(projectName: string, objective: string, survey: 
     ...sampleBlocks,
     '',
     ...(isSubstantialObjective(objective) ? [
-      'This is substantial cross-layer work: choose 10-12 evidence-backed implementation files across UI, service/API, and durable storage. Give every listed implementation path a concrete responsibility and observed evidence. Define shared API/type/persistence contracts once in architecture.'
+      'This is substantial cross-layer work: choose exactly 10 evidence-backed source implementation files across UI, service/API, and durable storage, plus no more than 2 necessary runtime configuration files. Do not count package.json, tsconfig, Vite, PostCSS, Drizzle, lint, or environment configuration toward the 10 source files. Give every listed path a concrete responsibility and observed evidence. Define shared API/type/persistence contracts once in architecture.'
     ] : []),
     'Return the strict JSON plan now.'
   ].join('\n');
