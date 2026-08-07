@@ -26,7 +26,7 @@ import { evaluateExportCompletion, evaluateRepairCompletion, requiresRuntimeProo
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
-  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, requireSubstantialEdits, readScopedFiles,
+  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, requireAssignedEdits, requireSubstantialEdits, readScopedFiles,
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
@@ -43,6 +43,7 @@ import { classifyInterruptedExecution } from './recovery.js';
 import { acquireInstanceLock, releaseInstanceLock } from './instanceLock.js';
 import { runAgentJob, type AgentJobCredentials } from './agentJobs.js';
 import { validateSemanticScope } from './scopeSemantics.js';
+import { isSubstantialObjective } from './objectiveSemantics.js';
 import { brainGuidancePrompt, getBrainGuidancePreset, listBrainGuidancePresets } from './brainPresets.js';
 import { ProjectFileAccessError, listProjectFiles, previewProjectFile } from './projectExplorer.js';
 import type { SnapshotManifest } from './mutation.js';
@@ -511,65 +512,114 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
       const evidenceTargets = (wo.taskSpecific?.evidenceTargets || []).filter(
         (target) => wo.scope.exactPaths.includes(target)
       );
-      // Context BEFORE the edit prompt, never after. With ~3KB of preset/brain prose appended
-      // after the format contract, the local model deterministically dropped the ===END FILE===
-      // terminator (perfect content, rejected twice, captured in repair.generation_failed
-      // evidence EVC-1786055227972). Small models obey the last instruction they read; the block
-      // format must be it.
-      const editPrompt = [executionContext, buildEditsPrompt(wo.objective, approach, scoped, evidenceTargets)].filter(Boolean).join('\n\n');
+      const substantialGeneration = isSubstantialObjective(wo.objective) && scoped.length >= 8;
+      const generationBatches = (() => {
+        if (!substantialGeneration) return [scoped];
+        const byArea = new Map<string, typeof scoped>();
+        for (const file of scoped) {
+          const normalized = file.relPath.replace(/\\/g, '/');
+          const area = normalized.includes('/') ? (normalized.split('/')[0] || '.') : '.';
+          const group = byArea.get(area) || [];
+          group.push(file);
+          byArea.set(area, group);
+        }
+        return Array.from(byArea.values()).flatMap((group) => {
+          const chunks: Array<typeof scoped> = [];
+          for (let offset = 0; offset < group.length; offset += 4) chunks.push(group.slice(offset, offset + 4));
+          return chunks;
+        });
+      })();
       await narrateWorkOrder(
         wo,
         'repair.generating',
-        `I am generating complete replacement files with ${provider.model}.`,
-        `The model sees only the ${scoped.length} authorized file(s); its output is parsed strictly and validated before any write.`,
+        substantialGeneration
+          ? `I am generating the substantial implementation with ${provider.model} in ${generationBatches.length} bounded file batch(es).`
+          : `I am generating complete replacement files with ${provider.model}.`,
+        `Each model response sees only its authorized files; all ${scoped.length} scoped files are aggregated and validated before any write.`,
         'Malformed or out-of-scope output fails closed with no changes.'
       );
       // Bounded by the Work Order's own sealed duration budget, not an arbitrary constant. A
       // multi-file consolidation on the 14b model needs more than 300s to emit complete files;
       // the 300s clamp timed out a legitimately progressing generation while the job still had
       // budget. The deadline (from budgets.maxDurationMs) remains the hard ceiling.
-      const remainingMs = Math.max(30000, deadlineAt - Date.now());
       const stopGenHeartbeat = startProgressHeartbeat(project.id, `Generating edits with ${provider.model}`);
       let structuredEdits;
       try {
-        structuredEdits = await generateStructured(
-          {
-            generate: (request) => generateWithProvider(provider, request)
-          },
-          {
-            system: EDIT_SYSTEM,
-            prompt: editPrompt,
-            parse: (text) => requireSubstantialEdits(
-              requireEvidenceTargetEdits(requireEffectiveEdits(parseEditResponse(text, scoped), scoped), evidenceTargets),
-              wo.objective
-            ),
-            // Complete-file transport is intentionally strict. Large but ordinary source modules
-            // need enough output budget to be returned without truncation.
-            maxTokens: 65536,
-            timeoutMs: remainingMs,
-            temperature: 0.2,
-            label: 'repair file blocks',
-            maxAttempts: 4,
-            recoveryContext: [
-              `Authorized files: ${wo.scope.exactPaths.join(', ')}.`,
-              evidenceTargets.length
-                ? `Recorded evidence requires a corrected block for: ${evidenceTargets.join(', ')}.`
-                : '',
-              wo.scope.exactPaths.length >= 8
-                ? 'This substantial objective requires at least eight materially changed authorized files across two project areas; return the complete implementation, not a partial scaffold.'
-                : 'Return complete replacement blocks only for files that actually need changes.'
-            ].filter(Boolean).join(' '),
-            onAttempt: async (update) => {
-              if (update.phase !== 'rejected') return;
-              await narrateWorkOrder(
-                wo,
-                'repair.edit_refining',
-                `The generated edit was incomplete on attempt ${update.attempt}; I rejected it before any write and am correcting it.`,
-                'No files changed. The next attempt receives the exact authorized file list and the formatting failure.',
-                `I will retry automatically (${update.attempt} of ${update.maxAttempts}).`
-              ).catch(() => {});
-            }          }
+        const generatedBatches = [];
+        for (let batchIndex = 0; batchIndex < generationBatches.length; batchIndex += 1) {
+          const batch = generationBatches[batchIndex];
+          if (!batch) throw new Error(`REPAIR_BATCH_MISSING: ${batchIndex + 1}`);
+          const batchPaths = batch.map((file) => file.relPath);
+          const batchEvidenceTargets = evidenceTargets.filter((target) => batchPaths.includes(target));
+          const batchPrompt = [
+            executionContext,
+            buildEditsPrompt(wo.objective, approach, batch, batchEvidenceTargets, substantialGeneration ? {
+              enforceSubstantial: false,
+              requiredEditPaths: batchPaths,
+              overallScope: wo.scope.exactPaths
+            } : {})
+          ].filter(Boolean).join('\n\n');
+          const remainingMs = deadlineAt - Date.now();
+          if (remainingMs < 30_000) throw new Error('REPAIR_BUDGET_EXHAUSTED before generation completed');
+          const generated = await generateStructured(
+            { generate: (request) => generateWithProvider(provider, request) },
+            {
+              system: EDIT_SYSTEM,
+              prompt: batchPrompt,
+              parse: (text) => {
+                const effective = requireEvidenceTargetEdits(
+                  requireEffectiveEdits(parseEditResponse(text, batch), batch),
+                  batchEvidenceTargets
+                );
+                return substantialGeneration
+                  ? requireAssignedEdits(effective, batchPaths)
+                  : requireSubstantialEdits(effective, wo.objective);
+              },
+              maxTokens: substantialGeneration ? 16384 : 65536,
+              timeoutMs: remainingMs,
+              temperature: 0.2,
+              label: substantialGeneration
+                ? `repair file batch ${batchIndex + 1}/${generationBatches.length}`
+                : 'repair file blocks',
+              maxAttempts: substantialGeneration ? 2 : 4,
+              recoveryContext: [
+                `Files assigned to this response: ${batchPaths.join(', ')}.`,
+                batchEvidenceTargets.length
+                  ? `Recorded evidence requires a corrected block for: ${batchEvidenceTargets.join(', ')}.`
+                  : '',
+                substantialGeneration
+                  ? 'Return one material complete-file or patch block for every assigned file; other batches are handled separately.'
+                  : 'Return complete replacement blocks only for files that actually need changes.'
+              ].filter(Boolean).join(' '),
+              onAttempt: async (update) => {
+                if (update.phase !== 'rejected') return;
+                await narrateWorkOrder(
+                  wo,
+                  'repair.edit_refining',
+                  `Generated batch ${batchIndex + 1} was incomplete on attempt ${update.attempt}; I rejected it before any write.`,
+                  'No files changed. The retry receives the assigned file list and exact formatting failure.',
+                  `I will retry automatically (${update.attempt} of ${update.maxAttempts}).`
+                ).catch(() => {});
+              }
+            }
+          );
+          generatedBatches.push(generated);
+        }
+        const combinedEdits = requireSubstantialEdits(
+          generatedBatches.flatMap((batch) => batch.value),
+          wo.objective
         );
+        const finalBatch = generatedBatches[generatedBatches.length - 1];
+        if (!finalBatch) throw new Error('REPAIR_GENERATION_EMPTY');
+        structuredEdits = {
+          value: combinedEdits,
+          attempts: generatedBatches.flatMap((batch) => batch.attempts),
+          finalText: generatedBatches.map((batch) => batch.finalText).join('\n'),
+          provider: finalBatch.provider,
+          model: finalBatch.model,
+          durationMs: generatedBatches.reduce((sum, batch) => sum + batch.durationMs, 0),
+          recoveredBy: 'model' as const
+        };
       } finally {
         stopGenHeartbeat();
       }
@@ -795,7 +845,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
                   'Trace the observed output end-to-end through every current scoped file.',
                   `This is correction cycle ${correctionCycle}; ${history.length} fresh verification attempt(s) have failed.`,
                   'Change the smallest remaining implementation cause. Do not return content already present on disk.'
-                ].join(' '), correctionFiles),
+                ].join(' '), correctionFiles, [], { enforceSubstantial: false }),
                 '',
                 'The test is the acceptance contract. Explain nothing. Return complete blocks only for scoped files whose bytes must actually change, and close every block with ===END FILE===.'
               ].filter(Boolean).join('\n'),

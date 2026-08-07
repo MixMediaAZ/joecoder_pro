@@ -361,7 +361,8 @@ export function buildEditsPrompt(
   objective: string,
   approach: string,
   files: ScopedFileContent[],
-  evidenceTargets: string[] = []
+  evidenceTargets: string[] = [],
+  options: { enforceSubstantial?: boolean; requiredEditPaths?: string[]; overallScope?: string[] } = {}
 ): string {
   const patchRequired = files.filter((file) => file.exists && file.content.length > PATCH_REQUIRED_CHARACTERS).map((file) => file.relPath);
   const sections = files.map((file) => [
@@ -380,11 +381,20 @@ export function buildEditsPrompt(
         'Your response MUST include a corrected block for each of those files. A response that does not change them will be rejected.'
       ]
     : [];
-  const substantialMandate = isSubstantialObjective(objective)
+  const substantialMandate = options.enforceSubstantial !== false && isSubstantialObjective(objective)
     ? [
         '',
         'This is a substantial multi-layer objective. The implementation MUST materially change at least eight authorized files across at least two project areas.',
         'Do not return a partial scaffold or defer authorized layers; an undersized response is rejected before any write.'
+      ]
+    : [];
+  const requiredEditPaths = options.requiredEditPaths || [];
+  const batchMandate = requiredEditPaths.length
+    ? [
+        '',
+        `This is one bounded implementation batch from the overall authorized scope: ${(options.overallScope || files.map((file) => file.relPath)).join(', ')}.`,
+        `Return a material, complete edit for EVERY file in this batch: ${requiredEditPaths.join(', ')}.`,
+        'Keep interfaces consistent with the overall approach; omitting any assigned file rejects the whole batch before any write.'
       ]
     : [];
   return [
@@ -395,6 +405,7 @@ export function buildEditsPrompt(
     ...sections,
     ...evidenceMandate,
     ...substantialMandate,
+    ...batchMandate,
     ...(patchRequired.length ? [
       '',
       `PATCH REQUIRED for large existing files: ${patchRequired.join(', ')}.`,
@@ -403,6 +414,17 @@ export function buildEditsPrompt(
     '',
     'Produce the changes now using the required block mode for each file. Close every complete file with ===END FILE=== or every patch with ===END PATCH===; unterminated blocks are rejected.'
   ].join('\n');
+}
+
+/** Require every file assigned to a bounded generation batch before aggregation. */
+export function requireAssignedEdits(edits: ProposedEdit[], requiredPaths: string[]): ProposedEdit[] {
+  const normalize = (rel: string) => rel.replace(/\\/g, '/').replace(/^\.\//, '');
+  const touched = new Set(edits.map((edit) => normalize(edit.relPath)));
+  const missed = requiredPaths.map(normalize).filter((target) => !touched.has(target));
+  if (missed.length) {
+    throw new Error(`EDIT_INCOMPLETE_BATCH: missing material edits for ${missed.join(', ')}`);
+  }
+  return edits;
 }
 
 /** Reject an undersized substantial implementation before it can reach the filesystem. */
