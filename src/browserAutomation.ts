@@ -151,6 +151,35 @@ async function launchBrowser(): Promise<{ process: ChildProcess; rootWebSocket: 
   return { process: child, rootWebSocket, userDataDir };
 }
 
+async function stopBrowser(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  if (process.platform === 'win32') {
+    await new Promise<void>((resolve) => {
+      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      const timer = setTimeout(() => { killer.kill(); resolve(); }, timeoutMs);
+      killer.once('error', () => { clearTimeout(timer); resolve(); });
+      killer.once('close', () => { clearTimeout(timer); resolve(); });
+    });
+    child.kill();
+  } else {
+    child.kill('SIGTERM');
+  }
+  await Promise.race([
+    closed,
+    new Promise<void>((resolve) => setTimeout(() => {
+      if (process.platform !== 'win32') child.kill('SIGKILL');
+      resolve();
+    }, 1_000))
+  ]);
+  child.stderr?.destroy();
+  if (process.platform === 'win32') await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
 async function pageWebSocket(rootWebSocket: string): Promise<string> {
   const parsed = new URL(rootWebSocket);
   const response = await fetch(`http://${parsed.host}/json/new?about:blank`, { method: 'PUT' });
@@ -173,8 +202,8 @@ async function withPage<T>(operation: (cdp: CdpConnection) => Promise<T>): Promi
     return await operation(cdp);
   } finally {
     cdp?.close();
-    browser.process.kill();
-    await fs.rm(browser.userDataDir, { recursive: true, force: true }).catch(() => {});
+    await stopBrowser(browser.process);
+    await fs.rm(browser.userDataDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }).catch(() => {});
   }
 }
 
@@ -335,4 +364,3 @@ export async function comparePngWithBrowser(
     return result.result?.value;
   });
 }
-

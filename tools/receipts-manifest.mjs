@@ -25,6 +25,7 @@ if (!['verify', 'sync'].includes(mode)) {
 }
 
 const STAGE_PREFIXES = [
+  ['CERT-STEP2-RELEASE-GATES-', 'stage2-release-gates'],
   ['CERT-STAGE12-ISOLATED-', 'stage12-isolated-release'],
   ['CERT-STAGE10-', 'stage10-acceptance-matrix'],
   ['CERT-E2E-', 'e2e-live'],

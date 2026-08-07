@@ -23,7 +23,7 @@
                     "certify:install":  "node tools/certify-install.mjs",
                     "certify:build-intent":  "node tools/certify-build-intent.mjs",
                     "e2e:live":  "node tools/e2e-live.mjs",
-                    "verify:release":  "npm test \u0026\u0026 npm run verify:governance \u0026\u0026 node tools/e2e-live.mjs \u0026\u0026 node tools/build-release.mjs",
+                    "verify:release":  "node tools/run-release-gates.mjs",
                     "test:unit":  "node tools/run-unit-tests.mjs",
                     "release:build":  "npm run build \u0026\u0026 node tools/build-release.mjs",
                     "release:verify":  "node tools/verify-release.mjs"

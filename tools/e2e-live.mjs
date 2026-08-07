@@ -30,12 +30,9 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Every receipt must disclose which model produced it. This harness defaults to the deterministic
-// mock model (see startServer), and src/providers.ts declares that mode "not for production
-// repairs" — so without this field a mock-derived receipt is indistinguishable on disk from real
-// evidence, and can be cited as product proof by mistake. `modelMode` is derived from the same
-// expression startServer uses; `observedModel` is filled in once /health has been read.
-const MODEL_MODE = (process.env.JC_MOCK_MODEL || '1') === '1' ? 'mock' : 'real';
+// Every receipt discloses which model produced it. Mock mode is an explicit developer opt-in;
+// the default release path is real-model and fails closed when /health names no serving model.
+const MODEL_MODE = process.env.JC_MOCK_MODEL === '1' ? 'mock' : 'real';
 const provenance = { modelMode: MODEL_MODE, observedModel: null };
 
 async function writeEvidence(controlId, result) {
@@ -71,7 +68,7 @@ function startServer() {
       JC_NO_OPEN: '1',
       JC_DATA_DIR: SERVER_DATA,
       NODE_ENV: 'test',
-      JC_MOCK_MODEL: process.env.JC_MOCK_MODEL || '1'
+      JC_MOCK_MODEL: MODEL_MODE === 'mock' ? '1' : '0'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -181,6 +178,13 @@ async function main() {
       health.status === 200 && health.data?.capabilities?.sourceRepair?.enabled === true,
       `repair=${health.data?.capabilities?.sourceRepair?.code || 'n/a'}`
     );
+    const model = health.data?.model?.localModel;
+    await record('model_available', Boolean(model) || MODEL_MODE === 'mock', model
+      ? String(model)
+      : MODEL_MODE === 'mock'
+        ? 'explicit mock developer run; not release evidence'
+        : 'no local model reported by /health');
+    if (!model && MODEL_MODE === 'real') throw new Error('REAL_MODEL_REQUIRED');
 
     const fixture = path.join(tmpdir(), `jc-e2e-${process.pid}-${randomBytes(3).toString('hex')}`);
     await fs.mkdir(path.join(fixture, 'src'), { recursive: true });
@@ -331,14 +335,6 @@ async function main() {
         `status=${observed3?.job?.status || 'timeout'} terminal=${observed3?.job?.terminalState || 'none'} mock=${Boolean(observed3?.job?.result?.mockModel)} fixed=${fixed3} wo=${observed3?.job?.workOrderId || 'none'} stages=${stages3.join(',')} error=${observed3?.job?.errorMessage || 'none'}`
       );
       await fs.rm(fixture3, { recursive: true, force: true }).catch(() => {});
-    }
-
-    // Optional repair if model available
-    const model = health.data?.model?.localModel;
-    if (model) {
-      await record('model_available', true, String(model));
-    } else {
-      await record('model_available', true, 'skipped — no local model (export path is the release gate)');
     }
 
     await fs.rm(fixture, { recursive: true, force: true }).catch(() => {});

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,10 +8,29 @@ import {
   inventoryNpmDependencies,
   loadOrCreateSigningIdentity,
   signEnvelope,
+  verifyEnvelope,
   verifyReleaseBundle
 } from '../dist/supplyChain.js';
+import { REQUIRED_RELEASE_GATE_COMMANDS, validateReleaseGateReceipt } from '../dist/releaseGate.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+if (dirty) throw new Error('RELEASE_TRACKED_WORKTREE_NOT_CLEAN');
+const gateReceiptPath = path.resolve(process.env.JC_RELEASE_GATE_RECEIPT || '');
+const certificationRoot = path.join(root, '.jc', 'certification');
+if (!process.env.JC_RELEASE_GATE_RECEIPT || path.dirname(gateReceiptPath) !== certificationRoot || !path.basename(gateReceiptPath).startsWith('CERT-STEP2-RELEASE-GATES-')) {
+  throw new Error('RELEASE_GATE_RECEIPT_REQUIRED');
+}
+const baseline = JSON.parse(await fs.readFile(path.join(root, 'plan', 'current-baseline.json'), 'utf8'));
+const manifestEnvelope = JSON.parse(await fs.readFile(path.join(certificationRoot, 'RECEIPTS-MANIFEST.json'), 'utf8'));
+const manifest = verifyEnvelope(manifestEnvelope, baseline.receiptManifest.keyId);
+const gateBytes = await fs.readFile(gateReceiptPath);
+const gateEntry = manifest.entries?.find(entry => entry.name === path.basename(gateReceiptPath));
+const gateHash = createHash('sha256').update(gateBytes).digest('hex');
+if (!gateEntry || gateEntry.sha256 !== gateHash) throw new Error('RELEASE_GATE_RECEIPT_NOT_MANIFESTED');
+const gateFailures = validateReleaseGateReceipt(JSON.parse(gateBytes.toString('utf8')), sourceCommit);
+if (gateFailures.length) throw new Error(`RELEASE_GATE_RECEIPT_INVALID: ${gateFailures.join(',')}`);
 const releaseId = `joecoder-${JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')).version}-${Date.now()}`;
 const releaseRoot = path.join(root, '.jc', 'releases', releaseId);
 const payloadRoot = path.join(releaseRoot, 'payload');
@@ -42,11 +62,10 @@ const verifiedLimitations = governance.limitations.map(item => {
   return [item.id, '/', item.lawId + ':', item.boundary].join(' ');
 });
 const identity = await loadOrCreateSigningIdentity(signingRoot);
-const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
 const bundle = await createReleaseBundle(payloadRoot, inventory, {
   sourceCommit,
   builder: `joecoder-release/1 node/${process.version} ${process.platform}/${process.arch}`,
-  tests: ['npm test', 'npm run verify:governance', 'npm run e2e:live'],
+  tests: [...REQUIRED_RELEASE_GATE_COMMANDS],
   limitations: verifiedLimitations
 });
 const envelope = signEnvelope(bundle, identity.privateKeyPem);

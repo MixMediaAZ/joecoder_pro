@@ -118,8 +118,23 @@ function metadata(input: Omit<GovernedToolMetadata, 'evidenceProducer'>): Govern
   return { ...input, evidenceProducer: `joecoder-governed-tool/${input.name}@1` };
 }
 
+async function npmInvocation(args: string[]): Promise<{ command: string; args: string[] }> {
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return { command: process.execPath, args: [candidate, ...args] };
+    } catch {}
+  }
+  return { command: 'npm', args };
+}
+
 async function terminateProcessTree(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
   if (process.platform === 'win32') {
     await new Promise<void>((resolve, reject) => {
       const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
@@ -143,16 +158,25 @@ async function terminateProcessTree(child: ChildProcess, timeoutMs = 10_000): Pr
         else reject(new GovernedToolError('PROCESS_STOP_FAILED', stderr.trim() || `Could not stop governed process ${child.pid}.`));
       });
     });
+    await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    // Windows can report process termination before the final cwd/file handles are released.
+    await new Promise((resolve) => setTimeout(resolve, 750));
     return;
   }
   child.kill('SIGTERM');
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
+  await Promise.race([
+    closed,
+    new Promise<never>((_, reject) => setTimeout(() => {
       child.kill('SIGKILL');
       reject(new GovernedToolError('PROCESS_STOP_TIMEOUT', `Timed out stopping governed process ${child.pid}.`));
-    }, timeoutMs);
-    child.once('close', () => { clearTimeout(timer); resolve(); });
-  });
+    }, timeoutMs))
+  ]);
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
 }
 
 async function readJsonFile(relativePath: string, context: GovernedToolContext): Promise<{ value: any; content: string; full: string }> {
@@ -454,7 +478,8 @@ const definitions: AnyDefinition[] = [
       const candidates: Record<string, string[]> = { build: ['build'], test: ['test'], lint: ['lint'], typecheck: ['typecheck', 'type-check'] };
       const script = candidates[input.check]!.find((name) => typeof scripts[name] === 'string');
       if (!script) throw new GovernedToolError('PROJECT_CHECK_UNAVAILABLE', `No ${input.check} script is declared.`);
-      return runBoundedProcess({ command: 'npm', args: ['run', script, '--'], cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
+      const npm = await npmInvocation(['run', script, '--']);
+      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
     },
     summarize: (output) => ({ exitCode: output.exitCode, timedOut: output.timedOut, stdout: output.stdout, stderr: output.stderr })
   },
@@ -465,7 +490,8 @@ const definitions: AnyDefinition[] = [
       const scripts = await packageScripts(context.projectRoot);
       const script = ['format:check', 'format-check'].find((name) => typeof scripts[name] === 'string');
       if (!script) throw new GovernedToolError('FORMAT_CHECK_UNAVAILABLE', 'No non-mutating format check script is declared.');
-      return runBoundedProcess({ command: 'npm', args: ['run', script, '--'], cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
+      const npm = await npmInvocation(['run', script, '--']);
+      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
     },
     summarize: (output) => output
   },
@@ -476,7 +502,8 @@ const definitions: AnyDefinition[] = [
       const scripts = await packageScripts(context.projectRoot);
       if (!scripts[input.script]) throw new GovernedToolError('LAUNCH_SCRIPT_UNAVAILABLE', `No ${input.script} script is declared.`);
       const handle = `proc-${randomBytes(8).toString('hex')}`;
-      const child = spawn('npm', ['run', input.script, '--'], { cwd: context.projectRoot, shell: false, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } });
+      const npm = await npmInvocation(['run', input.script, '--']);
+      const child = spawn(npm.command, npm.args, { cwd: context.projectRoot, shell: false, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } });
       const record = { child, projectRoot: path.resolve(context.projectRoot), jobId: context.jobId, startedAt: Date.now(), command: `npm run ${input.script}`, output: [] as string[] };
       const add = (prefix: string, chunk: unknown) => {
         record.output.push(`${prefix}${String(chunk)}`.slice(0, 16_000));
@@ -484,7 +511,7 @@ const definitions: AnyDefinition[] = [
       };
       child.stdout?.on('data', (chunk) => add('', chunk));
       child.stderr?.on('data', (chunk) => add('ERR: ', chunk));
-      child.once('exit', () => processes.delete(handle));
+      child.once('close', () => processes.delete(handle));
       processes.set(handle, record);
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (child.exitCode !== null) throw new GovernedToolError('PROJECT_LAUNCH_FAILED', record.output.join('').slice(-8000));
@@ -716,4 +743,3 @@ export async function retryGovernedTool(
   if (previous.ok) return previous;
   return executeGovernedTool(request, context);
 }
-
