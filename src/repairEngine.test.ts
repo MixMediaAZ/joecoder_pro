@@ -248,6 +248,7 @@ test('edit block parsing extracts complete files and fails closed otherwise', ()
 });
 
 test('exact patch transport updates large files and can create a separate scoped file', () => {
+  const largePrefix = 'x'.repeat(49 * 1024);
   const edits = parseEditResponse([
     '===PATCH: src/large.js===',
     '===SEARCH===',
@@ -259,10 +260,10 @@ test('exact patch transport updates large files and can create a separate scoped
     'export const ready = true;',
     '===END FILE==='
   ].join('\n'), [
-    { relPath: 'src/large.js', exists: true, content: 'header\nconst enabled = false;\nfooter\n', truncated: false },
+    { relPath: 'src/large.js', exists: true, content: `${largePrefix}\nheader\nconst enabled = false;\nfooter\n`, truncated: false },
     { relPath: 'src/new.js', exists: false, content: '', truncated: false }
   ]);
-  assert.equal(edits.find((edit) => edit.relPath === 'src/large.js')?.content, 'header\nconst enabled = true;\nfooter\n');
+  assert.equal(edits.find((edit) => edit.relPath === 'src/large.js')?.content, `${largePrefix}\nheader\nconst enabled = true;\nfooter\n`);
   assert.equal(edits.find((edit) => edit.relPath === 'src/new.js')?.content, 'export const ready = true;\n');
   assert.throws(() => parseEditResponse([
     '===PATCH: src/large.js===',
@@ -272,7 +273,7 @@ test('exact patch transport updates large files and can create a separate scoped
     'changed',
     '===END PATCH==='
   ].join('\n'), [
-    { relPath: 'src/large.js', exists: true, content: 'repeat repeat', truncated: false }
+    { relPath: 'src/large.js', exists: true, content: `${largePrefix}repeat repeat`, truncated: false }
   ]), /not unique/i);
 });
 

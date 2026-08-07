@@ -799,7 +799,7 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
               timeoutMs: Math.max(1_000, Math.min(deadlineAt - Date.now(), 180_000)),
               temperature: 0.1,
               label: `verification correction ${correctionCycle} file blocks`,
-              maxAttempts: 2,
+              maxAttempts: 3,
               recoveryContext: `Authorized files: ${wo.scope.exactPaths.join(', ')}. The latest verification output is authoritative.`
             }
           );

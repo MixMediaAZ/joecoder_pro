@@ -33,6 +33,7 @@ const MAX_PLAN_FILES = 10;
 // 56 KB control-panel file after Joe had already selected and authorized it. Keep the read
 // bounded, but large enough for ordinary source modules supported by the long-context models.
 const MAX_FILE_READ_BYTES = 256 * 1024;
+const PATCH_REQUIRED_CHARACTERS = 48 * 1024;
 
 const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
@@ -366,7 +367,7 @@ export function buildEditsPrompt(
   files: ScopedFileContent[],
   evidenceTargets: string[] = []
 ): string {
-  const patchRequired = files.filter((file) => file.exists && file.content.length > 48 * 1024).map((file) => file.relPath);
+  const patchRequired = files.filter((file) => file.exists && file.content.length > PATCH_REQUIRED_CHARACTERS).map((file) => file.relPath);
   const sections = files.map((file) => [
     `===FILE: ${file.relPath}===`,
     file.exists ? file.content : '(this file does not exist yet — create it)',
@@ -422,6 +423,23 @@ export function requireEvidenceTargetEdits(edits: ProposedEdit[], evidenceTarget
 
 const FILE_BLOCK = /===FILE:\s*([^=\r\n]+?)\s*===\r?\n([\s\S]*?)\r?\n?===END FILE===/g;
 const PATCH_BLOCK = /===PATCH:\s*([^=\r\n]+?)\s*===\r?\n===SEARCH===\r?\n([\s\S]*?)\r?\n===REPLACE===\r?\n([\s\S]*?)\r?\n===END PATCH===/g;
+
+function uniqueSearchLocation(content: string, search: string): { start: number; length: number } | null {
+  const variants = Array.from(new Set([
+    search,
+    search.replace(/\r\n/g, '\n'),
+    search.replace(/(?<!\r)\n/g, '\r\n')
+  ]));
+  for (const variant of variants) {
+    const first = content.indexOf(variant);
+    if (first < 0) continue;
+    if (content.indexOf(variant, first + variant.length) >= 0) {
+      throw new Error('EDIT_PATCH_REJECTED: SEARCH text is not unique');
+    }
+    return { start: first, length: variant.length };
+  }
+  return null;
+}
 
 /**
  * The fence language labels the ENVELOPE, not the payload.
@@ -500,12 +518,18 @@ export function parseEditResponse(text: string, files: ScopedFileContent[]): Pro
     if (completeEdits.has(relPath)) throw new Error(`EDIT_PARSE_FAILED: '${relPath}' uses both complete-file and patch modes`);
     const file = current.get(relPath);
     if (!file?.exists) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not an existing scoped file`);
+    if (file.content.length <= PATCH_REQUIRED_CHARACTERS) {
+      throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' is not marked PATCH REQUIRED; return a complete ===FILE=== block`);
+    }
     if (!search.length) throw new Error(`EDIT_PATCH_REJECTED: '${relPath}' has an empty SEARCH block`);
-    const first = file.content.indexOf(search);
-    const second = first < 0 ? -1 : file.content.indexOf(search, first + search.length);
-    if (first < 0) throw new Error(`EDIT_PATCH_REJECTED: SEARCH text was not found in '${relPath}'`);
-    if (second >= 0) throw new Error(`EDIT_PATCH_REJECTED: SEARCH text is not unique in '${relPath}'`);
-    file.content = file.content.slice(0, first) + replacement + file.content.slice(first + search.length);
+    let location;
+    try {
+      location = uniqueSearchLocation(file.content, search);
+    } catch {
+      throw new Error(`EDIT_PATCH_REJECTED: SEARCH text is not unique in '${relPath}'`);
+    }
+    if (!location) throw new Error(`EDIT_PATCH_REJECTED: SEARCH text was not found in '${relPath}'`);
+    file.content = file.content.slice(0, location.start) + replacement + file.content.slice(location.start + location.length);
     if (!touched.includes(relPath)) touched.push(relPath);
   }
   if (!consumed.length) throw new Error('EDIT_PARSE_FAILED: the model returned no well-formed patch blocks');
