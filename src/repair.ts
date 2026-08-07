@@ -380,6 +380,13 @@ export function buildEditsPrompt(
         'Your response MUST include a corrected block for each of those files. A response that does not change them will be rejected.'
       ]
     : [];
+  const substantialMandate = isSubstantialObjective(objective)
+    ? [
+        '',
+        'This is a substantial multi-layer objective. The implementation MUST materially change at least eight authorized files across at least two project areas.',
+        'Do not return a partial scaffold or defer authorized layers; an undersized response is rejected before any write.'
+      ]
+    : [];
   return [
     `Objective: ${objective}`,
     `Approach: ${approach}`,
@@ -387,6 +394,7 @@ export function buildEditsPrompt(
     'Current scoped files:',
     ...sections,
     ...evidenceMandate,
+    ...substantialMandate,
     ...(patchRequired.length ? [
       '',
       `PATCH REQUIRED for large existing files: ${patchRequired.join(', ')}.`,
@@ -395,6 +403,19 @@ export function buildEditsPrompt(
     '',
     'Produce the changes now using the required block mode for each file. Close every complete file with ===END FILE=== or every patch with ===END PATCH===; unterminated blocks are rejected.'
   ].join('\n');
+}
+
+/** Reject an undersized substantial implementation before it can reach the filesystem. */
+export function requireSubstantialEdits(edits: ProposedEdit[], objective: string): ProposedEdit[] {
+  if (!isSubstantialObjective(objective)) return edits;
+  const paths = edits.map((edit) => edit.relPath);
+  const areas = topLevelAreaCount(paths);
+  if (paths.length < 8 || areas < 2) {
+    throw new Error(
+      `EDIT_INCOMPLETE_SUBSTANTIAL_SCOPE: response changes ${paths.length}/8 required files across ${areas}/2 required project areas`
+    );
+  }
+  return edits;
 }
 
 /**

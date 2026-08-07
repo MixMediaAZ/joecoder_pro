@@ -69,22 +69,15 @@ async function hasPackageJson(projectRoot: string): Promise<boolean> {
   }
 }
 
-async function hasNodeModules(projectRoot: string): Promise<boolean> {
-  try {
-    const st = await fs.stat(path.join(projectRoot, 'node_modules'));
-    return st.isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Run jailed npm install in projectRoot.
- * If node_modules already exists and force is false, skip (idempotent).
+ * npm ci intentionally runs even when node_modules exists: its contract is to
+ * replace that directory from the admitted lockfile. Directory presence alone
+ * is not proof that dependencies are complete or match that lockfile.
  */
 export async function runJailedInstall(
   projectRoot: string,
-  options: { timeoutMs?: number; force?: boolean; admission?: SignedEnvelope<DependencyInventory>; trustedKeyId?: string } = {}
+  options: { timeoutMs?: number; admission?: SignedEnvelope<DependencyInventory>; trustedKeyId?: string } = {}
 ): Promise<InstallDepsResult> {
   const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const root = path.resolve(projectRoot);
@@ -101,20 +94,6 @@ export async function runJailedInstall(
       passed: true,
       durationMs: 0,
       outputTail: []
-    };
-  }
-
-  if (!options.force && (await hasNodeModules(root))) {
-    return {
-      attempted: false,
-      skipped: true,
-      skipReason: 'node_modules already present',
-      command,
-      exitCode: null,
-      timedOut: false,
-      passed: true,
-      durationMs: 0,
-      outputTail: ['Skipped install — node_modules exists']
     };
   }
 

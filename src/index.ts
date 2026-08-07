@@ -26,7 +26,7 @@ import { evaluateExportCompletion, evaluateRepairCompletion, requiresRuntimeProo
 import { resolveProvider, generateWithProvider, generateRoutedModelTurn, providerStatus, warmLocalModel } from './providers.js';
 import {
   PLAN_SYSTEM, EDIT_SYSTEM, BUILD_SYSTEM, buildPlanPrompt, buildBuildPlanPrompt,
-  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, readScopedFiles,
+  parsePlanResponse, validatePlanForObjective, buildEditsPrompt, parseEditResponse, requireEffectiveEdits, requireEvidenceTargetEdits, requireSubstantialEdits, readScopedFiles,
   generateStructured, isNearEmptySurvey, buildPlanRecoveryContext, changedLineBudgetForPlan
 } from './repair.js';
 import { MutationTransactionError, snapshotScopedFiles, applyEdits, rollbackToSnapshot } from './mutation.js';
@@ -539,7 +539,10 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
           {
             system: EDIT_SYSTEM,
             prompt: editPrompt,
-            parse: (text) => requireEvidenceTargetEdits(requireEffectiveEdits(parseEditResponse(text, scoped), scoped), evidenceTargets),
+            parse: (text) => requireSubstantialEdits(
+              requireEvidenceTargetEdits(requireEffectiveEdits(parseEditResponse(text, scoped), scoped), evidenceTargets),
+              wo.objective
+            ),
             // Complete-file transport is intentionally strict. Large but ordinary source modules
             // need enough output budget to be returned without truncation.
             maxTokens: 65536,
@@ -552,7 +555,9 @@ async function applyRepairEdits(wo: WorkOrder, res: express.Response): Promise<e
               evidenceTargets.length
                 ? `Recorded evidence requires a corrected block for: ${evidenceTargets.join(', ')}.`
                 : '',
-              'Return complete replacement blocks only for files that actually need changes.'
+              wo.scope.exactPaths.length >= 8
+                ? 'This substantial objective requires at least eight materially changed authorized files across two project areas; return the complete implementation, not a partial scaffold.'
+                : 'Return complete replacement blocks only for files that actually need changes.'
             ].filter(Boolean).join(' '),
             onAttempt: async (update) => {
               if (update.phase !== 'rejected') return;
