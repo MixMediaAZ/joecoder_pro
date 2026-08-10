@@ -2,8 +2,20 @@
   "schemaVersion": "1.0.0",
   "candidateSourceCommit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
   "controllingSpec": "JOECODER_PRO_20.1_CONTROLLING_FINISH_SPEC_v3_DRAFT",
-  "generatedAt": "2026-08-07T00:00:00.000Z",
+  "generatedAt": "2026-08-09T00:00:00.000Z",
   "verifiedBy": "baseline-direct-inspection",
+  "current_state": {
+    "jc_allow_post_stage2": true,
+    "current_commit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
+    "stage_1_receipt_identity": "pending_generation",
+    "stage_2_complete": true,
+    "stage_3_documentation_complete": false,
+    "stage_4_blocker": "operator_required_second_cloud_provider",
+    "stage_5_pending_operator_decisions": 20,
+    "stage_6_not_started": true,
+    "stage_7_not_started": true,
+    "stage_8_pending_operator_verdict": true
+  },
   "clauses": [
     {
       "clauseId": "MISSION-001",
