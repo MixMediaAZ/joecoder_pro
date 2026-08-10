@@ -7,7 +7,7 @@
   "current_state": {
     "jc_allow_post_stage2": true,
     "current_commit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
-    "stage_1_receipt_identity": ".jc/qualification/stage1-receipt.json",
+    "stage_1_receipt_identity": ".jc/certification/CERT-STAGE1-BASELINE-20260807T010544Z-bbd6dbd.json",
     "stage_2_complete": true,
     "stage_3_documentation_complete": true,
     "stage_4_blocker": "operator_required_second_cloud_provider",
