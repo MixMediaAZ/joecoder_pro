@@ -7,7 +7,7 @@
   "current_state": {
     "jc_allow_post_stage2": true,
     "current_commit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
-    "stage_1_receipt_identity": "pending_generation",
+    "stage_1_receipt_identity": ".jc/qualification/stage1-receipt.json",
     "stage_2_complete": true,
     "stage_3_documentation_complete": false,
     "stage_4_blocker": "operator_required_second_cloud_provider",
