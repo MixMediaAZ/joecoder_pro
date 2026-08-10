@@ -9,7 +9,7 @@
     "current_commit": "bbd6dbde6cebc8e3c35b3926f95128c1584908ab",
     "stage_1_receipt_identity": ".jc/qualification/stage1-receipt.json",
     "stage_2_complete": true,
-    "stage_3_documentation_complete": false,
+    "stage_3_documentation_complete": true,
     "stage_4_blocker": "operator_required_second_cloud_provider",
     "stage_5_pending_operator_decisions": 20,
     "stage_6_not_started": true,
