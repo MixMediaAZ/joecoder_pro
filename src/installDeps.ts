@@ -52,7 +52,9 @@ function jailedEnv(): NodeJS.ProcessEnv {
     PATH: pathVal,
     CI: '1',
     FORCE_COLOR: '0',
-    NODE_ENV: process.env.NODE_ENV || 'development',
+    // Always development for installs: inheriting NODE_ENV=production makes npm ci
+    // omit vite/esbuild and then npm run build fails closed.
+    NODE_ENV: 'development',
     npm_config_yes: 'true',
     npm_config_audit: 'false',
     npm_config_fund: 'false',
@@ -121,6 +123,52 @@ export async function runJailedInstall(
     { cwd: root, timeoutMs, env: jailedEnv() }
   );
 
+  return {
+    attempted: true,
+    skipped: false,
+    command,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    passed: !result.timedOut && result.exitCode === 0,
+    durationMs: result.durationMs,
+    outputTail: [
+      ...tail(result.stdout, 20),
+      ...tail(result.stderr, 20),
+      ...(result.launchError ? [result.launchError] : [])
+    ]
+  };
+}
+
+/**
+ * Rewrite package-lock.json from the current package.json without a full tree install.
+ * Used when the lockfile is sealed for coherence but too large for model editing.
+ */
+export async function refreshPackageLockOnly(
+  projectRoot: string,
+  options: { timeoutMs?: number } = {}
+): Promise<InstallDepsResult> {
+  const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const root = path.resolve(projectRoot);
+  const command = 'npm install --package-lock-only --ignore-scripts --no-audit --no-fund';
+  if (!(await hasPackageJson(root))) {
+    return {
+      attempted: false,
+      skipped: true,
+      skipReason: 'No package.json at project root',
+      command,
+      exitCode: null,
+      timedOut: false,
+      passed: true,
+      durationMs: 0,
+      outputTail: []
+    };
+  }
+  const resolved = resolveCommand('npm');
+  const result = await runBoundedProcess(
+    resolved.executable,
+    [...resolved.prefixArgs, 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: root, timeoutMs, env: jailedEnv() }
+  );
   return {
     attempted: true,
     skipped: false,

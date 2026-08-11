@@ -10,7 +10,7 @@
                     "dev":  "tsx watch src/index.ts",
                     "prestart":  "npm run build",
                     "start":  "node dist/index.js",
-                    "clean":  "rm -rf dist .jc",
+                    "clean":  "node tools/clean-build.mjs",
                     "test:browser-assets":  "node tools/check-browser-assets.mjs",
                     "db:verify":  "npm run build \u0026\u0026 node dist/databaseCli.js verify",
                     "db:backup":  "npm run build \u0026\u0026 node dist/databaseCli.js backup",

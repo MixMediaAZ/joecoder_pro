@@ -10,9 +10,11 @@
  */
 
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { ModelRouter, type ModelProviderAdapter, type ModelTaskType, type RoutedModelTurnRequest, type RoutedModelTurnResult } from './modelRouter.js';
+import { powerRouterAvailable, powerRouterConfigured, powerRouterDispatch, resetPowerRouterCache } from './powerrouterClient.js';
 
-export type ProviderName = 'ollama' | 'anthropic';
+export type ProviderName = 'ollama' | 'anthropic' | 'powerrouter';
 
 export interface ModelRequest {
   system: string;
@@ -37,6 +39,7 @@ export interface ProviderResolution {
   provider: ProviderName | null;
   model: string | null;
   reason: string;
+  allowCloud?: boolean;
   capabilities?: string[];
   unmetCapabilities?: string[];
   routingReason?: string;
@@ -62,6 +65,14 @@ const OLLAMA_DETECT_TIMEOUT_MS = 2000;
 const OLLAMA_DETECT_CACHE_MS = 30000;
 const DEFAULT_GENERATE_TIMEOUT_MS = 120000;
 
+/**
+ * Default local coding model when JC_OLLAMA_MODEL is unset.
+ * Prefer a coding-specialized mid-size model over large general models (e.g. qwen3.6 ~23GB).
+ * 7b plans but fails InspectorCode edit patches; 14b is the smallest installed coder that
+ * can emit well-formed repair blocks. If missing, pickOllamaModel falls back to smallest *coder*.
+ */
+export const DEFAULT_LOCAL_CODING_MODEL = 'qwen2.5-coder:14b';
+
 let ollamaCache: { checkedAt: number; model: string | null } | null = null;
 let productionRouter: { signature: string; router: ModelRouter } | null = null;
 
@@ -80,12 +91,27 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-function pickOllamaModel(models: Array<{ name?: string }>): string | null {
+function modelParameterBillions(name: string): number {
+  const tagged = name.match(/:(\d+(?:\.\d+)?)b\b/i);
+  if (tagged) return Number(tagged[1]);
+  const embedded = name.match(/(\d+(?:\.\d+)?)b/i);
+  return embedded ? Number(embedded[1]) : 999;
+}
+
+/** Choose a local Ollama model: env pin → default coder → smallest coder → smallest remaining. */
+export function pickOllamaModel(models: Array<{ name?: string }>): string | null {
   const names = models.map((m) => m.name).filter((n): n is string => typeof n === 'string');
   if (!names.length) return null;
-  const requested = process.env.JC_OLLAMA_MODEL;
+  const requested = (process.env.JC_OLLAMA_MODEL || '').trim();
   if (requested && names.includes(requested)) return requested;
-  return names.find((n) => n.includes('coder')) || names[0] || null;
+  if (names.includes(DEFAULT_LOCAL_CODING_MODEL)) return DEFAULT_LOCAL_CODING_MODEL;
+
+  const bySizeThenName = (a: string, b: string): number =>
+    modelParameterBillions(a) - modelParameterBillions(b) || a.localeCompare(b);
+
+  const coders = names.filter((name) => /coder/i.test(name)).sort(bySizeThenName);
+  if (coders[0]) return coders[0];
+  return [...names].sort(bySizeThenName)[0] || null;
 }
 
 /** Detect a running local Ollama and choose a model. Cached for 30s. */
@@ -114,7 +140,9 @@ export function anthropicKeyPresent(): boolean {
 /**
  * Resolve which provider may serve a request. Local-first: Ollama wins when
  * reachable. Cloud requires both a key and explicit allowCloud (derived from
- * an authorized budget). Fail-closed with a plain-language reason.
+ * an authorized budget). An explicit positive maxCloudCostUsd is an operator
+ * grant that prefers the frontier model over local. Fail-closed with a
+ * plain-language reason.
  */
 export function providerCapabilities(provider: ProviderName): string[] {
   if (provider === 'anthropic') return ['chat', 'code', 'long_context', 'vision', 'tools'];
@@ -159,18 +187,52 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
   const localEligible = Boolean(localModel) && !excluded.has(localModel || '') && localMissing.length === 0 && contextTokens <= localContextWindow;
 
   const cloudAllowed = options.allowCloud && options.privacyMode !== 'local_only';
+  const allowCloud = Boolean(options.allowCloud && options.privacyMode !== 'local_only' && (options.maxCloudCostUsd ?? 0) > 0);
   const cloudCapabilities = providerCapabilities('anthropic');
   const cloudMissing = missingProviderCapabilities('anthropic', required);
   const cloudContextWindow = 200_000;
-  const maximumCloudCost = options.maxCloudCostUsd ?? (options.allowCloud ? Number.POSITIVE_INFINITY : 0);
+  const maximumCloudCost = options.maxCloudCostUsd ?? 0;
   const estimatedCloudCost = (Math.ceil((options.contextCharacters || 0) / 4) * 3 + 4096 * 15) / 1_000_000;
   const cloudEligible = anthropicKeyPresent() && cloudAllowed && !excluded.has(ANTHROPIC_DEFAULT_MODEL) &&
     cloudMissing.length === 0 && contextTokens <= cloudContextWindow && estimatedCloudCost <= maximumCloudCost;
+  const routerUp = await powerRouterAvailable();
+  const routerMissing = missingProviderCapabilities('powerrouter', required);
+  const routerExcluded = excluded.has('auto') || excluded.has('powerrouter:auto');
+  const routerContextEligible = contextTokens <= localContextWindow;
+  const routerEligible = routerUp && routerMissing.length === 0 && !routerExcluded && routerContextEligible;
+  const frontierGranted = (options.maxCloudCostUsd ?? 0) > 0;
+  const preferDirectAnthropic = cloudEligible && (options.privacyMode === 'authorized_cloud' || frontierGranted);
   const eligibleProviders: ProviderName[] = [
+    ...(routerEligible ? ['powerrouter' as const] : []),
     ...(localEligible ? ['ollama' as const] : []),
     ...(cloudEligible ? ['anthropic' as const] : [])
   ];
+  if (routerEligible && !preferDirectAnthropic) {
+    const reason = `PowerRouter-primary route selected; task=${taskType};${presetNote} direct Ollama kept as fallback.`;
+    return {
+      available: true,
+      provider: 'powerrouter',
+      model: 'auto',
+      reason,
+      routingReason: reason,
+      taskType,
+      eligibleProviders,
+      capabilities: providerCapabilities('powerrouter'),
+      // Temporary: keep PowerRouter local-only until cost passthrough exists.
+      allowCloud: false
+    };
+  }
 
+  // An explicit positive cloud budget is an operator grant of frontier authorship for this
+  // request: prefer the cloud model even when local is healthy. Without that grant the
+  // route stays local-first and cloud remains only a capability/availability fallback.
+  if (cloudEligible && frontierGranted) {
+    const reason = `Authorized frontier route selected Anthropic/${ANTHROPIC_DEFAULT_MODEL}; explicit cloud budget $${maximumCloudCost.toFixed(2)} granted; task=${taskType}; context=${contextTokens}/${cloudContextWindow};${presetNote} estimated cost=$${estimatedCloudCost.toFixed(6)}.`;
+    return {
+      available: true, provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL, reason, routingReason: reason,
+      taskType, eligibleProviders, capabilities: cloudCapabilities, allowCloud
+    };
+  }
   if (localEligible) {
     const reason = `Local-first route selected Ollama/${localModel}; task=${taskType}; capabilities=${required.join(',') || 'standard'}; context=${contextTokens}/${localContextWindow};${presetNote} observed healthy; cloud cost=$0.`;
     return {
@@ -186,7 +248,7 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
     const reason = `Authorized cloud fallback selected Anthropic/${ANTHROPIC_DEFAULT_MODEL}; ${localReason}; task=${taskType}; context=${contextTokens}/${cloudContextWindow};${presetNote} estimated cost=$${estimatedCloudCost.toFixed(6)} within $${maximumCloudCost.toFixed(6)}.`;
     return {
       available: true, provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL, reason, routingReason: reason,
-      taskType, eligibleProviders, capabilities: cloudCapabilities
+      taskType, eligibleProviders, capabilities: cloudCapabilities, allowCloud
     };
   }
 
@@ -303,41 +365,102 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
 
 async function generateAnthropic(model: string, request: ModelRequest): Promise<ModelResponse> {
   const startedAt = Date.now();
-  const res = await fetchWithTimeout(`${ANTHROPIC_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
+  const timeoutMs = request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS;
+  let timedOut = false;
+  let activeRequest: ClientRequest | null = null;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    activeRequest?.destroy(new Error('ANTHROPIC_REQUEST_DEADLINE'));
+  }, timeoutMs);
+  try {
+    // Streaming over raw HTTPS for the same reason the Ollama path streams over raw
+    // HTTP: Node's global fetch (Undici) enforces a hidden ~5-minute response-header
+    // deadline, and long generations (large file batches) exceed it. SSE keeps the
+    // connection active token by token, and our Work Order timer is the sole deadline.
+    const body = JSON.stringify({
       model,
       max_tokens: request.maxTokens ?? 4096,
+      stream: true,
       system: request.system,
-      messages: [{ role: 'user', content: request.prompt }],
-      ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {})
-    })
-  }, request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS);
-  const data = await res.json().catch(() => ({})) as {
-    content?: Array<{ type?: string; text?: string }>;
-    stop_reason?: string;
-    error?: { message?: string };
-  };
-  if (!res.ok) {
-    throw new Error(`ANTHROPIC_HTTP_${res.status}: ${data.error?.message || 'request failed'}`);
+      messages: [{ role: 'user', content: request.prompt }]
+      // `temperature` is intentionally omitted: current Anthropic models reject it
+      // as deprecated (HTTP 400). The provider default is used for all calls.
+    });
+    const endpoint = new URL('/v1/messages', ANTHROPIC_BASE_URL);
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const outgoing = httpsRequest(endpoint, {
+        method: 'POST',
+        headers: {
+          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body)
+        }
+      }, resolve);
+      activeRequest = outgoing;
+      outgoing.once('error', reject);
+      outgoing.end(body);
+    });
+    if ((res.statusCode || 500) !== 200) {
+      let raw = '';
+      for await (const chunk of res) raw += chunk.toString();
+      let message = 'request failed';
+      try { message = (JSON.parse(raw) as { error?: { message?: string } }).error?.message || message; } catch { /* raw kept */ }
+      throw new Error(`ANTHROPIC_HTTP_${res.statusCode}: ${message}`);
+    }
+    let text = '';
+    let stopReason = '';
+    let sseData = '';
+    const consume = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') return;
+      try {
+        const event = JSON.parse(payload) as {
+          type?: string;
+          delta?: { type?: string; text?: string; stop_reason?: string };
+          error?: { message?: string };
+        };
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          text += event.delta.text || '';
+        } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          stopReason = event.delta.stop_reason;
+        } else if (event.type === 'error') {
+          throw new Error(`ANTHROPIC_STREAM_ERROR: ${event.error?.message || 'stream error'}`);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('ANTHROPIC_STREAM_ERROR')) throw error;
+        // Partial JSON split across chunks is impossible here because we split on
+        // newlines; anything else unparseable is ignored as SSE noise (comments, pings).
+      }
+    };
+    for await (const chunk of res) {
+      sseData += chunk.toString();
+      const lines = sseData.split('\n');
+      sseData = lines.pop() || '';
+      for (const line of lines) consume(line);
+    }
+    consume(sseData);
+    if (stopReason === 'refusal') {
+      throw new Error('ANTHROPIC_REFUSAL: the model declined this request; content was not produced.');
+    }
+    if (!text.trim()) throw new Error('ANTHROPIC_EMPTY_RESPONSE');
+    return {
+      text,
+      provider: 'anthropic',
+      model,
+      durationMs: Date.now() - startedAt,
+      ...(stopReason ? { stopReason } : {})
+    };
+  } catch (error: unknown) {
+    if (timedOut) {
+      throw new Error(`MODEL_REQUEST_TIMEOUT after ${Math.round(timeoutMs / 1000)}s (${ANTHROPIC_BASE_URL}/v1/messages)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  if (data.stop_reason === 'refusal') {
-    throw new Error('ANTHROPIC_REFUSAL: the model declined this request; content was not produced.');
-  }
-  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('');
-  if (!text.trim()) throw new Error('ANTHROPIC_EMPTY_RESPONSE');
-  return {
-    text,
-    provider: 'anthropic',
-    model,
-    durationMs: Date.now() - startedAt,
-    ...(data.stop_reason ? { stopReason: data.stop_reason } : {})
-  };
 }
 
 function routedToLegacyRequest(request: RoutedModelTurnRequest): ModelRequest {
@@ -378,6 +501,51 @@ export async function configuredModelAdapters(): Promise<ModelProviderAdapter[]>
     }];
   }
   const adapters: ModelProviderAdapter[] = [];
+  if (await powerRouterAvailable()) {
+    adapters.push({
+      profile: {
+        id: 'powerrouter:auto',
+        provider: 'powerrouter',
+        model: 'auto',
+        location: 'local',
+        enabled: true,
+        capabilities: providerCapabilities('powerrouter'),
+        contextWindowTokens: Math.max(4096, Number(process.env.JC_OLLAMA_CONTEXT_WINDOW || 32768)),
+        taskTypes: ['conversation', 'investigation', 'implementation', 'review', 'structured_control', 'visual_analysis'],
+        qualityTier: 6,
+        inputCostPerMillionTokens: 0,
+        outputCostPerMillionTokens: 0
+      },
+      generate: async (request) => {
+        const routed = request as RoutedModelTurnRequest;
+        // Temporary: keep PowerRouter local-only until cost passthrough exists.
+        const allowCloud = false;
+        const system = routed.messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n');
+        const rest = routed.messages.filter((message) => message.role !== 'system');
+        const messages = [
+          ...(system ? [{ role: 'system', content: system }] : []),
+          ...rest.map((message) => ({ role: message.role, content: message.content }))
+        ];
+        const out = await powerRouterDispatch({
+          messages,
+          allowCloud,
+          ...(routed.temperature != null ? { temperature: routed.temperature } : {}),
+          ...(routed.maxOutputTokens != null ? { maxTokens: routed.maxOutputTokens } : {}),
+          ...(routed.timeoutMs != null ? { timeoutMs: routed.timeoutMs } : {}),
+          ...(routed.signal ? { signal: routed.signal } : {})
+        });
+        const usage = {
+          inputTokens: out.usage.prompt_tokens,
+          outputTokens: out.usage.completion_tokens,
+          ...(out.fallback ? {} : { costUsd: 0 })
+        };
+        return {
+          text: out.content,
+          usage
+        };
+      }
+    });
+  }
   const localModel = await detectOllama();
   if (localModel) {
     adapters.push({
@@ -485,25 +653,58 @@ function mockGenerate(request: ModelRequest): ModelResponse {
 
 /** Generate with an already-resolved provider. Throws with a plain reason on failure. */
 export async function generateWithProvider(resolution: ProviderResolution, request: ModelRequest): Promise<ModelResponse> {
+  const startedAt = Date.now();
   if (process.env.JC_MOCK_MODEL === '1') {
     return mockGenerate(request);
   }
   if (!resolution.available || !resolution.provider || !resolution.model) {
     throw new Error(`MODEL_UNAVAILABLE: ${resolution.reason}`);
   }
+  if (resolution.provider === 'powerrouter') {
+    const messages = [
+      ...(request.system ? [{ role: 'system', content: request.system }] : []),
+      { role: 'user', content: request.prompt }
+    ];
+    const out = await powerRouterDispatch({
+      messages,
+      // Temporary: keep PowerRouter local-only until cost passthrough exists.
+      allowCloud: false,
+      ...(request.maxTokens != null ? { maxTokens: request.maxTokens } : {}),
+      ...(request.temperature != null ? { temperature: request.temperature } : {}),
+      ...(request.timeoutMs != null ? { timeoutMs: request.timeoutMs } : {})
+    });
+    return {
+      text: out.content,
+      provider: 'powerrouter',
+      model: out.model,
+      durationMs: Date.now() - startedAt
+    };
+  }
   if (resolution.provider === 'ollama') return generateOllama(resolution.model, request);
   return generateAnthropic(resolution.model, request);
 }
 
 /** Status summary for /health — never includes secrets. */
-export async function providerStatus(): Promise<{ localModel: string | null; localCapabilities: string[]; cloudConfigured: boolean; policy: string; mockModel?: boolean }> {
+export async function providerStatus(): Promise<{
+  localModel: string | null;
+  localCapabilities: string[];
+  cloudConfigured: boolean;
+  policy: string;
+  mockModel?: boolean;
+  powerRouter?: { configured: boolean; reachable: boolean };
+}> {
+  const powerRouter = {
+    configured: powerRouterConfigured(),
+    reachable: await powerRouterAvailable()
+  };
   if (process.env.JC_MOCK_MODEL === '1') {
     return {
       localModel: 'jc-mock-model',
       localCapabilities: providerCapabilities('ollama'),
       cloudConfigured: anthropicKeyPresent(),
       policy: 'JC_MOCK_MODEL=1 active — not for production repairs',
-      mockModel: true
+      mockModel: true,
+      powerRouter
     };
   }
   return {
@@ -511,7 +712,8 @@ export async function providerStatus(): Promise<{ localModel: string | null; loc
     localCapabilities: providerCapabilities('ollama'),
     cloudConfigured: anthropicKeyPresent(),
     policy: 'preset capabilities + local privacy first; cloud only with explicit non-zero Work Order cloud budget',
-    mockModel: false
+    mockModel: false,
+    powerRouter
   };
 }
 
@@ -537,4 +739,5 @@ export async function warmLocalModel(): Promise<void> {
 export function resetProviderCache(): void {
   ollamaCache = null;
   productionRouter = null;
+  resetPowerRouterCache();
 }

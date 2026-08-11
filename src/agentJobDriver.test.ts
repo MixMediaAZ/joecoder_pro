@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferIntent, successfulTerminal } from './agentJobDriver.js';
+import { classifyExecutionResult, inferIntent, successfulTerminal } from './agentJobDriver.js';
 
 test('ordinary make-it-work language is classified as a repair', () => {
   assert.equal(
@@ -72,4 +72,31 @@ test('real model without runtime proof reports an explicit limitation', () => {
     }
   });
   assert.equal(result.terminalState, 'completed_with_limits');
+});
+
+test('completion denials classify as failed_safe with acceptance criteria text', () => {
+  const result = classifyExecutionResult({
+    code: 'COMPLETION_EVIDENCE_FAILED',
+    error: 'Repair completion denied: Runtime verification (build/test) failed.',
+    rolledBack: true,
+    acceptanceResults: [
+      { id: 'X-VERIFY', criterion: 'Runtime verification (build/test) failed', passed: false }
+    ],
+    verification: {
+      status: 'failed',
+      detail: 'build failed',
+      items: [{
+        script: 'build',
+        command: 'npm run build',
+        root: '.',
+        exitCode: 1,
+        timedOut: false,
+        passed: false,
+        outputTail: ['error']
+      }]
+    }
+  });
+  assert.equal(result.terminalState, 'failed_safe');
+  assert.equal(result.proofLevel, 'failed');
+  assert.match(result.reason, /Runtime verification \(build\/test\) failed/);
 });

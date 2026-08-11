@@ -5,6 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+if (process.env.JC_ALLOW_POST_STAGE2 !== '1') {
+  throw new Error(
+    'STAGE_FREEZE_ACTIVE: post-Stage2 release gates are frozen until the unbound coding-machine bar is explicitly lifted (set JC_ALLOW_POST_STAGE2=1 to override).'
+  );
+}
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
 const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
 if (dirty) throw new Error('RELEASE_GATE_DIRTY_TRACKED_WORKTREE');

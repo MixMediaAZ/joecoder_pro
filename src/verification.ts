@@ -12,11 +12,15 @@
  */
 
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverStackProfiles, profilesForEditedFiles, type StackProfile, type StackVerificationCommand } from './stackProfiles.js';
 import { resolveCommand, runBoundedProcess } from './boundedProcess.js';
+import { findUndeclaredImportsInProjectFiles } from './packageImportPolicy.js';
+import { assessApiImplementationSource } from './apiRouteContracts.js';
 
 export interface VerificationItem {
   script: 'build' | 'test' | 'lint' | 'analyze' | 'file_integrity';
@@ -365,12 +369,549 @@ export async function runFileIntegrityCheck(
  * When no scripts exist and expectedHashes are supplied, fall back to file
  * integrity. `no_scripts` is an honest outcome only when neither is possible.
  */
+async function freeLoopbackPort(): Promise<number> {
+  const listener = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = listener.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolve) => listener.close(() => resolve()));
+  if (!port) throw new Error('API_SMOKE_PORT_UNAVAILABLE');
+  return port;
+}
+
+/** Wait until a prior smoke child has released the loopback port (Windows EADDRINUSE). */
+async function waitForLoopbackPortFree(port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const free = await new Promise<boolean>((resolve) => {
+      const probe = net.createServer();
+      probe.once('error', () => resolve(false));
+      probe.listen(port, '127.0.0.1', () => {
+        probe.close(() => resolve(true));
+      });
+    });
+    if (free) return true;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
+}
+
+async function readServerEntrySource(projectRoot: string): Promise<{ relPath: string; content: string } | null> {
+  for (const relPath of ['server/index.ts', 'server/index.js', 'server/index.mjs', 'backend/index.ts', 'backend/index.js']) {
+    try {
+      const content = await fs.readFile(path.join(projectRoot, relPath), 'utf8');
+      return { relPath, content };
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+const ZIP_CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+  return value >>> 0;
+});
+
+function zipCrc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = ZIP_CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildUncompressedZip(entries: Array<{ name: string; data: Buffer }>): Buffer {
+  // Uncompressed multi-entry ZIP with valid CRC — real extractors (jszip) reject zero-CRC theater.
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const data = entry.data;
+    const checksum = zipCrc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, name, data);
+    centrals.push(central, name);
+    offset += local.length + name.length + data.length;
+  }
+  const centralDir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, centralDir, end]);
+}
+
+function buildMinimalSmokeZip(): Buffer {
+  // Mirror oracle fixture shape: multi-file ZIP with seeded eval for R4 findings smoke.
+  return buildUncompressedZip([
+    {
+      name: 'src/index.js',
+      data: Buffer.from("const userInput = 'oracle'; eval(userInput); // oracle-seeded-eval\n")
+    },
+    {
+      name: 'src/math.js',
+      data: Buffer.from('export const add = (a, b) => a + b;\n')
+    },
+    {
+      name: 'README.md',
+      data: Buffer.from('# Oracle multi-file project\n')
+    }
+  ]);
+}
+
+/** Same bar as tools/qualification-oracles/repair-inspectorcode.mjs meaningfulAnalysis (G2x). */
+function meaningfulSmokeAnalysis(body: unknown): {
+  ok: boolean;
+  fileCount: number;
+  seededFinding: boolean;
+  placeholder: boolean;
+} {
+  const serialized = JSON.stringify(body ?? {}).toLowerCase();
+  const placeholder = /placeholder|mock analysis|sample result|simulated/.test(serialized);
+  const seededFinding = /oracle-seeded-eval|\beval\b|dynamic code execution/.test(serialized);
+  let fileCount = 0;
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (/^(filecount|totalfiles|filesanalyzed|analyzedfiles)$/i.test(key) && Number.isFinite(Number(child))) {
+        fileCount = Math.max(fileCount, Number(child));
+      }
+      if (/files/i.test(key) && Array.isArray(child)) fileCount = Math.max(fileCount, child.length);
+      visit(child);
+    }
+  };
+  visit(body);
+  return {
+    ok: !placeholder && seededFinding && fileCount >= 3,
+    fileCount,
+    seededFinding,
+    placeholder
+  };
+}
+
+function extractSmokeProjectId(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const record = body as Record<string, unknown>;
+  for (const key of ['projectId', 'id']) {
+    const value = record[key];
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+  }
+  for (const value of Object.values(record)) {
+    const nested = extractSmokeProjectId(value);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+async function listFilesRecursive(root: string): Promise<string[]> {
+  const found: string[] = [];
+  async function walk(current: string): Promise<void> {
+    for (const entry of await fs.readdir(current, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) found.push(full);
+    }
+  }
+  await walk(root);
+  return found;
+}
+
+/**
+ * After a green build, prove the production entry is not a placeholder and that
+ * critical client routes exist (static) and answer something other than 404/501 (smoke).
+ */
+async function runApiContractVerification(
+  projectRoot: string,
+  requiredRoutes: string[],
+  timeoutMs: number
+): Promise<VerificationItem> {
+  const server = await readServerEntrySource(projectRoot);
+  if (!server) {
+    return {
+      script: 'analyze',
+      command: 'api-route-contracts',
+      root: '.',
+      exitCode: 1,
+      timedOut: false,
+      passed: false,
+      outputTail: ['API_CONTRACT_MISSING_SERVER_ENTRY', `Required routes: ${requiredRoutes.join(', ')}`]
+    };
+  }
+  const staticCheck = assessApiImplementationSource(server.content, requiredRoutes);
+  if (!staticCheck.ok) {
+    return {
+      script: 'analyze',
+      command: 'api-route-contracts',
+      root: '.',
+      exitCode: 1,
+      timedOut: false,
+      passed: false,
+      outputTail: [staticCheck.detail]
+    };
+  }
+
+  const distEntry = path.join(projectRoot, 'dist', 'index.js');
+  try {
+    await fs.access(distEntry);
+  } catch {
+    return {
+      script: 'analyze',
+      command: 'api-route-smoke',
+      root: '.',
+      exitCode: 1,
+      timedOut: false,
+      passed: false,
+      outputTail: ['API_SMOKE_MISSING_DIST', 'npm run build must emit dist/index.js before API smoke']
+    };
+  }
+
+  const port = await freeLoopbackPort();
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-api-smoke-'));
+  const env = {
+    ...jailedEnv(),
+    NODE_ENV: 'production',
+    HOST: '127.0.0.1',
+    PORT: String(port),
+    DATA_DIR: dataDir,
+    INSPECTORCODE_DATA_DIR: dataDir,
+    JC_DATA_DIR: dataDir
+  };
+  let activeChild = spawn(process.execPath, [distEntry], {
+    cwd: projectRoot,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+  let stdout = '';
+  let stderr = '';
+  const attachLogs = (proc: ReturnType<typeof spawn>): void => {
+    proc.stdout?.on('data', (chunk) => { stdout = (stdout + chunk.toString()).slice(-4000); });
+    proc.stderr?.on('data', (chunk) => { stderr = (stderr + chunk.toString()).slice(-4000); });
+  };
+  attachLogs(activeChild);
+
+  const base = `http://127.0.0.1:${port}`;
+  const smokeDeadline = Date.now() + Math.min(timeoutMs, 20_000);
+  let healthy = false;
+  let healthStatus = 0;
+  try {
+    while (Date.now() < smokeDeadline) {
+      if (activeChild.exitCode !== null) break;
+      try {
+        const health = await fetch(`${base}/api/health`);
+        healthStatus = health.status;
+        if (health.status === 200) {
+          healthy = true;
+          break;
+        }
+      } catch { /* retry */ }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    if (!healthy || activeChild.exitCode !== null) {
+      return {
+        script: 'analyze',
+        command: 'api-route-smoke',
+        root: '.',
+        exitCode: 1,
+        timedOut: false,
+        passed: false,
+        outputTail: [
+          `healthStatus=${healthStatus}`,
+          `childExit=${activeChild.exitCode}`,
+          ...diagnosticExcerpt(stdout),
+          ...diagnosticExcerpt(stderr)
+        ]
+      };
+    }
+
+    const zipBytes = buildMinimalSmokeZip();
+    const form = new FormData();
+    form.append('name', 'jc-api-smoke');
+    form.append('file', new Blob([Uint8Array.from(zipBytes)], { type: 'application/zip' }), 'smoke.zip');
+    const upload = await fetch(`${base}/api/projects/upload`, {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+      body: form
+    }).catch(() => null);
+    const uploadStatus = upload?.status ?? 0;
+    const uploadBody = upload ? await upload.json().catch(() => null) : null;
+    const projectId = extractSmokeProjectId(uploadBody);
+    let storedFiles = 0;
+    let projectLocalDataFiles = 0;
+    try {
+      storedFiles = (await listFilesRecursive(dataDir)).length;
+    } catch { storedFiles = 0; }
+    try {
+      // G2o: server wrote under project ./data while ignoring smoke's DATA_DIR env.
+      projectLocalDataFiles = (await listFilesRecursive(path.join(projectRoot, 'data'))).length;
+    } catch { projectLocalDataFiles = 0; }
+    // Oracle R3 needs a real upload (2xx + id + files under the env DATA_DIR the server was started with).
+    const uploadOk = uploadStatus >= 200 && uploadStatus < 300 && projectId !== null && storedFiles >= 1;
+    const dataDirIgnored = !uploadOk
+      && uploadStatus >= 200 && uploadStatus < 300
+      && projectId !== null
+      && storedFiles === 0
+      && projectLocalDataFiles >= 1;
+
+    // G2w/oracle R4: parameterized analysis routes + meaningful findings (eval seed), not 200 theater.
+    let analysisStartStatus = 0;
+    let analysisGetStatus = 0;
+    let analysisMeaning = { ok: false, fileCount: 0, seededFinding: false, placeholder: false };
+    if (uploadOk && projectId) {
+      const started = await fetch(`${base}/api/analysis/start/${encodeURIComponent(projectId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ options: { depth: 'deep' }, testingInstructions: 'Inspect the real uploaded files.' })
+      }).catch(() => null);
+      analysisStartStatus = started?.status ?? 0;
+      const analysisDeadline = Date.now() + 8_000;
+      while (Date.now() < analysisDeadline) {
+        const got = await fetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
+          headers: { accept: 'application/json' }
+        }).catch(() => null);
+        analysisGetStatus = got?.status ?? 0;
+        const body = got ? await got.json().catch(() => null) : null;
+        analysisMeaning = meaningfulSmokeAnalysis(body);
+        if (analysisGetStatus >= 200 && analysisGetStatus < 300 && analysisMeaning.ok) break;
+        if (analysisGetStatus >= 400 && analysisGetStatus < 500) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+    const analysisRouted = analysisStartStatus >= 200 && analysisStartStatus < 300
+      && analysisGetStatus >= 200 && analysisGetStatus < 300
+      && analysisMeaning.ok;
+
+    // Staged oracle surface (review item 7): later probes run only after earlier gates pass,
+    // and firstFailure names the earliest break for correction noise.
+    const gateFailures: string[] = [];
+    if (!uploadOk) gateFailures.push('R3-upload-dataDir');
+    if (uploadOk && !analysisRouted) gateFailures.push('R4-analysis-findings');
+
+    // Oracle R5 (lite): `/` must serve the client UI text (full browser check stays in the independent oracle).
+    let rootStatus = 0;
+    let rootLooksLikeUi = false;
+    if (analysisRouted) {
+      const root = await fetch(`${base}/`).catch(() => null);
+      rootStatus = root?.status ?? 0;
+      const rootText = root ? await root.text().catch(() => '') : '';
+      rootLooksLikeUi = rootStatus === 200 && /inspectorcode|upload/i.test(rootText);
+      if (!rootLooksLikeUi) gateFailures.push('R5-static-ui');
+    }
+
+    // Oracle R6 prelude: durable save before restart (only after UI gate).
+    let saveStatus = 0;
+    let saveOk = false;
+    if (analysisRouted && rootLooksLikeUi && projectId) {
+      const saved = await fetch(`${base}/api/projects/save/${encodeURIComponent(projectId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ name: 'jc-api-smoke-saved', description: 'persistence probe' })
+      }).catch(() => null);
+      saveStatus = saved?.status ?? 0;
+      saveOk = saveStatus >= 200 && saveStatus < 300;
+      if (!saveOk) gateFailures.push('R6-save');
+    }
+
+    // Oracle R7: zip-slip — only after save prelude so correction sees one causal lane.
+    let slipStatus = 0;
+    let escapedByPath = false;
+    let escapedInTree = false;
+    let slipOk = false;
+    if (saveOk) {
+      const escapeName = `jc-smoke-escape-${Date.now()}.js`;
+      const slipZip = buildUncompressedZip([
+        { name: `../${escapeName}`, data: Buffer.from('globalThis.oracleEscape = true;\n') },
+        { name: 'safe.js', data: Buffer.from('export default true;\n') }
+      ]);
+      const slipForm = new FormData();
+      slipForm.append('name', 'jc-api-smoke-slip');
+      slipForm.append('file', new Blob([Uint8Array.from(slipZip)], { type: 'application/zip' }), 'slip.zip');
+      const slipUpload = await fetch(`${base}/api/projects/upload`, {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body: slipForm
+      }).catch(() => null);
+      slipStatus = slipUpload?.status ?? 0;
+      const escapeCandidates = [
+        path.join(projectRoot, escapeName),
+        path.join(dataDir, escapeName),
+        path.join(path.dirname(dataDir), escapeName)
+      ];
+      escapedByPath = (await Promise.all(
+        escapeCandidates.map((candidate) => fs.access(candidate).then(() => true).catch(() => false))
+      )).some(Boolean);
+      escapedInTree = (await listFilesRecursive(dataDir).catch(() => []) as string[])
+        .some((file) => path.basename(file) === escapeName);
+      slipOk = slipStatus >= 400 && slipStatus < 500 && !escapedByPath && !escapedInTree;
+      if (!slipOk) gateFailures.push('R7-zip-slip');
+    }
+
+    // Oracle R8: malformed upload + unknown ids (after zip-slip gate).
+    let malformedStatus = 0;
+    let unknownGetStatus = 0;
+    let unknownStartStatus = 0;
+    let honestyOk = false;
+    if (slipOk) {
+      const malformedForm = new FormData();
+      malformedForm.append('name', 'missing-archive');
+      const malformed = await fetch(`${base}/api/projects/upload`, {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body: malformedForm
+      }).catch(() => null);
+      malformedStatus = malformed?.status ?? 0;
+      const unknownGet = await fetch(`${base}/api/analysis/999999999`, {
+        headers: { accept: 'application/json' }
+      }).catch(() => null);
+      unknownGetStatus = unknownGet?.status ?? 0;
+      const unknownStart = await fetch(`${base}/api/analysis/start/999999999`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ options: {} })
+      }).catch(() => null);
+      unknownStartStatus = unknownStart?.status ?? 0;
+      honestyOk = malformedStatus >= 400 && malformedStatus < 500
+        && unknownGetStatus >= 400 && unknownGetStatus < 500
+        && unknownStartStatus >= 400 && unknownStartStatus < 500;
+      if (!honestyOk) gateFailures.push('R8-http-4xx');
+    }
+
+    // Oracle R6 restart: same DATA_DIR + same PORT after port is free (review item 3).
+    let recentStatus = 0;
+    let recentHasProject = false;
+    let persistedAnalysisOk = false;
+    let restartHealth = 0;
+    let portFreed = false;
+    if (honestyOk && projectId) {
+      if (activeChild.exitCode === null) {
+        activeChild.kill('SIGTERM');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (activeChild.exitCode === null) activeChild.kill('SIGKILL');
+      }
+      portFreed = await waitForLoopbackPortFree(port, 10_000);
+      if (!portFreed) {
+        gateFailures.push('R6-port-busy');
+      } else {
+        activeChild = spawn(process.execPath, [distEntry], {
+          cwd: projectRoot,
+          env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true
+        });
+        attachLogs(activeChild);
+        const restartDeadline = Date.now() + 15_000;
+        while (Date.now() < restartDeadline) {
+          if (activeChild.exitCode !== null) break;
+          try {
+            const health = await fetch(`${base}/api/health`);
+            restartHealth = health.status;
+            if (health.status === 200) break;
+          } catch { /* retry */ }
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        if (restartHealth === 200) {
+          const recent = await fetch(`${base}/api/projects/recent`, {
+            headers: { accept: 'application/json' }
+          }).catch(() => null);
+          recentStatus = recent?.status ?? 0;
+          const recentBody = recent ? await recent.json().catch(() => null) : null;
+          recentHasProject = recentStatus === 200
+            && JSON.stringify(recentBody ?? {}).includes(String(projectId));
+          const persisted = await fetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
+            headers: { accept: 'application/json' }
+          }).catch(() => null);
+          const persistedBody = persisted ? await persisted.json().catch(() => null) : null;
+          persistedAnalysisOk = (persisted?.status ?? 0) === 200
+            && meaningfulSmokeAnalysis(persistedBody).ok;
+        }
+        if (!(saveOk && recentHasProject && persistedAnalysisOk && restartHealth === 200)) {
+          gateFailures.push('R6-restart-persist');
+        }
+      }
+    }
+
+    const persistOk = saveOk && recentHasProject && persistedAnalysisOk && restartHealth === 200 && portFreed;
+    const firstFailure = gateFailures[0] || null;
+    const passed = uploadOk && analysisRouted && rootLooksLikeUi && persistOk && slipOk && honestyOk
+      && gateFailures.length === 0;
+    return {
+      script: 'analyze',
+      command: 'api-route-smoke',
+      root: '.',
+      exitCode: passed ? 0 : 1,
+      timedOut: false,
+      passed,
+      outputTail: [
+        `firstFailure=${firstFailure ?? 'none'}`,
+        `health=200`,
+        `uploadStatus=${uploadStatus}`,
+        `projectId=${projectId ?? 'none'}`,
+        `storedFiles=${storedFiles}`,
+        `projectLocalDataFiles=${projectLocalDataFiles}`,
+        `analysisStartStatus=${analysisStartStatus}`,
+        `analysisGetStatus=${analysisGetStatus}`,
+        `analysisFiles=${analysisMeaning.fileCount}`,
+        `seededFinding=${analysisMeaning.seededFinding}`,
+        `placeholder=${analysisMeaning.placeholder}`,
+        `rootStatus=${rootStatus}`,
+        `rootUi=${rootLooksLikeUi}`,
+        `saveStatus=${saveStatus}`,
+        `slipStatus=${slipStatus}`,
+        `escaped=${escapedByPath || escapedInTree}`,
+        `malformed=${malformedStatus}`,
+        `unknownGet=${unknownGetStatus}`,
+        `unknownStart=${unknownStartStatus}`,
+        `portFreed=${portFreed}`,
+        `restartHealth=${restartHealth}`,
+        `recentStatus=${recentStatus}`,
+        `recentHasProject=${recentHasProject}`,
+        `persistedAnalysis=${persistedAnalysisOk}`,
+        ...(dataDirIgnored
+          ? ['DATA_DIR_IGNORED: files appeared under project ./data but not under the smoke DATA_DIR/INSPECTORCODE_DATA_DIR/JC_DATA_DIR env path.']
+          : []),
+        passed
+          ? 'Staged upload/analysis/UI/save/zip-slip/4xx/restart smoke passed under env DATA_DIR (oracle R3–R8 API surface).'
+          : `First smoke break: ${firstFailure ?? 'unknown'}. Fix that gate before later oracle checks (R3→R8 staged).`
+      ]
+    };
+  } finally {
+    if (activeChild.exitCode === null) {
+      activeChild.kill('SIGTERM');
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (activeChild.exitCode === null) activeChild.kill('SIGKILL');
+    }
+    await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function runVerification(
   projectRoot: string,
   options: {
     timeoutMs?: number;
     editedRelPaths?: string[];
     expectedHashes?: ExpectedFileHash[];
+    /** When set, build pass is not enough — server must implement and smoke these routes (G2m). */
+    apiRouteContracts?: string[];
   } = {}
 ): Promise<VerificationReport> {
   const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -461,10 +1002,46 @@ export async function runVerification(
     };
   }
 
-  const passed = effective.every((item) => item.passed);
+  let passed = effective.every((item) => item.passed);
   // rewrite items for report clarity
   items.length = 0;
   items.push(...effective);
+
+  // Build can pass while production start dies on undeclared externals (G2e: uuid).
+  if (passed && (options.editedRelPaths || []).length) {
+    const importAudit = await findUndeclaredImportsInProjectFiles(resolvedRoot, options.editedRelPaths || []);
+    if (importAudit.undeclared.length) {
+      const detail = importAudit.undeclared
+        .map((entry) => `${entry.file} imports '${entry.packageName}'`)
+        .join('; ');
+      items.push({
+        script: 'build',
+        command: 'declared-package-imports',
+        root: importAudit.packageJsonPath || '.',
+        exitCode: 1,
+        timedOut: false,
+        passed: false,
+        outputTail: [
+          'EDITED_SOURCE_UNDECLARED_PACKAGE_IMPORT',
+          detail,
+          'Add the package to package.json dependencies or replace with a node: builtin / relative import.'
+        ]
+      });
+      passed = false;
+    }
+  }
+
+  // G2m: build-green placeholder servers must not complete operational repairs.
+  if (passed && (options.apiRouteContracts || []).length) {
+    const apiItem = await runApiContractVerification(
+      resolvedRoot,
+      options.apiRouteContracts || [],
+      Math.min(timeoutMs, 45_000)
+    );
+    items.push(apiItem);
+    if (!apiItem.passed) passed = false;
+  }
+
   return {
     status: passed ? 'passed' : 'failed',
     detail: passed

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .jc/
+.env
+.env.*
 *.log
 *.tmp
 .DS_Store

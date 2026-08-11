@@ -282,8 +282,22 @@ async function browserCheck() {
     };
     return { passed: /inspectorcode|upload/i.test(bodyText) && fatal.length === 0 && Object.values(states).every(Boolean), fatal, states };
   } finally {
-    browser.kill('SIGKILL');
-    await fs.rm(profile, { recursive: true, force: true });
+    if (browser.exitCode === null) {
+      browser.kill('SIGKILL');
+      const killDeadline = Date.now() + 3_000;
+      while (browser.exitCode === null && Date.now() < killDeadline) await sleep(50);
+    }
+    // Windows keeps Chromium profile locks briefly after SIGKILL; retry cleanup.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        await fs.rm(profile, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+        if (code !== 'EBUSY' && code !== 'EPERM') throw error;
+        await sleep(200);
+      }
+    }
   }
 }
 

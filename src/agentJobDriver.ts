@@ -155,6 +155,34 @@ export function successfulTerminal(result: Record<string, any>): {
   };
 }
 
+/** v3 J4: classify apply results including completion denials so verify/finalize still run. */
+export function classifyExecutionResult(result: Record<string, any>): {
+  terminalState: 'completed' | 'completed_with_limits' | 'failed_safe';
+  reason: string;
+  proofLevel: string;
+} {
+  const code = typeof result.code === 'string' ? result.code : '';
+  if (code === 'COMPLETION_EVIDENCE_FAILED' || code === 'ROLLBACK_INCOMPLETE' || result.rolledBack === true) {
+    const failedCriteria = Array.isArray(result.acceptanceResults)
+      ? result.acceptanceResults
+        .filter((item: { passed?: unknown }) => item && item.passed === false)
+        .map((item: { criterion?: unknown }) => String(item.criterion || 'acceptance check failed'))
+      : [];
+    const reason = typeof result.error === 'string' && result.error.trim()
+      ? result.error
+      : failedCriteria.length
+        ? `Repair completion denied: ${failedCriteria.join('; ')}.`
+        : code === 'ROLLBACK_INCOMPLETE'
+          ? 'Repair failed and rollback did not fully restore the snapshot.'
+          : 'Repair completion denied.';
+    const proofLevel = result.verification
+      ? verificationProofLevel(result.verification as VerificationReport)
+      : 'failed';
+    return { terminalState: 'failed_safe', reason, proofLevel };
+  }
+  return successfulTerminal(result);
+}
+
 export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRuntimeDriver {
   return {
     async execute(context: AgentRuntimeContext): Promise<AgentActionOutcome> {
@@ -260,7 +288,8 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
                   surveyId: projectResponse.project.latestSurveyId,
                   objective: job.objective,
                   intent,
-                  threadId: job.threadId
+                  threadId: job.threadId,
+                  ...(job.maxCloudCostUsd > 0 ? { maxCloudCostUsd: job.maxCloudCostUsd } : {})
                 }
               }
             );
@@ -369,19 +398,41 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
             : [];
           const applyAction = operations.includes('edit_files') ? 'apply_edits' : 'export_handoff';
           const workOrderDuration = Number(current.workOrder.budgets?.maxDurationMs || 600_000);
-          const result = await callApi<Record<string, any>>(
-            credentials,
-            actionKey,
-            'execute',
-            `/api/v1/internal/work-orders/${workOrderId}/apply`,
-            {
-              method: 'POST',
-              body: { action: applyAction },
-              timeoutMs: Math.min(30 * 60_000, Math.max(120_000, workOrderDuration + 120_000))
+          let result: Record<string, any>;
+          try {
+            result = await callApi<Record<string, any>>(
+              credentials,
+              actionKey,
+              'execute',
+              `/api/v1/internal/work-orders/${workOrderId}/apply`,
+              {
+                method: 'POST',
+                body: { action: applyAction },
+                timeoutMs: Math.min(30 * 60_000, Math.max(120_000, workOrderDuration + 120_000))
+              }
+            );
+          } catch (error: unknown) {
+            // Completion denials still ran apply/verify/rollback. Keep them as execution results
+            // so evaluate_verification can mark verificationEvaluated and preserve the criterion text.
+            if (
+              error instanceof AgentJobHttpError
+              && (error.code === 'COMPLETION_EVIDENCE_FAILED' || error.code === 'ROLLBACK_INCOMPLETE')
+              && error.detail
+              && typeof error.detail === 'object'
+            ) {
+              result = {
+                ...(error.detail as Record<string, unknown>),
+                code: error.code,
+                error: error.message
+              };
+            } else {
+              throw error;
             }
-          );
+          }
           appendAgentJobMemory({
-            jobId: job.id, kind: 'attempted_fix', content: `${applyAction} completed for ${workOrderId}.`,
+            jobId: job.id,
+            kind: 'attempted_fix',
+            content: `${applyAction} finished for ${workOrderId}${result.code ? ` (${result.code})` : ''}.`,
             evidenceIds: result.evidenceId ? [String(result.evidenceId)] : []
           });
           return {
@@ -394,15 +445,20 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
         evaluate_verification: async () => {
           const result = state.executionResult as Record<string, any> | undefined;
           if (!result) throw new Error('AGENT_RUNTIME_EXECUTION_RESULT_REQUIRED');
-          const classification = successfulTerminal(result);
+          const classification = classifyExecutionResult(result);
           const verification = result.verification || {
             proofLevel: classification.proofLevel,
             evidenceId: result.evidenceId || null,
-            workOrderStatus: result.workOrder?.status || null
+            workOrderStatus: result.workOrder?.status || null,
+            acceptanceResults: result.acceptanceResults || null
           };
           appendAgentJobMemory({
-            jobId: job.id, kind: classification.proofLevel === 'runtime' ? 'command_result' : 'unresolved_risk',
-            content: classification.reason, evidenceIds: result.evidenceId ? [String(result.evidenceId)] : []
+            jobId: job.id,
+            kind: classification.terminalState === 'failed_safe'
+              ? 'unresolved_risk'
+              : classification.proofLevel === 'runtime' ? 'command_result' : 'unresolved_risk',
+            content: classification.reason,
+            evidenceIds: result.evidenceId ? [String(result.evidenceId)] : []
           });
           return {
             statePatch: {
@@ -425,15 +481,31 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
         },
 
         finalize: async () => {
-          const terminalState = state.requestedTerminalState === 'completed_with_limits'
-            ? 'completed_with_limits'
+          const requested = String(state.requestedTerminalState || 'completed');
+          const terminalState = (
+            requested === 'completed_with_limits'
+            || requested === 'failed_safe'
+            || requested === 'blocked_for_user'
+            || requested === 'cancelled'
+          ) ? requested as 'completed' | 'completed_with_limits' | 'failed_safe' | 'blocked_for_user' | 'cancelled'
             : 'completed';
           const terminalReason = String(
-            state.requestedTerminalReason || 'The bounded job completed with recorded evidence.'
+            state.requestedTerminalReason
+            || (terminalState === 'failed_safe'
+              ? 'Joe stopped safely because completion evidence failed.'
+              : 'The bounded job completed with recorded evidence.')
           );
           return {
             statePatch: { finalizedAt: Date.now() },
-            jobPatch: { result: state.executionResult || job.result },
+            jobPatch: {
+              result: state.executionResult || job.result,
+              ...(terminalState === 'failed_safe' ? {
+                errorCode: typeof (state.executionResult as { code?: unknown } | undefined)?.code === 'string'
+                  ? String((state.executionResult as { code: string }).code)
+                  : 'COMPLETION_EVIDENCE_FAILED',
+                errorMessage: terminalReason
+              } : {})
+            },
             terminalState,
             terminalReason
           };

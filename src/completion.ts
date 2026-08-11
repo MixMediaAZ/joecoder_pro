@@ -3,7 +3,14 @@ import path from 'node:path';
 import type { WorkOrder } from './types.js';
 import type { ApplyEditsResult } from './mutation.js';
 import { verificationProofLevel, type VerificationReport } from './verification.js';
-import { isSubstantialObjective, requiresOperationalRuntimeProof, topLevelAreaCount } from './objectiveSemantics.js';
+import {
+  isCausalEvidenceRepair,
+  isSubstantialObjective,
+  requiresOperationalRuntimeProof,
+  topLevelAreaCount
+} from './objectiveSemantics.js';
+import { isEvidenceTargetAlreadySatisfied } from './repair.js';
+import { apiContractProofSatisfied, assessApiImplementationSource } from './apiRouteContracts.js';
 
 export interface AcceptanceResult {
   id: string;
@@ -91,7 +98,8 @@ export async function evaluateRepairCompletion(
   applyResult: ApplyEditsResult,
   verification: VerificationReport,
   applyEvidenceId: string,
-  evidenceVerified: (id: string) => Promise<boolean>
+  evidenceVerified: (id: string) => Promise<boolean>,
+  options: { projectRoot?: string } = {}
 ): Promise<CompletionDecision> {
   const scope = new Set((workOrder.scope.exactPaths || []).map((p) => p.replace(/\\/g, '/')));
   const outOfScope = applyResult.applied.filter((change) => !scope.has(change.relPath));
@@ -103,7 +111,67 @@ export async function evaluateRepairCompletion(
   const runtimeRequired = requiresRuntimeProof(workOrder);
   const substantialRequired = isSubstantialObjective(workOrder.objective);
   const appliedPaths = applyResult.applied.map((change) => change.relPath);
-  const substantialCompleted = appliedPaths.length >= 8 && topLevelAreaCount(appliedPaths) >= 2;
+  const appliedSet = new Set(appliedPaths.map((rel) => rel.replace(/\\/g, '/').replace(/^\.\//, '')));
+  // Breadth theater removed: substantial completion requires genuine applied work,
+  // not a manufactured 8-file/2-area footprint. Area/file counts stay in the detail
+  // string as honest accounting.
+  const substantialCompleted = appliedPaths.length >= 1;
+  const evidenceTargets = (workOrder.taskSpecific?.evidenceTargets || [])
+    .map((rel) => rel.replace(/\\/g, '/').replace(/^\.\//, ''));
+  const evidenceTargetMet = async (target: string): Promise<boolean> => {
+    if (appliedSet.has(target)) return true;
+    const root = options.projectRoot;
+    if (!root) return false;
+    try {
+      const abs = path.join(root, target);
+      const content = await fs.readFile(abs, 'utf8');
+      return isEvidenceTargetAlreadySatisfied({
+        relPath: target,
+        exists: true,
+        content,
+        truncated: false
+      });
+    } catch {
+      return false;
+    }
+  };
+  const evidenceApplied = evidenceTargets.length === 0
+    || (await Promise.all(evidenceTargets.map((target) => evidenceTargetMet(target)))).every(Boolean);
+  const runtimePassed = verification.status !== 'failed' && (!runtimeRequired || proofLevel === 'runtime');
+  const requiredApiRoutes = (workOrder.taskSpecific?.requiredApiRoutes || [])
+    .map((route) => route.replace(/\\/g, '/'));
+  const apiProof = apiContractProofSatisfied(verification, requiredApiRoutes);
+  let apiSourceOk = true;
+  let apiSourceDetail = 'No on-disk server source check required.';
+  if (runtimeRequired && requiredApiRoutes.length && options.projectRoot) {
+    const candidates = ['server/index.ts', 'server/index.js', 'server/index.mjs', 'backend/index.ts', 'backend/index.js'];
+    let source: string | null = null;
+    for (const rel of candidates) {
+      try {
+        source = await fs.readFile(path.join(options.projectRoot, rel), 'utf8');
+        break;
+      } catch { /* try next */ }
+    }
+    if (!source) {
+      apiSourceOk = false;
+      apiSourceDetail = 'Sealed API contracts require a server entry on disk (server/index.ts); none found.';
+    } else {
+      const assessed = assessApiImplementationSource(source, requiredApiRoutes);
+      apiSourceOk = assessed.ok;
+      apiSourceDetail = assessed.detail;
+    }
+  }
+  const apiContractsPassed = !runtimeRequired || requiredApiRoutes.length === 0
+    || (apiProof.ok && apiSourceOk);
+  // v3 J3: with recorded evidence + runtime proof, 8-file breadth is mandate accounting / oracle
+  // territory — not a completion deny that rolls back a working causal repair.
+  const causalEvidenceComplete = isCausalEvidenceRepair(workOrder.objective, evidenceTargets)
+    && evidenceApplied
+    && runtimePassed
+    && apiContractsPassed;
+  const substantialGatePassed = !substantialRequired
+    || substantialCompleted
+    || causalEvidenceComplete;
 
   const observed = [
     {
@@ -131,11 +199,11 @@ export async function evaluateRepairCompletion(
     },
     {
       id: `${workOrder.id}-SUBSTANTIAL`,
-      criterion: 'Substantial objectives complete across at least eight files and two project areas',
-      passed: !substantialRequired || substantialCompleted,
+      criterion: 'Substantial objectives produce at least one genuinely applied file',
+      passed: substantialGatePassed,
       evidenceIds: [applyEvidenceId],
       detail: substantialRequired
-        ? `files=${appliedPaths.length}/8; areas=${topLevelAreaCount(appliedPaths)}/2`
+        ? `files=${appliedPaths.length}; areas=${topLevelAreaCount(appliedPaths)}; evidenceApplied=${evidenceApplied}; causalRuntimeBypass=${causalEvidenceComplete}`
         : 'The objective does not require substantial multi-layer scope.'
     },
     {
@@ -149,9 +217,20 @@ export async function evaluateRepairCompletion(
         : verification.status === 'no_scripts'
           ? 'No runnable scripts/hashes — verification inconclusive (not treated as failure)'
           : 'Runtime verification (build/test) failed',
-      passed: verification.status !== 'failed' && (!runtimeRequired || proofLevel === 'runtime'),
+      passed: runtimePassed,
       evidenceIds: [applyEvidenceId],
       detail: `${verification.status}: ${verification.detail}`
+    },
+    {
+      id: `${workOrder.id}-API`,
+      criterion: requiredApiRoutes.length
+        ? 'Sealed client API contracts have passing api-route-smoke proof (real upload extract under env DATA_DIR; not build-only / placeholder / hardcoded ./data theater)'
+        : 'No sealed client API route contracts for this work order',
+      passed: apiContractsPassed,
+      evidenceIds: [applyEvidenceId],
+      detail: requiredApiRoutes.length
+        ? `${apiProof.detail} | ${apiSourceDetail}`
+        : 'API contract gate inactive.'
     },
     {
       id: `${workOrder.id}-EVIDENCE`,

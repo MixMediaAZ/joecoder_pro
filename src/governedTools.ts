@@ -11,6 +11,7 @@ import {
   resolveJailedPath,
   rollbackToSnapshot,
   snapshotScopedFiles,
+  validateSnapshotManifest,
   type SnapshotManifest
 } from './mutation.js';
 import { listProjectFiles, previewProjectFile } from './projectExplorer.js';
@@ -36,8 +37,18 @@ const processes = new Map<string, {
 
 const relativePathSchema = z.string().trim().min(1).max(1000).refine((value) => {
   const forward = value.replace(/\\/g, '/');
+  const unsafeWindowsName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+  const segments = forward.split('/');
   return !path.isAbsolute(value) && !path.posix.isAbsolute(forward) &&
-    !/^[a-zA-Z]:(\/|$)/.test(forward) && !forward.split('/').includes('..') && !value.includes('\0');
+    !/^[a-zA-Z]:(\/|$)/.test(forward) && !value.includes('\0') &&
+    segments.every((segment) =>
+      Boolean(segment) &&
+      segment !== '.' &&
+      segment !== '..' &&
+      !segment.includes(':') &&
+      !/[. ]$/.test(segment) &&
+      !unsafeWindowsName.test(segment)
+    );
 }, 'A project-relative path is required.');
 
 const loopbackUrlSchema = z.string().url().max(2000).refine((value) => {
@@ -71,7 +82,8 @@ function normalizedAuthorityPaths(context: GovernedToolContext): Set<string> {
     const full = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(root, candidate);
     const relative = slash(path.relative(root, full));
     if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) continue;
-    result.add(relative);
+    resolveJailedPath(root, relative);
+    result.add(process.platform === 'win32' ? relative.toLowerCase() : relative);
   }
   return result;
 }
@@ -84,10 +96,11 @@ function requireOperation(context: GovernedToolContext, operation: string | null
 }
 
 function requireMutatingPath(context: GovernedToolContext, relativePath: string): string {
-  const normalized = slash(relativePath);
-  const full = resolveJailedPath(context.projectRoot, normalized);
-  if (!normalizedAuthorityPaths(context).has(normalized)) {
-    throw new GovernedToolError('TOOL_PATH_NOT_AUTHORIZED', `${normalized} is outside the sealed exact-path scope.`);
+  const full = resolveJailedPath(context.projectRoot, slash(relativePath));
+  const canonical = slash(path.relative(path.resolve(context.projectRoot), full));
+  const identity = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  if (!normalizedAuthorityPaths(context).has(identity)) {
+    throw new GovernedToolError('TOOL_PATH_NOT_AUTHORIZED', `${canonical} is outside the sealed exact-path scope.`);
   }
   return full;
 }
@@ -113,6 +126,37 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: 
       (error) => { clearTimeout(timer); reject(error); }
     );
   });
+}
+
+async function withSettledTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: string): Promise<T> {
+  // Mutating tools must not be orphaned by a timer. Wait for the real outcome.
+  // A late success is still success; converting it into TOOL_TIMEOUT caused
+  // callers to retry work that had already been committed.
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  try {
+    const raced = await Promise.race([
+      promise.then(
+        (value) => ({ kind: 'ok' as const, value }),
+        (error) => ({ kind: 'err' as const, error })
+      ),
+      timeout.then(() => ({ kind: 'timeout' as const }))
+    ]);
+    if (raced.kind === 'ok') return raced.value;
+    if (raced.kind === 'err') throw raced.error;
+    try {
+      return await promise;
+    } catch (error) {
+      throw new GovernedToolError(
+        'TOOL_TIMEOUT',
+        `${toolName} exceeded ${timeoutMs}ms` + (error instanceof Error ? `: ${error.message}` : '.')
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function metadata(input: Omit<GovernedToolMetadata, 'evidenceProducer'>): GovernedToolMetadata {
   return { ...input, evidenceProducer: `joecoder-governed-tool/${input.name}@1` };
@@ -248,11 +292,18 @@ function snapshotPath(context: GovernedToolContext, snapshotId: string): string 
 }
 
 async function loadSnapshot(context: GovernedToolContext, snapshotId: string): Promise<SnapshotManifest> {
-  const manifest = JSON.parse(await fs.readFile(snapshotPath(context, snapshotId), 'utf8')) as SnapshotManifest;
-  if (path.resolve(manifest.projectRoot) !== path.resolve(context.projectRoot)) {
-    throw new GovernedToolError('SNAPSHOT_PROJECT_MISMATCH', 'The snapshot belongs to a different project.');
+  const stored = JSON.parse(await fs.readFile(snapshotPath(context, snapshotId), 'utf8')) as unknown;
+  try {
+    return validateSnapshotManifest(stored, {
+      expectedSnapshotId: snapshotId,
+      expectedProjectRoot: context.projectRoot
+    });
+  } catch (error: unknown) {
+    const code = error instanceof Error && error.message === 'SNAPSHOT_PROJECT_MISMATCH'
+      ? 'SNAPSHOT_PROJECT_MISMATCH'
+      : 'SNAPSHOT_MANIFEST_INVALID';
+    throw new GovernedToolError(code, 'The snapshot manifest is invalid or belongs to a different project.');
   }
-  return manifest;
 }
 
 function setJsonPointer(root: any, pointer: string, value: unknown): void {
@@ -674,7 +725,10 @@ export async function executeGovernedTool(
     requireOperation(context, definition.metadata.operation);
     const input = definition.schema.parse(request.input);
     const effectiveTimeout = Math.min(definition.metadata.timeoutMs, context.authority.maxDurationMs);
-    const output = await withTimeout(definition.execute(input, context), effectiveTimeout, request.name);
+    const operation = definition.execute(input, context);
+    const output = await (definition.metadata.authority === 'mutating'
+      ? withSettledTimeout(operation, effectiveTimeout, request.name)
+      : withTimeout(operation, effectiveTimeout, request.name));
     const outputJson = json(output);
     const outputHash = sha256(outputJson);
     const evidence = await context.recordEvidence({
