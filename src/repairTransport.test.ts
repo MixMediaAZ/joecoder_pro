@@ -13,12 +13,18 @@ test('strict plan parser accepts only a whole JSON transport fence', () => {
   assert.throws(() => parsePlanResponse(`${fence}json\n${planJson}\n${fence}\nclaim passed`), /PLAN_PARSE_FAILED/);
 });
 
-test('strict edit parser accepts a whole text fence and rejects any outside claim', () => {
+test('strict edit parser accepts a whole text fence and ignores pure narration outside blocks', () => {
   const blocks = '===FILE: src/app.js===\nconst x = 2;\n===END FILE===';
   assert.equal(parseEditBlocks(`${fence}text\n${blocks}\n${fence}`)[0]?.content, 'const x = 2;\n');
   assert.equal(parseEditBlocks(`~~~plaintext\n${blocks}\n~~~`)[0]?.relPath, 'src/app.js');
-  assert.throws(() => parseEditBlocks(`prose\n${blocks}`), /content outside/);
-  assert.throws(() => parseEditBlocks(`${blocks}\nclaim: tests passed`), /content outside/);
+  // G2u: local models wrap valid blocks with thinking/narration — ignore marker-free residue.
+  assert.equal(parseEditBlocks(`prose\n${blocks}`)[0]?.content, 'const x = 2;\n');
+  assert.equal(parseEditBlocks(`${blocks}\nclaim: tests passed`)[0]?.relPath, 'src/app.js');
+  // Incomplete markers in residue still fail closed.
+  assert.throws(
+    () => parseEditBlocks(`${blocks}\n===FILE: src/extra.js===\nconst y = 1;`),
+    /incomplete or malformed file blocks/
+  );
 });
 
 test('a language-labelled transport fence is unwrapped, and its payload is still validated', () => {
@@ -33,10 +39,14 @@ test('a language-labelled transport fence is unwrapped, and its payload is still
   // The protections that actually matter are unchanged. A fence carrying real source instead of
   // file blocks still fails, and now fails with the accurate reason.
   assert.throws(() => parseEditBlocks(`${fence}dart\nvoid main() { print('hi'); }\n${fence}`), /EDIT_PARSE_FAILED/);
-  // Prose smuggled inside a labelled fence alongside blocks is still rejected.
+  // G2u: marker-free narration beside well-formed blocks is ignored; incomplete markers are not.
+  assert.equal(
+    parseEditBlocks(`${fence}dart\n${dartBlocks}\nclaim: all tests passed\n${fence}`)[0]?.relPath,
+    'lib/main.dart'
+  );
   assert.throws(
-    () => parseEditBlocks(`${fence}dart\n${dartBlocks}\nclaim: all tests passed\n${fence}`),
-    /content outside/
+    () => parseEditBlocks(`${fence}dart\n${dartBlocks}\n===FILE: lib/extra.dart===\nvoid x() {}\n${fence}`),
+    /incomplete or malformed file blocks/
   );
 });
 
@@ -57,22 +67,38 @@ test('effective edit guard rejects byte-identical corrections and keeps only rea
     { relPath: 'src/b.js', content: 'const b = 2;\n' }
   ], files), [{ relPath: 'src/b.js', content: 'const b = 2;\n' }]);
 });
-test('an edit response that changes none of the evidence targets is rejected before any write', () => {
+test('an edit response that misses any sealed evidence target is rejected before any write', () => {
   // Observed in replay against the live model: with the root manifest and a stale nested one both
   // in scope, the model "fixed" the nested bystander and left the recorded cause untouched. Had
   // that parsed live, the job would have written a useless change and claimed limited success.
   const edits = [{ relPath: 'baby_daw_pro/pubspec.yaml', content: 'name: inner\n' }];
   assert.throws(
     () => requireEvidenceTargetEdits(edits, ['pubspec.yaml']),
-    /EDIT_MISSES_EVIDENCE_TARGET.*pubspec\.yaml/
+    /EDIT_MISSES_EVIDENCE_TARGET.*missing: pubspec\.yaml/
   );
 
-  // Touching any evidence target passes, extra files alongside are fine.
+  // Touching the sole evidence target passes; extra files alongside are fine.
   const good = [
     { relPath: 'pubspec.yaml', content: 'file_selector: ^1.1.0\n' },
     { relPath: 'baby_daw_pro/pubspec.yaml', content: 'name: inner\n' }
   ];
   assert.equal(requireEvidenceTargetEdits(good, ['pubspec.yaml']), good);
+
+  // v3 J1: every sealed evidence target must be touched — one of two is not enough.
+  assert.throws(
+    () => requireEvidenceTargetEdits(
+      [{ relPath: 'package.json', content: '{"name":"app"}\n' }],
+      ['package.json', 'postcss.config.js']
+    ),
+    /missing: postcss\.config\.js/
+  );
+  assert.equal(
+    requireEvidenceTargetEdits([
+      { relPath: 'package.json', content: '{"name":"app"}\n' },
+      { relPath: 'postcss.config.js', content: 'export default {};\n' }
+    ], ['package.json', 'postcss.config.js']).length,
+    2
+  );
 
   // Path normalisation: backslashes and leading ./ do not defeat the check.
   assert.equal(

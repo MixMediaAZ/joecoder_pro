@@ -31,7 +31,7 @@ import {
   verifyDatabase
 } from './database.js';
 import { importLegacyData } from './importLegacy.js';
-import { REQUIRED_TABLES } from './schema.js';
+import { DATABASE_SCHEMA_VERSION, REQUIRED_TABLES } from './schema.js';
 
 function project(): Project {
   return {
@@ -139,7 +139,7 @@ test('SQLite foundation migrates, constrains, imports, backs up, and reopens', a
 
     const initialized = await initializeDatabase(root);
     assert.equal(initialized.available, true);
-    assert.equal(initialized.schemaVersion, 6);
+    assert.equal(initialized.schemaVersion, DATABASE_SCHEMA_VERSION);
     assert.equal(initialized.tableCount, REQUIRED_TABLES.length);
     assert.equal(initialized.integrity, 'ok');
 
@@ -222,8 +222,8 @@ test('SQLite foundation migrates, constrains, imports, backs up, and reopens', a
     const reopened = await initializeDatabase(root);
     assert.equal(reopened.available, true);
     assert.equal(verifyDatabase().ok, true);
-    assert.equal(databaseCounts().schema_migrations, 6);
-    assert.equal(getDatabaseStatus().schemaVersion, 6);
+    assert.equal(databaseCounts().schema_migrations, DATABASE_SCHEMA_VERSION);
+    assert.equal(getDatabaseStatus().schemaVersion, DATABASE_SCHEMA_VERSION);
     assert.equal(getProjectBrain(p.id).guidancePresetId, 'brain-preset-safe-refactor');
   } finally {
     closeDatabase();

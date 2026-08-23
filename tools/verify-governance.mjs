@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,11 @@ const limitationDocument = JSON.parse(await fs.readFile(path.join(amendment, 'RA
 const limitations = new Map(limitationDocument.limitations.map((item) => [item.lawId, item]));
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const failures = [];
+
+const baselineAnchor = spawnSync(process.execPath, [path.join(root, 'tools', 'verify-baseline.mjs'), '--anchor'], {
+  cwd: root, encoding: 'utf8', windowsHide: true
+});
+if (baselineAnchor.status !== 0) failures.push('sealed v3 baseline anchor');
 
 for (const entry of manifest.files) {
   const target = path.join(ratified, entry.path);

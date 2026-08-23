@@ -1,7 +1,8 @@
 # JoeCoder Pro 20.1 — Defensible Handoff Plan v2.0
 
-**Date:** 2026-08-06
-**Authority:** This document is binding. It is the numbered successor that `HANDOFF_PLAN_v1.md` §4 preamble requires. Deviation from v2 requires a further numbered plan that explicitly supersedes named sections.
+**Date:** 2026-08-06  
+**Supersession (2026-08-08):** Repair/execution inner-loop architecture and Stage 2 approach are now governed by [`HANDOFF_PLAN_v3.md`](HANDOFF_PLAN_v3.md). v2 §1 Governing Laws remain in force. Finish gates remain under the controlling finish specification.
+**Authority:** This document was binding as the numbered successor that `HANDOFF_PLAN_v1.md` §4 preamble required. Deviation from v2 required a further numbered plan that explicitly supersedes named sections — that plan is v3.
 
 ## 0. Why v2 exists
 

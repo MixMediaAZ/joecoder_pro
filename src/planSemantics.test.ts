@@ -1,9 +1,69 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validatePlanForObjective, type RepairPlan } from './repair.js';
+import {
+  normalizePlanArchitectureSummary,
+  parsePlanResponse,
+  sanitizeArchitectureContracts,
+  validatePlanForObjective,
+  type RepairPlan
+} from './repair.js';
 import type { SurveyResult } from './types.js';
 
 const plan = (files: string[]): RepairPlan => ({ schemaVersion: 1, files, approach: 'bounded repair', risks: [] });
+
+test('short architecture.summary from small local models expands before plan schema parse (G2aa)', () => {
+  const decoded: Record<string, unknown> = {
+    schemaVersion: 1,
+    files: ['server/index.ts'],
+    approach: 'Wire upload, analysis, and DATA_DIR persistence end to end.',
+    risks: ['scope'],
+    architecture: {
+      summary: 'shared design',
+      contracts: ['POST /api/projects/upload accepts multipart ZIP'],
+      persistence: 'JSON under DATA_DIR'
+    }
+  };
+  normalizePlanArchitectureSummary(decoded);
+  const summary = (decoded.architecture as { summary: string }).summary;
+  assert.ok(summary.length >= 20);
+  assert.match(summary, /shared design/i);
+
+  const parsed = parsePlanResponse(JSON.stringify({
+    schemaVersion: 1,
+    files: ['server/index.ts'],
+    approach: 'Wire upload analysis restart.',
+    risks: ['risk'],
+    fileResponsibilities: [{
+      path: 'server/index.ts',
+      responsibility: 'Owns upload and analysis HTTP routes',
+      evidence: 'server/index.ts hosts Express routes today',
+      layer: 'service'
+    }],
+    architecture: {
+      summary: 'shared design',
+      contracts: ['POST /api/projects/upload accepts multipart ZIP'],
+      persistence: 'JSON under DATA_DIR'
+    }
+  }));
+  assert.ok((parsed.architecture?.summary || '').length >= 20);
+});
+
+test('sanitizes plan architecture that teaches bare analysis routes or simulation (G2w)', () => {
+  const cleaned = sanitizeArchitectureContracts({
+    summary: 'Express server with analysis simulation',
+    contracts: [
+      'POST /api/analysis/start -> { projectId }',
+      'GET /api/analysis -> findings',
+      'POST /api/projects/save -> ok'
+    ],
+    persistence: 'JSON files on disk'
+  });
+  assert.match(cleaned.summary, /real uploaded files under DATA_DIR/i);
+  assert.ok(cleaned.contracts.every((item) => !/POST \/api\/analysis\/start(?!\/:)/.test(item)));
+  assert.ok(cleaned.contracts.some((item) => /analysis\/start\/:projectId/.test(item)));
+  assert.ok(cleaned.contracts.some((item) => /GET \/api\/analysis\/:projectId/.test(item)));
+  assert.match(cleaned.persistence, /DATA_DIR/);
+});
 
 test('explicit composed multi-file objective rejects an incomplete one-file plan before authorization', () => {
   assert.throws(
@@ -80,6 +140,44 @@ test('combined accessibility and responsive repair includes evidence-backed mark
     ['style.css', 'index.html']
   );
 });
+test('toolchain build outputs are stripped from repair plans (G2v dist/index.js)', () => {
+  const survey = {
+    dependencyTargets: ['package.json', 'server/index.ts'],
+    entries: [
+      { type: 'file', path: 'package.json' },
+      { type: 'file', path: 'client/src/index.css' }
+    ],
+    packageSummary: { name: 'rest-express', scripts: { start: 'node dist/index.js', build: 'esbuild server/index.ts --outdir=dist' } }
+  } as unknown as SurveyResult;
+  const validated = validatePlanForObjective(
+    plan(['package.json', 'dist/index.js', 'server/index.ts']),
+    'Make InspectorCode run locally end to end so a user can upload a ZIP project.',
+    'repair',
+    survey
+  );
+  assert.equal(validated.files.includes('dist/index.js'), false, `scope=${validated.files.join(',')}`);
+  assert.ok(validated.files.includes('server/index.ts'), `scope=${validated.files.join(',')}`);
+});
+
+test('missing script entrypoint evidence is sealed even when absent from inventory (G2l)', () => {
+  const survey = {
+    dependencyTargets: ['package.json', 'postcss.config.js', 'server/index.ts'],
+    entries: [
+      { type: 'file', path: 'package.json' },
+      { type: 'file', path: 'postcss.config.js' },
+      { type: 'file', path: 'client/src/index.css' }
+    ],
+    packageSummary: { name: 'rest-express', scripts: { build: 'esbuild server/index.ts' } }
+  } as unknown as SurveyResult;
+  const validated = validatePlanForObjective(
+    plan(['package.json', 'postcss.config.js']),
+    'Make InspectorCode run locally end to end so a user can upload a ZIP project and see useful results.',
+    'repair',
+    survey
+  );
+  assert.ok(validated.files.includes('server/index.ts'), `scope=${validated.files.join(',')}`);
+});
+
 test('recorded dependency evidence forces the implicated manifest into a dependency-repair scope', () => {
   // Regression from the live Stage 2 runs: the survey proved the ROOT pubspec.yaml constraint
   // blocks installation, yet the 7B planner still scoped only the stale nested manifest whose

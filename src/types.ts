@@ -91,6 +91,8 @@ export interface WorkOrder {
     evidenceArtifacts: string[];
     /** Files recorded evidence identifies as the ones to correct; the edit stage must touch them. */
     evidenceTargets?: string[];
+    /** Client-discovered `/api/...` routes the server repair must implement (G2m). */
+    requiredApiRoutes?: string[];
   };
   donorDisposition?: {
     origin: string;
@@ -199,7 +201,7 @@ export interface SurveyResult {
   buildCondition: BuildCondition;
   status: 'complete' | 'truncated';
   truncatedReason?: string;
-  /** Up to 8 text files, ≤48KB each, for model planning context only. */
+  /** Up to 8 bounded text files for model planning context only. */
   contentSamples?: ContentSample[];
   /**
    * Files that recorded dependency evidence identifies as the ones to correct (e.g. the root
@@ -207,4 +209,8 @@ export interface SurveyResult {
    * evidence outranks a model's file choice.
    */
   dependencyTargets?: string[];
+  /**
+   * `/api/...` routes discovered from client sources that a runnable server repair must implement.
+   */
+  requiredApiRoutes?: string[];
 }

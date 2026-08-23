@@ -2,7 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { BuildCondition, ContentSample, PackageSummary, SurveyFindings, SurveyResult } from './types.js';
 import { discoverStackProfiles } from './stackProfiles.js';
-import { diagnoseDependencyConsistency, type ManifestFile } from './dependencyDoctor.js';
+import { diagnoseDependencyConsistency, diagnoseMissingScriptEntrypoints, type ManifestFile } from './dependencyDoctor.js';
+import { extractApiRouteContracts, selectRequiredApiRouteContracts } from './apiRouteContracts.js';
 
 async function readPackageSummary(projectRoot: string): Promise<PackageSummary | null> {
   try {
@@ -184,6 +185,40 @@ async function collectContentSamples(
     }
   }
   return samples;
+}
+
+/** Read client hooks/pages that call `/api/...` so route contracts are evidence, not guesswork. */
+async function collectClientApiSources(
+  projectRoot: string,
+  entries: SurveyResult['entries']
+): Promise<Array<{ path: string; content: string }>> {
+  const preferred = entries
+    .filter((entry) => entry.type === 'file')
+    .map((entry) => entry.path.replace(/\\/g, '/'))
+    .filter((rel) =>
+      /(^|\/)client\/src\/(hooks|pages|components)\//i.test(rel)
+      && /\.(ts|tsx|js|jsx)$/i.test(rel)
+      && !/(^|\/)(node_modules|\.git|dist|build)(\/|$)/i.test(rel)
+    )
+    .sort((a, b) => {
+      const score = (rel: string) =>
+        (/useFileUpload|useAnalysis|Dashboard|RecentProjects|FileUploader/i.test(rel) ? 0 : 1)
+        + rel.split('/').length / 100;
+      return score(a) - score(b);
+    });
+
+  const out: Array<{ path: string; content: string }> = [];
+  for (const rel of preferred) {
+    if (out.length >= 12) break;
+    try {
+      const buffer = await fs.readFile(path.join(projectRoot, rel));
+      if (buffer.includes(0) || buffer.length > 96 * 1024) continue;
+      const content = buffer.toString('utf8');
+      if (!content.includes('/api/')) continue;
+      out.push({ path: rel, content });
+    } catch { /* skip */ }
+  }
+  return out;
 }
 
 export async function performSurvey(
@@ -373,22 +408,34 @@ export async function performSurvey(
   // Without this, planning was blind to install failures and a local model scoped a stale nested
   // manifest instead of the root one the toolchain reads.
   const manifestNames = new Set(['pubspec.yaml', 'pubspec.lock', 'package.json', 'package-lock.json']);
+  const cssToolchainName = /^(?:postcss\.config\.(?:js|cjs|mjs|ts)|.*\.(?:css|scss))$/i;
   const manifestFiles: ManifestFile[] = [];
   for (const entry of base.entries) {
     if (entry.type !== 'file') continue;
     const rel = entry.path.replace(/\\/g, '/');
     const name = rel.split('/').pop() || '';
-    if (!manifestNames.has(name)) continue;
+    const forCssToolchain = cssToolchainName.test(name);
+    if (!manifestNames.has(name) && !forCssToolchain) continue;
     if (/(^|\/)(node_modules|\.git|\.jc|build|\.dart_tool|ephemeral)(\/|$)/.test(rel)) continue;
-    if (rel.split('/').length > 3 || manifestFiles.length >= 12) continue;
+    // CSS samples may sit a few folders deeper (client/src/index.css); keep the read bound.
+    if (rel.split('/').length > (forCssToolchain ? 5 : 3) || manifestFiles.length >= 20) continue;
     try {
       const buffer = await fs.readFile(path.join(targetPath, rel));
-      if (buffer.length <= 512 * 1024 && !buffer.includes(0)) {
+      const maxBytes = forCssToolchain && /\.(?:css|scss)$/i.test(name) ? 64 * 1024 : 512 * 1024;
+      if (buffer.length <= maxBytes && !buffer.includes(0)) {
         manifestFiles.push({ path: rel, content: buffer.toString('utf8') });
       }
     } catch { /* unreadable — no finding rather than a false one */ }
   }
   const dependencyDiagnosis = diagnoseDependencyConsistency(manifestFiles);
+  const rootPackage = manifestFiles.find((file) => /(^|\/)package\.json$/i.test(file.path));
+  if (rootPackage) {
+    diagnoseMissingScriptEntrypoints(
+      rootPackage.content,
+      base.entries.filter((entry) => entry.type === 'file').map((entry) => entry.path),
+      dependencyDiagnosis
+    );
+  }
   findings.broken.push(...dependencyDiagnosis.broken);
   findings.questionable.push(...dependencyDiagnosis.questionable);
   const dependencyTargets = dependencyDiagnosis.targets;
@@ -398,6 +445,36 @@ export async function performSurvey(
     base.observations.push(
       `Content samples: ${contentSamples.length} file(s) read for planning context (≤${SAMPLE_MAX_BYTES} bytes each, read-only)`
     );
+  }
+
+  const clientApiFiles = await collectClientApiSources(targetPath, base.entries);
+  const discoveredApiRoutes = extractApiRouteContracts([
+    ...contentSamples.map((sample) => ({ path: sample.path, content: sample.content })),
+    ...clientApiFiles
+  ]);
+  // Objective is not available inside survey; seal upload/analysis peers whenever the client
+  // already calls those families (InspectorCode). Planning narrows with the real objective later.
+  const requiredApiRoutes = selectRequiredApiRouteContracts(
+    discoveredApiRoutes.some((route) => /\/api\/(projects|analysis)\b/i.test(route))
+      ? 'upload analyze end to end persist restart'
+      : '',
+    discoveredApiRoutes
+  );
+  if (requiredApiRoutes.length) {
+    base.observations.push(
+      `Client API route contracts: ${requiredApiRoutes.slice(0, 12).join(', ')}${requiredApiRoutes.length > 12 ? '…' : ''}`
+    );
+    const hasServerEntry = base.entries.some((entry) =>
+      entry.type === 'file'
+      && /^(server|backend)\/index\.[cm]?[tj]sx?$/i.test(entry.path.replace(/\\/g, '/'))
+    );
+    if (!hasServerEntry) {
+      findings.broken.push(
+        `Runnable server entry is missing but the client already calls API routes ` +
+        `(${requiredApiRoutes.slice(0, 8).join(', ')}${requiredApiRoutes.length > 8 ? '…' : ''}). ` +
+        `Create the script entry file and implement those exact routes — not placeholders, not /api/analyze substitutes.`
+      );
+    }
   }
 
   const result: SurveyResult = {
@@ -419,6 +496,7 @@ export async function performSurvey(
     contentSamples
   };
   if (dependencyTargets.length) result.dependencyTargets = dependencyTargets;
+  if (requiredApiRoutes.length) result.requiredApiRoutes = requiredApiRoutes;
   if (base.truncatedReason !== undefined) {
     result.truncatedReason = base.truncatedReason;
   }

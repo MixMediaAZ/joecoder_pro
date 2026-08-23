@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertCssToolchainPackageJsonRepair,
+  diagnoseCssToolchainConsistency,
   diagnoseDependencyConsistency,
+  diagnoseMissingScriptEntrypoints,
   parseNpmLockVersions,
   parsePubspecDeclarations,
   parsePubspecLockVersions
@@ -182,4 +185,75 @@ test('a non-caret floor constraint below the lock is not flagged', () => {
     { path: 'pubspec.lock', content: 'packages:\n  pkg:\n    version: "6.0.0"\n' }
   ]);
   assert.deepEqual(result.broken, []);
+});
+
+test('Tailwind v4 package with v3 PostCSS wiring is reported before Vite runs', () => {
+  const result = diagnoseCssToolchainConsistency([
+    {
+      path: 'package.json',
+      content: JSON.stringify({ devDependencies: { tailwindcss: '^4.1.12' } })
+    },
+    {
+      path: 'package-lock.json',
+      content: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/tailwindcss': { version: '4.1.12' } }
+      })
+    },
+    { path: 'postcss.config.js', content: 'export default { plugins: { tailwindcss: {}, autoprefixer: {} } };\n' },
+    { path: 'client/src/index.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n' }
+  ]);
+  assert.match(result.broken.join(' | '), /tailwindcss 4\.1\.12.*v3 PostCSS/i);
+  assert.deepEqual(result.targets, ['package.json', 'postcss.config.js']);
+});
+
+test('missing script entrypoints become createable evidence targets (G2l)', () => {
+  const pkg = JSON.stringify({
+    scripts: {
+      dev: 'NODE_ENV=development tsx server/index.ts',
+      build: 'vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist'
+    },
+    devDependencies: { vite: '^6.0.0' }
+  }, null, 2);
+  const inventory = ['package.json', 'vite.config.ts', 'client/src/main.tsx'];
+  const result = diagnoseMissingScriptEntrypoints(pkg, inventory);
+  assert.match(result.broken.join(' | '), /scripts\.(?:dev|build).*server\/index\.ts/i);
+  assert.deepEqual(result.targets, ['server/index.ts']);
+  const present = diagnoseMissingScriptEntrypoints(pkg, [...inventory, 'server/index.ts']);
+  assert.deepEqual(present.broken, []);
+  assert.deepEqual(present.targets, []);
+});
+
+test('G2v: missing dist/build outputs stay findings, not model evidence targets', () => {
+  const pkg = JSON.stringify({
+    scripts: {
+      dev: 'tsx server/index.ts',
+      start: 'node dist/index.js',
+      build: 'esbuild server/index.ts --bundle --outdir=dist'
+    }
+  }, null, 2);
+  const result = diagnoseMissingScriptEntrypoints(pkg, ['package.json']);
+  assert.match(result.broken.join(' | '), /server\/index\.ts/);
+  assert.match(result.broken.join(' | '), /build output 'dist\/index\.js'/i);
+  assert.deepEqual(result.targets, ['server/index.ts']);
+  assert.equal(result.targets.includes('dist/index.js'), false);
+});
+
+test('CSS pin rejects leaving @tailwindcss/vite in optionalDependencies', () => {
+  const before = JSON.stringify({
+    devDependencies: { tailwindcss: '^4.1.8' },
+    optionalDependencies: { '@tailwindcss/vite': '^4.1.8' }
+  }, null, 2);
+  const afterKeepOptional = JSON.stringify({
+    devDependencies: { tailwindcss: '^3.4.1' },
+    optionalDependencies: { '@tailwindcss/vite': '^4.1.8' }
+  }, null, 2);
+  const afterClean = JSON.stringify({
+    devDependencies: { tailwindcss: '^3.4.1', autoprefixer: '^10.4.21', postcss: '^8.5.4' }
+  }, null, 2);
+  assert.throws(
+    () => assertCssToolchainPackageJsonRepair(before, afterKeepOptional),
+    /EDIT_CSS_TOOLCHAIN_INCOMPLETE/
+  );
+  assert.doesNotThrow(() => assertCssToolchainPackageJsonRepair(before, afterClean));
 });

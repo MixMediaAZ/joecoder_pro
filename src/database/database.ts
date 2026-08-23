@@ -769,7 +769,8 @@ function seedWorkshopDefaults(db: DatabaseSync): void {
   }
   const providers = [
     ['provider-ollama', 'ollama', 'Ollama on this computer', 'local', process.env.JC_OLLAMA_URL || 'http://127.0.0.1:11434', process.env.JC_OLLAMA_MODEL || null, null],
-    ['provider-anthropic', 'anthropic', 'Anthropic', 'cloud', process.env.JC_ANTHROPIC_URL || 'https://api.anthropic.com', process.env.JC_ANTHROPIC_MODEL || 'claude-opus-5', 'ANTHROPIC_API_KEY']
+    ['provider-anthropic', 'anthropic', 'Anthropic', 'cloud', process.env.JC_ANTHROPIC_URL || 'https://api.anthropic.com', process.env.JC_ANTHROPIC_MODEL || 'claude-opus-5', 'ANTHROPIC_API_KEY'],
+    ['provider-powerrouter', 'powerrouter', 'PowerRouter (local gateway)', 'local', process.env.JC_POWERROUTER_URL || 'http://127.0.0.1:7474', 'auto', 'JC_POWERROUTER_KEY']
   ] as const;
   const insertProvider = db.prepare(`
     INSERT INTO provider_profiles(
@@ -780,7 +781,11 @@ function seedWorkshopDefaults(db: DatabaseSync): void {
       secret_env_var=excluded.secret_env_var,enabled=excluded.enabled,updated_at=excluded.updated_at
   `);
   for (const provider of providers) {
-    const configured = provider[3] === 'local' || Boolean(provider[6] && process.env[provider[6]]);
+    const powerRouterUrl = (process.env.JC_POWERROUTER_URL || '').trim();
+    const powerRouterKey = (process.env.JC_POWERROUTER_KEY || '').trim();
+    const configured = provider[1] === 'powerrouter'
+      ? Boolean(powerRouterUrl && powerRouterKey)
+      : provider[3] === 'local' || Boolean(provider[6] && process.env[provider[6]]);
     insertProvider.run(...provider, configured ? 1 : 0, now, now);
   }
 }
@@ -1086,6 +1091,8 @@ export interface AgentJobRecord {
   stopRequested: boolean;
   lastHeartbeatAt: number | null;
   resumeCount: number;
+  /** Operator-granted cloud spend ceiling for this job's Work Order draft; 0 means local-only. */
+  maxCloudCostUsd: number;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -1146,6 +1153,7 @@ function mapAgentJob(row: Record<string, unknown>): AgentJobRecord {
     stopRequested: Boolean(row.stop_requested),
     lastHeartbeatAt: row.last_heartbeat_at == null ? null : Number(row.last_heartbeat_at),
     resumeCount: Number(row.resume_count),
+    maxCloudCostUsd: Number(row.max_cloud_cost_usd || 0),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     startedAt: row.started_at == null ? null : Number(row.started_at),
@@ -1172,15 +1180,16 @@ export function createAgentJob(input: {
   threadId: string;
   objective: string;
   mode?: AgentJobMode;
+  maxCloudCostUsd?: number;
 }): AgentJobRecord {
   const id = `job-${randomBytes(12).toString('hex')}`;
   const now = Date.now();
   requiredDatabase().prepare(`
     INSERT INTO agent_jobs(
       id,project_id,thread_id,objective,status,stage,mode,message,runtime_state_json,
-      state_version,stop_requested,created_at,updated_at
-    ) VALUES(?,?,?,?, 'queued','understand',?,?,'{}',0,0,?,?)
-  `).run(id, input.projectId, input.threadId, input.objective.trim(), input.mode || 'mutating', 'Queued for Joe.', now, now);
+      state_version,stop_requested,max_cloud_cost_usd,created_at,updated_at
+    ) VALUES(?,?,?,?, 'queued','understand',?,?,'{}',0,0,?,?,?)
+  `).run(id, input.projectId, input.threadId, input.objective.trim(), input.mode || 'mutating', 'Queued for Joe.', Math.max(0, Number(input.maxCloudCostUsd || 0)), now, now);
   return getAgentJob(id)!;
 }
 

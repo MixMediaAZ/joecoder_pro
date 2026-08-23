@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const mode = process.argv.includes('--sealed') ? 'sealed' : 'draft';
+const mode = process.argv.includes('--anchor') ? 'anchor' : process.argv.includes('--sealed') ? 'sealed' : 'draft';
 const render = process.argv.includes('--render');
 const selfTest = process.argv.includes('--self-test');
 const failures = [];
@@ -137,13 +137,13 @@ function validateMatrix(matrix, baseline, receiptEntries, receiptBodies) {
 function validateDirtyPaths(statusText, expected) {
   const paths = statusText.split(/\r?\n/).filter(Boolean).map(line => line.slice(3).replace(/\\/g, '/'));
   for (const item of paths) if (!expected.includes(item)) fail(`worktree: unexpected change ${item}`);
-  if (mode === 'sealed' && paths.length) fail('worktree: sealed verification requires a clean worktree');
+  if (['sealed', 'anchor'].includes(mode) && paths.length) fail(`worktree: ${mode} verification requires a clean worktree`);
 }
 
-function validateTag(baseline, head, tagsAtHead) {
-  if (mode !== 'sealed') return;
+function validateTag(baseline, anchorCommit, tagsAtAnchor) {
+  if (!['sealed', 'anchor'].includes(mode)) return;
   if (!baseline.candidateTag) return fail('tag: sealed baseline has no candidate tag');
-  if (!tagsAtHead.includes(baseline.candidateTag)) fail('tag: candidate tag does not point at baseline HEAD');
+  if (!tagsAtAnchor.includes(baseline.candidateTag)) fail('tag: candidate tag does not point at baseline anchor');
 }
 
 async function renderMatrix(matrix, baseline) {
@@ -243,12 +243,19 @@ await readJson(schemaPath);
 const head = git(['rev-parse', 'HEAD']);
 const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
 const statusText = git(['status', '--porcelain']);
-const tagsAtHead = git(['tag', '--points-at', 'HEAD']).split(/\r?\n/).filter(Boolean);
+let anchorCommit = head;
+if (mode === 'anchor') {
+  try { anchorCommit = git(['rev-list', '-n', '1', baseline.candidateTag]); }
+  catch { fail('tag: candidate tag cannot be resolved'); }
+  const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', anchorCommit, head], { cwd: root, windowsHide: true });
+  if (ancestor.status !== 0) fail('tag: sealed baseline is not an ancestor of current HEAD');
+}
+const tagsAtAnchor = git(['tag', '--points-at', anchorCommit]).split(/\r?\n/).filter(Boolean);
 
-if (branch !== baseline.branch) fail(`git: branch ${branch} does not match ${baseline.branch}`);
+if (mode !== 'anchor' && branch !== baseline.branch) fail(`git: branch ${branch} does not match ${baseline.branch}`);
 if (mode === 'draft' && head !== baseline.implementationCommit) fail('git: draft HEAD differs from frozen implementation commit');
 validateDirtyPaths(statusText, baseline.expectedDraftChanges || []);
-validateTag(baseline, head, tagsAtHead);
+validateTag(baseline, anchorCommit, tagsAtAnchor);
 
 const identityFiles = [
   ['plan/ratified-1.3.1/ratification-manifest.json', baseline.identities.ratificationManifestSha256],
@@ -278,15 +285,15 @@ const receiptCheck = spawnSync(process.execPath, [path.join(root, 'tools', 'rece
 if (receiptCheck.status !== 0) fail('receipts: signed manifest verification failed');
 const receiptEnvelope = await readJson(receiptManifestPath);
 const receiptEntries = receiptEnvelope.payload?.entries || [];
-const expectedReceiptCount = baseline.receiptManifest.recordedEntriesAtFreeze + (mode === 'sealed' ? 1 : 0);
-if (receiptEntries.length !== expectedReceiptCount) {
-  fail(`receipts: expected ${expectedReceiptCount} entries for ${mode} verification, observed ${receiptEntries.length}`);
+const minimumReceiptCount = baseline.receiptManifest.recordedEntriesAtFreeze + (['sealed', 'anchor'].includes(mode) ? 1 : 0);
+if ((mode === 'anchor' && receiptEntries.length < minimumReceiptCount) || (mode !== 'anchor' && receiptEntries.length !== minimumReceiptCount)) {
+  fail(`receipts: expected ${mode === 'anchor' ? 'at least ' : ''}${minimumReceiptCount} entries for ${mode} verification, observed ${receiptEntries.length}`);
 }
 if (receiptEnvelope.signature?.keyId !== baseline.receiptManifest.keyId) fail('receipts: signing key changed');
 const receiptBodies = await loadReceipts(receiptEnvelope.payload || {});
 validateMatrix(matrix, baseline, receiptEntries, receiptBodies);
 
-if (mode === 'sealed') {
+if (['sealed', 'anchor'].includes(mode)) {
   if (baseline.state !== 'ratified_baseline') fail('sealed: baseline state is not ratified_baseline');
   if (baseline.operatorRatification?.status !== 'ratified') fail('sealed: operator ratification missing');
   const sealedSpecPath = path.resolve(root, baseline.controllingSpec.sealedPath);
@@ -297,7 +304,7 @@ if (mode === 'sealed') {
   if (!sealedHashText) fail('sealed: v3 hash file missing');
   const declaredSealedHash = sealedHashText?.trim().split(/\s+/)[0]?.toLowerCase();
   if (sealedSpec && sha256(Buffer.from(sealedSpec)) !== declaredSealedHash) fail('sealed: v3 hash mismatch');
-  if (sealedSpec && !sealedSpec.includes(head)) fail('sealed: v3 does not name baseline HEAD');
+  if (sealedSpec && !sealedSpec.includes(anchorCommit)) fail('sealed: v3 does not name baseline anchor');
   if (sealedSpec && !sealedSpec.includes(baseline.candidateTag)) fail('sealed: v3 does not name candidate tag');
   if (sealedSpec && !sealedSpec.includes(observedMatrixHash)) fail('sealed: v3 does not name traceability hash');
   if (sealedSpec && !sealedSpec.includes(baseline.operatorRatification.ratifiedAt)) fail('sealed: v3 does not name ratification time');
@@ -307,7 +314,7 @@ if (mode === 'sealed') {
   const decision = receiptBodies.get(decisionName);
   if (!decision) fail('sealed: Stage 1 decision receipt is unreadable');
   if (decision?.stage !== 'stage1-current-baseline') fail('sealed: Stage 1 receipt has wrong stage');
-  if (decision?.baselineCommit !== head) fail('sealed: Stage 1 receipt baseline commit mismatch');
+  if (decision?.baselineCommit !== anchorCommit) fail('sealed: Stage 1 receipt baseline commit mismatch');
   if (decision?.candidateTag !== baseline.candidateTag) fail('sealed: Stage 1 receipt tag mismatch');
 }
 
@@ -320,6 +327,7 @@ const result = {
   mode,
   candidateCommit: baseline.implementationCommit,
   head,
+  anchorCommit,
   branch,
   draftSpecSha256: sha256(Buffer.from(draftSpec)),
   traceabilitySha256: observedMatrixHash,

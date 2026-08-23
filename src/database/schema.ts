@@ -4,7 +4,7 @@ export interface Migration {
   sql: string;
 }
 
-export const DATABASE_SCHEMA_VERSION = 6;
+export const DATABASE_SCHEMA_VERSION = 7;
 export const INITIAL_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -514,6 +514,13 @@ CREATE TABLE agent_job_memory (
   created_at INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX agent_job_memory_job_created_idx ON agent_job_memory(job_id, created_at);
+`
+    },
+    {
+        version: 7,
+        name: 'agent_job_cloud_budget',
+        sql: `
+ALTER TABLE agent_jobs ADD COLUMN max_cloud_cost_usd REAL NOT NULL DEFAULT 0 CHECK(max_cloud_cost_usd >= 0);
 `
     }];
 export const REQUIRED_TABLES = [

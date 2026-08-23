@@ -213,5 +213,169 @@ export function diagnoseDependencyConsistency(files: ManifestFile[]): Dependency
     }
   }
 
+  diagnoseCssToolchainConsistency(files, out);
   return out;
+}
+
+const SCRIPT_ENTRY_RE = /(?:^|[\s"'`=])((?:\.\/)?(?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|js|jsx|mjs|cjs))\b/g;
+/** Build outputs are emitted by toolchain scripts — never model-authored evidence creates (G2v). */
+const BUILD_OUTPUT_ENTRY_RE = /^(?:dist|build|out|\.next|coverage)(?:\/|$)/i;
+
+export function isBuildOutputPath(relPath: string): boolean {
+  return BUILD_OUTPUT_ENTRY_RE.test(relPath.replace(/\\/g, '/').replace(/^\.\//, ''));
+}
+
+/**
+ * G2l: InspectorCode scripts.build/dev reference server/index.ts, but that file is absent.
+ * CSS script-protection correctly blocked esm→cjs theater; without sealing the missing entry
+ * as a createable evidence target, build cannot go green after a correct Tailwind pin.
+ *
+ * G2v: scripts.start often points at dist/index.js. Recording that path as an evidence target
+ * forced the model to hand-author build output alongside package.json/server creates and burned
+ * the batch on EDIT_MISSES_EVIDENCE_TARGET. Keep the broken finding, but do not seal dist/build
+ * outputs as model create targets — create the source entry and let build emit them.
+ */
+export function diagnoseMissingScriptEntrypoints(
+  packageJsonContent: string,
+  inventoryRelPaths: Iterable<string>,
+  out: DependencyDiagnosis = { broken: [], questionable: [], targets: [] }
+): DependencyDiagnosis {
+  const parsed = parseJsonSafe(packageJsonContent);
+  const scripts = parsed?.scripts;
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) return out;
+  const inventory = new Set(
+    [...inventoryRelPaths].map((rel) => rel.replace(/\\/g, '/').replace(/^\.\//, ''))
+  );
+  const seen = new Set<string>();
+  for (const [scriptName, value] of Object.entries(scripts as Record<string, unknown>)) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    SCRIPT_ENTRY_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = SCRIPT_ENTRY_RE.exec(value)) !== null) {
+      const rel = (match[1] || '').replace(/\\/g, '/').replace(/^\.\//, '');
+      if (!rel || rel.includes('node_modules') || seen.has(rel) || inventory.has(rel)) continue;
+      seen.add(rel);
+      if (isBuildOutputPath(rel)) {
+        out.broken.push(
+          `Runtime script scripts.${scriptName} references missing build output '${rel}'. ` +
+          `Create or fix the source entry that build emits into '${rel}' (do not hand-write build output); ` +
+          `do not rewrite scripts.* flags as a substitute.`
+        );
+        continue;
+      }
+      out.broken.push(
+        `Runtime script scripts.${scriptName} references missing entry file '${rel}'. ` +
+        `Create '${rel}' (or an equivalent in-scope entry) before build/start can succeed; ` +
+        `do not rewrite scripts.* flags as a substitute.`
+      );
+      if (!out.targets.includes(rel)) out.targets.push(rel);
+    }
+  }
+  return out;
+}
+
+/**
+ * Detect the Tailwind v4 package paired with v3 PostCSS/CSS wiring that makes `vite build` fail
+ * before application code runs. Pure file reads — no install, no Vite execution.
+ */
+export function diagnoseCssToolchainConsistency(
+  files: ManifestFile[],
+  out: DependencyDiagnosis = { broken: [], questionable: [], targets: [] }
+): DependencyDiagnosis {
+  const byBasename = (pattern: RegExp) => files
+    .filter((file) => pattern.test(file.path.split('/').pop() || ''))
+    .sort((a, b) => depth(a.path) - depth(b.path));
+
+  const packageJson = byBasename(/^package\.json$/i)[0];
+  if (!packageJson) return out;
+  const parsed = parseJsonSafe(packageJson.content);
+  if (!parsed) return out;
+
+  let declaredConstraint: string | null = null;
+  for (const key of ['dependencies', 'devDependencies'] as const) {
+    const block = parsed[key] as Record<string, string> | undefined;
+    if (block && typeof block.tailwindcss === 'string') {
+      declaredConstraint = block.tailwindcss;
+      break;
+    }
+  }
+  const lock = byBasename(/^package-lock\.json$/i)[0];
+  const lockedVersion = lock ? parseNpmLockVersions(lock.content).get('tailwindcss') : undefined;
+  const major = firstMajor(lockedVersion || declaredConstraint || '');
+  if (major === null) return out;
+
+  const postcssConfigs = byBasename(/^postcss\.config\.(?:js|cjs|mjs|ts)$/i);
+  const cssSamples = byBasename(/\.(?:css|scss)$/i);
+  const usesV3PostcssPlugin = postcssConfigs.some((file) =>
+    /(?:^|[^\w])tailwindcss\s*:\s*\{/.test(file.content)
+    || /(?:require|from)\s*\(?['"]tailwindcss['"]\)?/.test(file.content)
+  );
+  const usesV4PostcssPlugin = postcssConfigs.some((file) =>
+    /@tailwindcss\/postcss/.test(file.content)
+  );
+  const usesV3Directives = cssSamples.some((file) =>
+    /@tailwind\s+(?:base|components|utilities)\b/.test(file.content)
+  );
+  const usesV4Import = cssSamples.some((file) =>
+    /@import\s+["']tailwindcss["']/.test(file.content)
+  );
+
+  if (major >= 4 && (usesV3PostcssPlugin || (usesV3Directives && !usesV4Import && !usesV4PostcssPlugin))) {
+    const postcssPath = postcssConfigs[0]?.path;
+    const surfaces = [packageJson.path, ...(postcssPath ? [postcssPath] : [])].join(' and ');
+    out.broken.push(
+      `CSS build cannot succeed: ${packageJson.path} resolves tailwindcss ${lockedVersion || declaredConstraint} (major ${major}), ` +
+      `but the project still uses Tailwind v3 PostCSS/CSS wiring` +
+      `${postcssPath ? ` in ${postcssPath}` : ''}` +
+      `${usesV3Directives ? ' with @tailwind directives' : ''}. ` +
+      `Correct ${surfaces}: either pin tailwindcss to v3 matching the existing PostCSS plugin form, ` +
+      `or migrate PostCSS/CSS to the Tailwind v4 plugin and import style.`
+    );
+    if (!out.targets.includes(packageJson.path)) out.targets.push(packageJson.path);
+    if (postcssPath && !out.targets.includes(postcssPath)) out.targets.push(postcssPath);
+  }
+
+  return out;
+}
+
+function dependencyBag(manifest: Record<string, unknown>, name: string): string | null {
+  for (const key of ['dependencies', 'devDependencies', 'optionalDependencies'] as const) {
+    const block = manifest[key] as Record<string, string> | undefined;
+    if (block && typeof block[name] === 'string') return block[name];
+  }
+  return null;
+}
+
+/**
+ * G2i wrote a 1-line package.json "fix" that left Tailwind v4 + @tailwindcss/vite in place,
+ * then lock refresh produced an unadmissible nested optional tree. Require a real pin or v4 migrate.
+ */
+export function assertCssToolchainPackageJsonRepair(beforeText: string, afterText: string): void {
+  const before = parseJsonSafe(beforeText);
+  const after = parseJsonSafe(afterText);
+  if (!before || !after) {
+    throw new Error('EDIT_PACKAGE_JSON_INVALID: package.json edit must be valid JSON');
+  }
+  const beforeTw = dependencyBag(before, 'tailwindcss');
+  const afterTw = dependencyBag(after, 'tailwindcss');
+  const beforeMajor = firstMajor(beforeTw || '');
+  const afterMajor = firstMajor(afterTw || '');
+  if (beforeMajor === null || beforeMajor < 4) return;
+
+  const beforeVite = Boolean(dependencyBag(before, '@tailwindcss/vite'));
+  const afterVite = Boolean(dependencyBag(after, '@tailwindcss/vite'));
+  const afterPostcssPlugin = Boolean(dependencyBag(after, '@tailwindcss/postcss'));
+
+  if (afterPostcssPlugin) return;
+  if (afterMajor !== null && afterMajor < 4) {
+    if (beforeVite && afterVite) {
+      throw new Error(
+        'EDIT_CSS_TOOLCHAIN_INCOMPLETE: pinning tailwindcss to v3 also requires removing @tailwindcss/vite from package.json'
+      );
+    }
+    return;
+  }
+  throw new Error(
+    'EDIT_CSS_TOOLCHAIN_INCOMPLETE: recorded CSS evidence requires pinning tailwindcss to v3.x (and removing @tailwindcss/vite) or adding @tailwindcss/postcss for a v4 migration'
+  );
 }
