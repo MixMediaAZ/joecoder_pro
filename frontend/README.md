@@ -22,6 +22,8 @@ Use these values in local/dev/prod:
 - `JC_BACKEND_ORIGIN` (required): backend base URL used by Next rewrites
 - `NEXT_PUBLIC_APP_URL` (recommended): public frontend URL
 - `NEXT_PUBLIC_API_URL` (optional fallback)
+- `NEXT_PUBLIC_STAGING_BACKEND_ORIGIN` (optional): staging health check target in UI
+- `NEXT_PUBLIC_PRODUCTION_BACKEND_ORIGIN` (optional): production health check target in UI
 
 ## Build and Quality Checks
 
@@ -67,4 +69,6 @@ This repo includes a frontend CI workflow at `.github/workflows/frontend-ci.yml`
 ## Notes
 
 - The Guided Job Rail is intentionally simple and keeps technical controls behind a menu for non-technical operators.
+- Build mode is stage-gated by inspection + plan quality + peer-review confirmation.
+- More options now includes deployment profile health checks for local/staging/production/custom backends.
 - The frontend does not call internal lifecycle endpoints directly; server runtime remains the authority.

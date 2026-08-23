@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectThread,
   SessionStatus,
+  SurveyEvidence,
   SurveySummary,
   WorkOrder,
 } from './backendTypes'
@@ -102,6 +103,14 @@ export async function getProjectSurveys(projectId: string): Promise<SurveySummar
     `/api/v1/projects/${projectId}/surveys`
   )
   return response.surveys
+}
+
+export async function getEvidenceContent(evidenceId: string): Promise<SurveyEvidence | null> {
+  try {
+    return await apiRequest<SurveyEvidence>(`/api/v1/evidence/${evidenceId}`)
+  } catch {
+    return null
+  }
 }
 
 export async function getProjectThreads(projectId: string): Promise<{
@@ -205,6 +214,33 @@ export async function getWorkOrders(projectId: string): Promise<WorkOrder[]> {
     `/api/v1/projects/${projectId}/work-orders`
   )
   return response.workOrders
+}
+
+export async function checkBackendHealth(origin?: string): Promise<{
+  ok: boolean
+  statusText: string
+  latencyMs: number
+}> {
+  const start = performance.now()
+  const endpoint = origin
+    ? `${origin.replace(/\/$/, '')}/health`
+    : '/health'
+  try {
+    const response = await fetch(endpoint, { method: 'GET' })
+    const latencyMs = Math.round(performance.now() - start)
+    return {
+      ok: response.ok,
+      statusText: response.ok ? 'Healthy' : `HTTP ${response.status}`,
+      latencyMs,
+    }
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - start)
+    return {
+      ok: false,
+      statusText: error instanceof Error ? error.message : 'Connection failed',
+      latencyMs,
+    }
+  }
 }
 
 export type { ChatMessage } from './backendTypes'

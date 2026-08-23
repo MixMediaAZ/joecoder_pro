@@ -14,9 +14,11 @@ const STAGES: Array<{ id: RailStage; label: string }> = [
 export function WorkflowRail({
   current,
   onSelect,
+  locked,
 }: {
   current: RailStage
   onSelect?: (stage: RailStage) => void
+  locked?: Partial<Record<RailStage, string>>
 }) {
   const currentIndex = STAGES.findIndex((stage) => stage.id === current)
   return (
@@ -24,12 +26,22 @@ export function WorkflowRail({
       {STAGES.map((stage, index) => {
         const done = index < currentIndex
         const active = stage.id === current
+        const lockReason = locked?.[stage.id]
         return (
           <button
             key={stage.id}
             type="button"
-            onClick={() => onSelect?.(stage.id)}
+            onClick={() => {
+              if (lockReason) return
+              onSelect?.(stage.id)
+            }}
+            title={lockReason || stage.label}
+            disabled={Boolean(lockReason)}
             className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+              lockReason
+                ? 'cursor-not-allowed border-white/5 bg-black/40 text-gray-600'
+                : ''
+            } ${
               active
                 ? 'border-blue-500/60 bg-blue-500/20 text-blue-200'
                 : done
@@ -38,6 +50,7 @@ export function WorkflowRail({
             }`}
           >
             {stage.label}
+            {lockReason && <span className="ml-1 text-[10px] text-gray-600">(locked)</span>}
           </button>
         )
       })}

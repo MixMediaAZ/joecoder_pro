@@ -1,35 +1,29 @@
 'use client'
 
-import type { ChatMessage, SurveySummary } from '../../lib/backendTypes'
-
-function extractPlanSteps(messages: ChatMessage[]): string[] {
-  const assistantPlans = messages
-    .filter((message) => message.role === 'assistant')
-    .map((message) => message.content)
-    .filter((content) => /\d+\.\s/.test(content))
-  if (!assistantPlans.length) return []
-
-  const latest = assistantPlans.at(-1) || ''
-  return latest
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /^\d+\.\s/.test(line))
-    .slice(0, 8)
-}
+import type { SurveySummary } from '../../lib/backendTypes'
+import type { PlanReadiness } from '../../lib/planReadiness'
 
 export function StageReview({
   surveys,
-  messages,
+  readiness,
+  reviewConfirmed,
+  onReviewConfirmedChange,
 }: {
   surveys: SurveySummary[]
-  messages: ChatMessage[]
+  readiness: PlanReadiness
+  reviewConfirmed: boolean
+  onReviewConfirmedChange: (value: boolean) => void
 }) {
   const latestSurvey = surveys[0] || null
-  const planSteps = extractPlanSteps(messages)
+  const planSteps = readiness.steps
   const unknowns = [
-    !latestSurvey ? 'No current survey evidence for this project.' : null,
-    planSteps.length === 0 ? 'No numbered plan found in recent Plan-mode conversation.' : null,
-  ].filter(Boolean)
+    !readiness.hasInspection ? 'No current survey evidence for this project.' : null,
+    !readiness.hasNumberedSteps ? 'Need at least 3 numbered plan steps.' : null,
+    !readiness.hasFileTargets ? 'Plan should name files or folders it will touch.' : null,
+    !readiness.hasChecks ? 'Plan should include verification checks (test, lint, build, or verify).' : null,
+    !readiness.hasRisks ? 'Plan should include risks, unknowns, or failure modes.' : null,
+    !reviewConfirmed ? 'Peer-review confirmation has not been marked complete.' : null,
+  ].filter((item): item is string => Boolean(item))
 
   return (
     <div className="space-y-4 p-4">
@@ -47,6 +41,13 @@ export function StageReview({
 
       <section className="rounded-md border border-white/10 bg-[#0B0B0C] p-4">
         <h3 className="mb-2 text-sm font-semibold text-gray-200">Plan Peer Review</h3>
+        <ul className="mb-3 space-y-1 text-sm text-gray-300">
+          <li>{readiness.hasNumberedSteps ? '✓' : '•'} Numbered plan steps (3+)</li>
+          <li>{readiness.hasFileTargets ? '✓' : '•'} File or path targets listed</li>
+          <li>{readiness.hasChecks ? '✓' : '•'} Verification checks listed</li>
+          <li>{readiness.hasRisks ? '✓' : '•'} Risks or unknowns listed</li>
+          <li>{reviewConfirmed ? '✓' : '•'} Peer review confirmed</li>
+        </ul>
         {planSteps.length ? (
           <ol className="list-inside list-decimal space-y-1 text-sm text-gray-300">
             {planSteps.map((step) => (
@@ -58,6 +59,14 @@ export function StageReview({
             Ask Joe in Plan mode for a numbered plan with files, checks, and risks.
           </p>
         )}
+        <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded border border-white/10 px-3 py-2 text-sm text-gray-300">
+          <input
+            type="checkbox"
+            checked={reviewConfirmed}
+            onChange={(event) => onReviewConfirmedChange(event.target.checked)}
+          />
+          I reviewed the plan and it is ready for Build mode.
+        </label>
       </section>
 
       <section className="rounded-md border border-white/10 bg-[#0B0B0C] p-4">

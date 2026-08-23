@@ -45,6 +45,29 @@ export interface SurveySummary {
   summary?: string
 }
 
+export interface SurveyEvidence {
+  evidenceId: string
+  content: {
+    summary?: {
+      totalFiles?: number
+      totalDirectories?: number
+      totalSizeBytes?: number
+      maxDepthReached?: number
+    }
+    findings?: Record<string, string[]>
+    observations?: string[]
+    unknowns?: string[]
+    buildCondition?: string
+    status?: string
+    projectType?: string
+    generatedAt?: string
+  }
+  integrity?: {
+    verified: boolean
+    reason: string
+  }
+}
+
 export interface ProjectThread {
   id: string
   projectId: string

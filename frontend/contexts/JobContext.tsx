@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   createProject,
   createThread,
+  getEvidenceContent,
   getAgentJob,
   getAgentJobs,
   getProjectSurveys,
@@ -24,6 +25,7 @@ import type {
   Project,
   ProjectThread,
   SessionStatus,
+  SurveyEvidence,
   SurveySummary,
   WorkOrder,
 } from '../lib/backendTypes'
@@ -42,6 +44,7 @@ type JobContextValue = {
   thread: ProjectThread | null
   messages: ChatMessage[]
   surveys: SurveySummary[]
+  surveyEvidence: SurveyEvidence | null
   workOrders: WorkOrder[]
   jobs: AgentJob[]
   activeJob: AgentJob | null
@@ -72,6 +75,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
   const [thread, setThread] = useState<ProjectThread | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [surveys, setSurveys] = useState<SurveySummary[]>([])
+  const [surveyEvidence, setSurveyEvidence] = useState<SurveyEvidence | null>(null)
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [jobs, setJobs] = useState<AgentJob[]>([])
   const [activeJob, setActiveJob] = useState<AgentJob | null>(null)
@@ -107,6 +111,13 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
       setMessages([])
     }
     setSurveys(surveyData)
+    const latestSurveyId = project.latestSurveyId || surveyData[0]?.id
+    if (latestSurveyId) {
+      const evidence = await getEvidenceContent(latestSurveyId)
+      setSurveyEvidence(evidence)
+    } else {
+      setSurveyEvidence(null)
+    }
     setWorkOrders(orderData)
     setJobs(jobData.jobs)
     setActiveJob(jobData.activeJob)
@@ -121,6 +132,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
       setThread(null)
       setMessages([])
       setSurveys([])
+      setSurveyEvidence(null)
       setWorkOrders([])
       setJobs([])
       setActiveJob(null)
@@ -271,6 +283,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     thread,
     messages,
     surveys,
+    surveyEvidence,
     workOrders,
     jobs,
     activeJob,
@@ -297,6 +310,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     thread,
     messages,
     surveys,
+    surveyEvidence,
     workOrders,
     jobs,
     activeJob,
