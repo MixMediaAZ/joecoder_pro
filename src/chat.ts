@@ -99,6 +99,42 @@ export function selectGuardedReplyText(
   return candidate && modelReplyIsSafe(candidate) ? candidate : guarded.content;
 }
 
+/**
+ * Asking about the project is not the same as ordering a change to it.
+ *
+ * Branch selection was pure keyword matching, so any message containing "where",
+ * "review", "change" or "fix" was answered by a fixed template and the model was
+ * never consulted — measured at 5 of 12 ordinary operator questions, including
+ * "Where is the file upload handled?" and "Why is the build failing?". Those are
+ * the most natural phrasings of a real question, which is why answers read as
+ * generic boilerplate.
+ *
+ * The split below is information versus action. A request for information falls
+ * through to open conversation, where the model answers from recorded evidence.
+ * A request for ACTION still hits every workflow guard unchanged, and no branch
+ * can grant permission either way: `selectGuardedReplyText` still only lets model
+ * prose through on 'open', and `modelReplyIsSafe` still rejects any claim of work
+ * performed.
+ */
+/** Questions about JoeCoder's own governed state; the deterministic reply answers these from real records, better than a model could. */
+const WORKFLOW_SUBJECT = /\b(?:status|progress|next|what now|what can|work\s*order|authoriz|permission|approve|stage|workflow)\b|\bwhere (?:are we|do we stand)\b/;
+/** A leading interrogative pronoun marks a request for information even when action words follow ("what would you change about X"). */
+const INFO_LEAD = /^\s*(?:what|where|why|how|which|who|whose|when)\b/;
+const YESNO_LEAD = /^\s*(?:is|are|was|were|does|do|did|has|have)\b/;
+const EXPLAIN_FORM = /\b(?:explain|describe|summari[sz]e|tell me|show me|walk me through)\b/;
+/** "Can you review/look at/check ..." asks Joe to read, which is what open conversation is for. */
+const READ_REQUEST = /\b(?:can|could|would|will|please)\s+(?:you\s+)?(?:review|look at|check|examine|read|inspect|analy[sz]e|explain|describe|summari[sz]e|tell|show|walk)\b/;
+/** "Can you fix/add/update ..." asks Joe to act, and must keep reaching the workflow guards. */
+const ACTION_REQUEST = /\b(?:can|could|would|will|please)\s+(?:you\s+)?(?:build|fix|repair|change|edit|implement|refactor|add|remove|update|write|create|make|install|run|delete)\b/;
+
+/** True when the message seeks information about the project rather than ordering work on it. */
+export function asksAboutProject(text: string): boolean {
+  if (WORKFLOW_SUBJECT.test(text)) return false;
+  if (INFO_LEAD.test(text)) return true;
+  if (ACTION_REQUEST.test(text)) return false;
+  return YESNO_LEAD.test(text) || EXPLAIN_FORM.test(text) || READ_REQUEST.test(text);
+}
+
 export function buildGuardedReply(
   content: string,
   project: Project,
@@ -110,9 +146,13 @@ export function buildGuardedReply(
   const active = currentWorkOrder(projectWorkOrders, project);
   const completed = latestCompletedWorkOrder(projectWorkOrders);
   const hasSurvey = Boolean(project.latestSurveyId);
-  const wantsStatus = /\b(status|where|progress|next|what now|what can)\b/.test(text);
-  const wantsInspection = /\b(inspect|scan|analy[sz]e|review|diagnos|look at)\b/.test(text);
-  const wantsChange = !asksForPlanOnly && /\b(build|fix|repair|change|edit|implement|refactor|add|remove|update|write|create|make)\b/.test(text);
+  // An information request bypasses the three keyword branches so it can reach the
+  // model. Approval, draft, and work-order-review branches are deliberately NOT
+  // gated: those are permission surfaces and must fire on the keyword alone.
+  const isQuestion = asksAboutProject(text);
+  const wantsStatus = !isQuestion && /\b(status|where|progress|next|what now|what can)\b/.test(text);
+  const wantsInspection = !isQuestion && /\b(inspect|scan|analy[sz]e|review|diagnos|look at)\b/.test(text);
+  const wantsChange = !asksForPlanOnly && !isQuestion && /\b(build|fix|repair|change|edit|implement|refactor|add|remove|update|write|create|make)\b/.test(text);
   const wantsApproval = /\b(approve|authorize|permission|apply|execute|run it|go ahead)\b/.test(text);
   const wantsDraft = /\b(write|draft|create|make|prepare|start|new)\b[\s\S]{0,20}\bwork\s*order\b/.test(text) || /\bwork\s*order\b[\s\S]{0,20}\b(please|now)\b/.test(text);
   const wantsWorkOrderReview = /\b(?:review|show|open|continue|resolve|finish|cancel)\b[\s\S]{0,30}\bwork\s*order\b/.test(text)
