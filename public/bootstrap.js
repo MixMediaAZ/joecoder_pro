@@ -54,8 +54,11 @@ async function exchangeToken() {
 
 
         // Auto-enter workspace after a short pause (user can still click)
+        const workspace = await fetch('/workspace/', { method: 'HEAD' }).catch(() => null);
+        const destination = workspace && workspace.ok ? '/workspace/' : '/app.html';
+        document.getElementById('enter-app').href = destination;
         setTimeout(function () {
-          window.location.href = '/app.html';
+          window.location.href = destination;
         }, 1200);
 
       } catch (err) {

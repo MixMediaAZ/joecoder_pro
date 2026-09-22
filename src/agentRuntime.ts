@@ -93,12 +93,12 @@ const ACTION_PRESENTATION: Record<AgentRuntimeAction, {
     stage: 'authorize',
     what: 'I am protecting the exact job boundary.',
     meaning: 'The objective, affected files, allowed actions, and limits cannot widen silently.',
-    next: 'Execute the smallest coherent change.'
+    next: 'Execute the authorized work.'
   },
   execute_change: {
     stage: 'run',
-    what: 'I am changing only the protected files.',
-    meaning: 'The original files are protected and every change is recorded and reversible.',
+    what: 'I am executing the authorized work.',
+    meaning: 'The recorded scope determines whether this job may inspect or change files.',
     next: 'Evaluate the recorded verification proof.'
   },
   evaluate_verification: {
@@ -217,11 +217,17 @@ function committedActionEvent(action: AgentRuntimeAction, state: AgentRuntimeSna
     what: 'I decided on the smallest evidence-backed plan.', meaning: `${files.length} file(s) are in the maximum affected area.`, next: 'Protect that exact boundary before any write.', payload: { ...common, category: 'Found', operations }
   };
   if (action === 'seal_authorization') return {
-    what: `Automatic authorization: ${objective}.`, meaning: `Joe may ${operations.join(', ') || 'perform the recorded work'} only in ${files.length} named file(s), within the recorded time, file, line, and cost limits.`, next: 'Make the protected change.', payload: { ...common, category: 'Doing now', operations }
+    what: `Automatic authorization: ${objective}.`, meaning: `Joe may ${operations.join(', ') || 'perform the recorded work'} only in ${files.length} named file(s), within the recorded time, file, line, and cost limits.`, next: 'Execute the authorized work.', payload: { ...common, category: 'Doing now', operations }
   };
-  if (action === 'execute_change') return {
-    what: 'I changed the protected files.', meaning: 'The writes completed inside the sealed boundary and were recorded.', next: 'Run and evaluate the available checks.', payload: { ...common, category: 'Changed' }
-  };
+  if (action === 'execute_change') {
+    const result = state.executionResult as { applied?: unknown[]; changed?: unknown[]; rolledBack?: boolean } | undefined;
+    const changed = Boolean((result?.applied?.length || result?.changed?.length) && !result?.rolledBack);
+    return {
+      what: changed ? 'The execution result recorded file changes.' : 'The execution step returned its result.',
+      meaning: 'The recorded result determines what was inspected, changed, or left incomplete.',
+      next: 'Run and evaluate the available checks.', payload: { ...common, category: changed ? 'Changed' : 'Result' }
+    };
+  }
   if (action === 'evaluate_verification') return {
     what: 'I checked what the result actually proves.', meaning: String(state.requestedTerminalReason || 'The available verification was recorded.'), next: 'Record the truthful result.', payload: { ...common, category: 'Checked' }
   };

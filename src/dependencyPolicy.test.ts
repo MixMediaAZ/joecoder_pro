@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { needsDependencyInstall } from './dependencyPolicy.js';
+import { dependencyScope, needsDependencyInstall } from './dependencyPolicy.js';
+
+test('lockfile scope is sealed only for an authorized root manifest install', () => {
+  const paths = ['package.json', 'server.js'];
+  assert.deepEqual(dependencyScope(paths, true), [...paths, 'package-lock.json']);
+  assert.deepEqual(paths, ['package.json', 'server.js']);
+  assert.deepEqual(dependencyScope(paths, false), paths);
+  assert.deepEqual(dependencyScope(['src/app.js'], true), ['src/app.js']);
+  assert.deepEqual(dependencyScope(['package.json', 'package-lock.json'], true), ['package.json', 'package-lock.json']);
+});
 
 test('repair does not grant install authority to a dependency-free Node project', () => {
   assert.equal(needsDependencyInstall('repair', ['src/api.mjs'], {

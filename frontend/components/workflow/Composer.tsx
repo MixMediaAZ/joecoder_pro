@@ -38,7 +38,7 @@ export function Composer({
                 : 'border-white/10 bg-white/5 text-gray-400'
             }`}
           >
-            {item}
+            {item === 'build' ? 'Automatic' : item}
           </button>
         ))}
       </div>
@@ -51,6 +51,8 @@ export function Composer({
           try {
             await onSend(content)
             setValue('')
+          } catch {
+            // The page shows the failure; preserve the draft so it can be retried.
           } finally {
             setSending(false)
           }
@@ -58,6 +60,7 @@ export function Composer({
         className="space-y-2"
       >
         <textarea
+          aria-label="Describe the outcome you want"
           rows={3}
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -65,7 +68,7 @@ export function Composer({
           disabled={disabled || sending}
           className="w-full resize-none rounded-md border border-white/10 bg-[#171614] px-3 py-2 text-sm text-gray-200 outline-none focus:border-white/30"
         />
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-gray-500">{hint}</p>
           <button
             type="submit"
