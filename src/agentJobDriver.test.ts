@@ -2,6 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyExecutionResult, inferIntent, successfulTerminal } from './agentJobDriver.js';
 
+test('explicit read-only inspection cannot grant mutation through the noun build', () => {
+  for (const objective of [
+    'Inspect this build read-only and summarize its current condition.',
+    'Inspect this build and report the problems.',
+    'Review how to fix this code, without modifying files.',
+    'Explain how to repair this build.',
+    'What do you think of this project?'
+  ]) assert.equal(inferIntent(objective, { summary: { totalFiles: 20 } }), 'inspect', objective);
+  assert.equal(inferIntent('Inspect this build and then fix the startup error.', { summary: { totalFiles: 20 } }), 'repair');
+  assert.equal(inferIntent('Build a local Workboard.', { summary: { totalFiles: 0 } }), 'build');
+});
+
 test('ordinary make-it-work language is classified as a repair', () => {
   assert.equal(
     inferIntent('Make this app run locally end to end and still work after restart.', { summary: { totalFiles: 20 } }),

@@ -22,7 +22,7 @@ export default {
         destructive: '#ef4444',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
       },
     },
   },

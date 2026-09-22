@@ -36,7 +36,7 @@ const releaseRoot = path.join(root, '.jc', 'releases', releaseId);
 const payloadRoot = path.join(releaseRoot, 'payload');
 const signingRoot = path.join(root, '.jc', 'signing');
 const include = [
-  'src', 'dist', 'public', 'schemas', 'tools', 'acceptance-fixtures', 'tsconfig.json', 'package.json', 'package-lock.json', 'start.bat',
+  'src', 'dist', 'public', 'frontend/out', 'schemas', 'tools', 'acceptance-fixtures', 'tsconfig.json', 'package.json', 'package-lock.json', 'start.bat',
   'README.md', 'README_RUN.md', 'WORKFLOW_GUIDE.md', 'CAPABILITY_CERTIFICATION.md', 'SUPPORTED_CAPABILITIES.md',
   'plan'
 ];
@@ -50,6 +50,18 @@ for (const relative of include) {
 }
 
 const inventory = await inventoryNpmDependencies(root);
+const frontendInventory = await inventoryNpmDependencies(path.join(root, 'frontend'));
+const metadataRoot = path.join(payloadRoot, 'frontend', 'build-metadata');
+await fs.mkdir(metadataRoot, { recursive: true });
+for (const name of ['package.json', 'package-lock.json']) {
+  await fs.copyFile(path.join(root, 'frontend', name), path.join(metadataRoot, name));
+}
+await fs.writeFile(path.join(metadataRoot, 'dependency-inventory.json'), JSON.stringify(frontendInventory, null, 2) + '\n');
+const combinedInventory = {
+  ...inventory,
+  components: [...new Map([...inventory.components, ...frontendInventory.components]
+    .map(component => [`${component.name}@${component.version}:${component.integrity}`, component])).values()]
+};
 const governance = JSON.parse(await fs.readFile(path.join(root, 'plan', 'amendment-1.3.3', 'RATIFIED_LIMITATIONS.json'), 'utf8'));
 if (!Array.isArray(governance.limitations) || governance.limitations.length === 0) {
   throw new Error('RELEASE_RATIFIED_LIMITATIONS_MISSING');
@@ -62,7 +74,7 @@ const verifiedLimitations = governance.limitations.map(item => {
   return [item.id, '/', item.lawId + ':', item.boundary].join(' ');
 });
 const identity = await loadOrCreateSigningIdentity(signingRoot);
-const bundle = await createReleaseBundle(payloadRoot, inventory, {
+const bundle = await createReleaseBundle(payloadRoot, combinedInventory, {
   sourceCommit,
   builder: `joecoder-release/1 node/${process.version} ${process.platform}/${process.arch}`,
   tests: [...REQUIRED_RELEASE_GATE_COMMANDS],
@@ -83,7 +95,7 @@ await Promise.all([
     `# JoeCoder ${bundle.subject.version} release receipt`, '',
     `- Source commit: \`${sourceCommit}\``,
     `- Payload files: ${bundle.files.length}`,
-    `- Dependencies: ${inventory.components.length}`,
+    `- Dependencies (backend and frontend): ${combinedInventory.components.length}`,
     `- Signing identity: \`${identity.keyId}\` (machine-local Ed25519)`,
     '- Verification: signed metadata and every payload checksum passed.', '',
     '## Verified limitations', '', ...bundle.provenance.limitations.map(item => `- ${item}`), ''
