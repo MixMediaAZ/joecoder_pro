@@ -33,6 +33,8 @@ See [SUPPORTED_CAPABILITIES.md](SUPPORTED_CAPABILITIES.md) for the exact support
 
 The launcher builds the exported Next.js workspace and serves it at `/workspace/` on the backend's actual port. The legacy `/app.html` remains available. Use `npm run build:all` to build both applications and `npm --prefix frontend run lint` for frontend linting. Full tests write per-file results under `.jc/readiness/tests-*/`; `JC_TEST_FILE_TIMEOUT_MS` sets a bounded per-file timeout (default 120000 ms). A timeout fails the run.
 
+The full regression suite includes a real Python repair/rollback fixture. With Python 3.12 available, install its test runner using `python -m pip install -r tools/requirements-test.txt` before `npm test`. This is a development-test dependency; the Node application does not require pytest to start. GitHub's Windows job installs it explicitly.
+
 Development diagnostics: `node tools/run-readiness-job.mjs repair` (also `refactor` or `greenfield`) copies the corresponding project into `.jc/readiness/`, uses an installed local model, and records results. Set `JC_OLLAMA_MODEL` to an installed model and `JC_READINESS_JOB_TIMEOUT_MS` to the diagnostic budget. These runs do not imply independent qualification. `node tools/measure-readiness.mjs <runtime-data-directory>` records warm HTTP and small-fixture survey timings.
 
 `node tools/verify-legacy-copy.mjs "<existing-database.sqlite3>"` creates an isolated database backup and checks failed-migration rollback, successful migration, and preservation of existing rows. It does not migrate the source database.
