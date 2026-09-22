@@ -10,6 +10,7 @@ on:
       - "package*.json"
       - "tsconfig.json"
       - "start.bat"
+      - ".gitattributes"
       - ".github/workflows/frontend-ci.yml"
   push:
     branches:
@@ -24,6 +25,7 @@ on:
       - "package*.json"
       - "tsconfig.json"
       - "start.bat"
+      - ".gitattributes"
       - ".github/workflows/frontend-ci.yml"
 
 permissions:
