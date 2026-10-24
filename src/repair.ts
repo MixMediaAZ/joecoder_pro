@@ -596,7 +596,8 @@ export async function readScopedFiles(projectRoot: string, relPaths: string[]): 
         relPath: normalized,
         exists: true,
         content: buffer.toString('utf8', 0, Math.min(buffer.length, MAX_FILE_READ_BYTES)),
-        truncated
+        truncated,
+        ...(isServerManagedLockfilePath(normalized) ? { serverManaged: true } : {})
       });
       if (truncated) {
         throw new Error(`REPAIR_UNSUPPORTED: '${relPath}' exceeds the ${Math.round(MAX_FILE_READ_BYTES / 1024)}KB single-file repair limit`);
@@ -619,7 +620,7 @@ export async function readScopedFiles(projectRoot: string, relPaths: string[]): 
 }
 
 export function modelEditableScopedFiles(files: ScopedFileContent[]): ScopedFileContent[] {
-  return files.filter((file) => !file.serverManaged);
+  return files.filter((file) => !file.serverManaged && !isServerManagedLockfilePath(file.relPath));
 }
 
 function chunkScopedFiles(files: ScopedFileContent[], size: number): ScopedFileContent[][] {

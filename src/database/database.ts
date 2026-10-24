@@ -1204,6 +1204,24 @@ export function listAgentJobs(projectId: string, limit = 20): AgentJobRecord[] {
   `).all(projectId, Math.max(1, Math.min(limit, 100))).map(mapAgentJob);
 }
 
+/** Immutable creation order keeps page boundaries stable when jobs change status. */
+export function listAgentJobPage(projectId: string, threadId: string, before?: string, limit = 20) {
+  const size = Math.max(1, Math.min(Number.isSafeInteger(limit) ? limit : 20, 50));
+  const cursor = before ? getAgentJob(before) : null;
+  if (before && (!cursor || cursor.projectId !== projectId || cursor.threadId !== threadId)) {
+    throw new Error('INVALID_JOB_HISTORY_CURSOR');
+  }
+  const rows = requiredDatabase().prepare(`
+    SELECT * FROM agent_jobs WHERE project_id=? AND thread_id=?
+      ${cursor ? 'AND (created_at < ? OR (created_at = ? AND id < ?))' : ''}
+    ORDER BY created_at DESC, id DESC LIMIT ?
+  `).all(...(cursor
+    ? [projectId, threadId, cursor.createdAt, cursor.createdAt, cursor.id, size + 1]
+    : [projectId, threadId, size + 1])).map(mapAgentJob);
+  const jobs = rows.slice(0, size);
+  return { jobs, nextCursor: rows.length > size ? jobs.at(-1)!.id : null };
+}
+
 export function getActiveAgentJob(projectId: string): AgentJobRecord | null {
   const row = requiredDatabase().prepare(`
     SELECT * FROM agent_jobs
@@ -1442,4 +1460,3 @@ export function recordRoutingOutcome(input: {
     input.detail || '', Date.now()
   );
 }
-

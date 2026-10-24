@@ -6,7 +6,8 @@
     "main":  "dist/index.js",
     "scripts":  {
                     "build":  "tsc",
-                    "test":  "npm run build \u0026\u0026 npm run test:browser-assets \u0026\u0026 node --test dist/*.test.js dist/database/*.test.js",
+                    "build:all": "npm run build && node tools/build-frontend.mjs",
+                    "test":  "npm run build:all \u0026\u0026 npm run test:browser-assets \u0026\u0026 node tools/run-unit-tests.mjs",
                     "dev":  "tsx watch src/index.ts",
                     "prestart":  "npm run build",
                     "start":  "node dist/index.js",

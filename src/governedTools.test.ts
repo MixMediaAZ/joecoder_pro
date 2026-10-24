@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { executeGovernedTool, listGovernedTools, retryGovernedTool } from './governedTools.js';
+import { executeGovernedTool, inspectProjectProcesses, listGovernedTools, retryGovernedTool } from './governedTools.js';
 import type { GovernedToolContext } from './governedToolTypes.js';
 
 // Windows releases a terminated process's handles asynchronously: a fixture directory can stay
@@ -194,12 +194,28 @@ test('allowlisted checks and governed process lifecycle execute without a model-
     assert.equal(checked.ok, true);
     if (checked.ok) assert.match(JSON.stringify(checked.summary), /fixture test passed/);
 
+    await fs.writeFile(path.join(root, 'server.js'), 'const http = require("node:http"); const server = http.createServer((req,res)=>res.end("preview ready")); server.listen(0,"127.0.0.1",()=>console.log("http://127.0.0.1:"+server.address().port));\n');
     const launched = await executeGovernedTool({ name: 'project.launch', input: { script: 'start' } }, context);
     assert.equal(launched.ok, true);
     handle = String((launched.ok ? launched.summary as any : {}).handle);
     assert.match(handle, /^proc-[a-f0-9]{16}$/);
+    const deadline = Date.now() + 5000;
+    while (!inspectProjectProcesses(root)[0]?.urls.length && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    const visible = inspectProjectProcesses(root);
+    assert.equal(visible.length, 1);
+    const record = visible[0];
+    assert.ok(record);
+    assert.equal(record.jobId, context.jobId);
+    assert.equal(inspectProjectProcesses(path.join(root, 'other-project')).length, 0);
+    const previewUrl = record.urls[0];
+    assert.ok(previewUrl);
+    assert.match(previewUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(await fetch(previewUrl).then(response => response.text()), 'preview ready');
     const stopped = await executeGovernedTool({ name: 'project.stop', input: { handle } }, context);
     assert.equal(stopped.ok, true);
+    assert.equal(inspectProjectProcesses(root).length, 0);
     handle = null;
   } finally {
     if (handle) await executeGovernedTool({ name: 'project.stop', input: { handle } }, context);
@@ -267,4 +283,3 @@ test('real browser tools capture, inspect, interact, check responsive layout, an
     await fs.rm(root, REMOVE_FIXTURE);
   }
 });
-

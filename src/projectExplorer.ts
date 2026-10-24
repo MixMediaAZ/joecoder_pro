@@ -50,7 +50,7 @@ function slash(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
-function sensitiveName(name: string): boolean {
+export function sensitiveName(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === '.env' ||
     lower.startsWith('.env.') ||

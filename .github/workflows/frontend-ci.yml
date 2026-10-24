@@ -4,14 +4,32 @@ on:
   pull_request:
     paths:
       - "frontend/**"
+      - "src/**"
+      - "public/**"
+      - "tools/**"
+      - "package*.json"
+      - "tsconfig.json"
+      - "start.bat"
+      - ".gitattributes"
       - ".github/workflows/frontend-ci.yml"
   push:
     branches:
       - main
       - master
+      - codex/step4-real-project-criteria
     paths:
       - "frontend/**"
+      - "src/**"
+      - "public/**"
+      - "tools/**"
+      - "package*.json"
+      - "tsconfig.json"
+      - "start.bat"
+      - ".gitattributes"
       - ".github/workflows/frontend-ci.yml"
+
+permissions:
+  contents: read
 
 jobs:
   verify-frontend:
@@ -42,3 +60,39 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  verify-windows-workspace:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.1"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install frontend
+        run: npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
+
+      - name: Setup Python for acceptance tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test runner
+        run: python -m pip install --disable-pip-version-check -r tools/requirements-test.txt
+
+      - name: Build and test integrated workspace
+        run: npm test
+
+      - name: Lint frontend
+        run: npm --prefix frontend run lint

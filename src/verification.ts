@@ -40,6 +40,20 @@ export interface VerificationReport {
   preexistingFailures?: VerificationItem[];
 }
 
+/** Convert absent runtime proof into an actionable failure for runnable objectives. */
+export function requireRuntimeVerification(report: VerificationReport): VerificationReport {
+  const proof = verificationProofLevel(report);
+  if (proof === 'runtime' || proof === 'failed') return report;
+  const detail = 'RUNTIME_VERIFICATION_REQUIRED: file integrity alone cannot verify a runnable application. No runnable project build/test check completed. Add or repair a meaningful package.json build/test script and its real checks within the authorized scope.';
+  return {
+    ...report, status: 'failed', detail,
+    items: [...report.items, {
+      script: 'test', command: 'runtime-verification-required', root: '.', exitCode: null,
+      timedOut: false, passed: false, outputTail: [detail]
+    }]
+  };
+}
+
 /**
  * Judge a post-change verification against the baseline recorded before any write.
  *

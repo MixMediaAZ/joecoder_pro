@@ -153,6 +153,34 @@ test('durable runtime resumes after every transition without repeating an action
   }
 });
 
+test('read-only execution narration does not invent file changes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-runtime-narration-'));
+  try {
+    await initializeDatabase(root);
+    const project = fixtureProject(root);
+    upsertProject(project);
+    const thread = ensureProjectThread(project.id, project.name);
+    const job = createAgentJob({ projectId: project.id, threadId: thread.id, objective: 'Inspect read-only.', mode: 'read_only' });
+    const base = deterministicDriver(new Map());
+    const driver: AgentRuntimeDriver = { async execute(context) {
+      if (context.action === 'produce_plan') return { statePatch: { planRevision: 1, workOrderId: 'JC20-M2-999', plan: { objective: 'Inspect read-only.', scope: { exactPaths: ['src/fix.ts'], operations: ['inspect'] } } } };
+      if (context.action === 'execute_change') return { statePatch: { executionResult: { applied: [], evidenceId: 'EVC-read-only' } }, evidenceId: 'EVC-read-only' };
+      return base.execute(context);
+    } };
+    for (const _action of AGENT_ACTION_CATALOG) {
+      if ((await runAgentRuntimeStep(job.id, driver)).terminal) break;
+    }
+    const events = listAgentJobEvents(job.id);
+    assert.equal(events.some(event => (event.payload as { category?: string }).category === 'Changed'), false);
+    assert.equal(events.some(event => /I (?:am changing|changed) .*files/.test(event.what)), false);
+    assert.ok(events.some(event => event.what === 'The execution step returned its result.'));
+  } finally {
+    closeDatabase();
+    assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('persisted tool result completes its checkpoint without invoking the driver again', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-agent-recovery-'));
   try {
@@ -212,4 +240,3 @@ test('one mutating job is enforced while read-only jobs remain concurrent', asyn
     await fs.rm(root, { recursive: true, force: true });
   }
 });
-

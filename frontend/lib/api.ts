@@ -33,7 +33,7 @@ function buildHeaders(
   return merged
 }
 
-async function apiRequest<T>(
+export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -102,7 +102,18 @@ export async function getProjectSurveys(projectId: string): Promise<SurveySummar
   const response = await apiRequest<{ ok: true; surveys: SurveySummary[] }>(
     `/api/v1/projects/${projectId}/surveys`
   )
-  return response.surveys
+  return response.surveys.map(survey => ({ ...survey, summary: describeSurveySummary(survey.summary) }))
+}
+
+function describeSurveySummary(summary: unknown): string {
+  if (typeof summary === 'string') return summary
+  if (!summary || typeof summary !== 'object') return 'No summary available yet.'
+  const value = summary as Record<string, unknown>
+  const parts = [
+    typeof value.totalFiles === 'number' ? `${value.totalFiles} files` : null,
+    typeof value.totalDirectories === 'number' ? `${value.totalDirectories} folders` : null,
+  ].filter(Boolean)
+  return parts.join(' · ') || 'No summary available yet.'
 }
 
 export async function getEvidenceContent(evidenceId: string): Promise<SurveyEvidence | null> {
@@ -138,7 +149,7 @@ export async function createThread(
 export async function updateThread(
   projectId: string,
   threadId: string,
-  updates: { title?: string; objective?: string; presetId?: string }
+  updates: { title?: string; objective?: string; presetId?: string; status?: 'active' | 'archived' }
 ): Promise<ProjectThread> {
   const response = await apiRequest<{ ok: true; thread: ProjectThread }>(
     `/api/v1/projects/${projectId}/threads/${threadId}`,

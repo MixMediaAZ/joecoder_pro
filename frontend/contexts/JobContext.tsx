@@ -1,71 +1,15 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  createProject,
-  createThread,
-  getEvidenceContent,
-  getAgentJob,
-  getAgentJobs,
-  getProjectSurveys,
-  getProjectThreads,
-  getProjects,
-  getSessionStatus,
-  getThreadChat,
-  getWorkOrders,
-  pickFolder,
-  resumeAgentJob,
-  sendThreadMessage,
-  startAgentJob,
-  stopAgentJob,
-} from '../lib/api'
-import type {
-  AgentJob,
-  ChatMessage,
-  Project,
-  ProjectThread,
-  SessionStatus,
-  SurveyEvidence,
-  SurveySummary,
-  WorkOrder,
-} from '../lib/backendTypes'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import * as api from '../lib/api'
+import type { AgentJob, ChatMessage, Project, ProjectThread, SessionStatus, SurveyEvidence, SurveySummary, WorkOrder } from '../lib/backendTypes'
 import { clearSessionState, storeSessionStatus } from '../lib/session'
-import { deriveRailStage, type RailStage } from '../lib/workflow'
+import { deriveRailStage } from '../lib/workflow'
 
-type ComposerMode = 'ask' | 'plan' | 'build'
+type Mode = 'ask' | 'plan' | 'build'
+const failure = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-type JobContextValue = {
-  loading: boolean
-  error: string | null
-  session: SessionStatus | null
-  projects: Project[]
-  project: Project | null
-  threads: ProjectThread[]
-  thread: ProjectThread | null
-  messages: ChatMessage[]
-  surveys: SurveySummary[]
-  surveyEvidence: SurveyEvidence | null
-  workOrders: WorkOrder[]
-  jobs: AgentJob[]
-  activeJob: AgentJob | null
-  railStage: RailStage
-  mode: ComposerMode
-  setMode: (mode: ComposerMode) => void
-  setError: (message: string | null) => void
-  openBuildFolder: () => Promise<void>
-  selectProject: (projectId: string) => Promise<void>
-  selectThread: (threadId: string) => Promise<void>
-  createConversation: () => Promise<void>
-  sendComposer: (content: string) => Promise<void>
-  inspectBuild: () => Promise<void>
-  resumeJob: () => Promise<void>
-  stopJob: () => Promise<void>
-  refreshProjectData: () => Promise<void>
-}
-
-const JobContext = createContext<JobContextValue | undefined>(undefined)
-
-export function JobProvider({ children }: { children: React.ReactNode }) {
+function useWorkspaceController() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [session, setSession] = useState<SessionStatus | null>(null)
@@ -79,258 +23,148 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [jobs, setJobs] = useState<AgentJob[]>([])
   const [activeJob, setActiveJob] = useState<AgentJob | null>(null)
-  const [mode, setMode] = useState<ComposerMode>('build')
-  const pollTimer = useRef<number | null>(null)
-
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current !== null) {
-      window.clearInterval(pollTimer.current)
-      pollTimer.current = null
-    }
-  }, [])
-
-  const loadThreadMessages = useCallback(async (projectId: string, threadId: string) => {
-    const nextMessages = await getThreadChat(projectId, threadId)
-    setMessages(nextMessages)
-  }, [])
+  const [mode, setMode] = useState<Mode>('build')
+  // A generation invalidates old reads even when switching back to the same ID.
+  const selection = useRef({ projectId: '', threadId: '', generation: 0 })
+  const refreshSequence = useRef(0)
+  const rememberedThreads = useRef(new Map<string, string>())
 
   const refreshProjectData = useCallback(async () => {
-    if (!project) return
-    const [threadData, surveyData, orderData, jobData] = await Promise.all([
-      getProjectThreads(project.id),
-      getProjectSurveys(project.id),
-      getWorkOrders(project.id),
-      getAgentJobs(project.id),
+    const snapshot = { ...selection.current }
+    if (!snapshot.projectId) return
+    const sequence = ++refreshSequence.current
+    const current = () => selection.current.generation === snapshot.generation && refreshSequence.current === sequence
+    const [threadData, surveyData, orderData, jobData, latestProject] = await Promise.all([
+      api.getProjectThreads(snapshot.projectId), api.getProjectSurveys(snapshot.projectId),
+      api.getWorkOrders(snapshot.projectId), api.getAgentJobs(snapshot.projectId), api.getProject(snapshot.projectId),
     ])
-    setThreads(threadData.threads)
-    const selectedThread = threadData.threads.find((item) => item.id === threadData.selectedThreadId) || null
-    setThread(selectedThread)
-    if (selectedThread) {
-      await loadThreadMessages(project.id, selectedThread.id)
-    } else {
-      setMessages([])
-    }
-    setSurveys(surveyData)
-    const latestSurveyId = project.latestSurveyId || surveyData[0]?.id
-    if (latestSurveyId) {
-      const evidence = await getEvidenceContent(latestSurveyId)
-      setSurveyEvidence(evidence)
-    } else {
-      setSurveyEvidence(null)
-    }
-    setWorkOrders(orderData)
-    setJobs(jobData.jobs)
-    setActiveJob(jobData.activeJob)
-  }, [project, loadThreadMessages])
+    if (!current()) return
+    const selectedId = selection.current.threadId || rememberedThreads.current.get(snapshot.projectId) || threadData.selectedThreadId
+    const selected = threadData.threads.find(item => item.id === selectedId) || threadData.threads.find(item => item.status === 'active') || null
+    const [chat, evidence] = await Promise.all([
+      selected ? api.getThreadChat(snapshot.projectId, selected.id) : Promise.resolve([]),
+      latestProject.latestSurveyId ? api.getEvidenceContent(latestProject.latestSurveyId) : Promise.resolve(null),
+    ])
+    if (!current()) return
+    selection.current.threadId = selected?.id || ''
+    if (selected) rememberedThreads.current.set(snapshot.projectId, selected.id)
+    setProject(latestProject)
+    setProjects(items => items.map(item => item.id === latestProject.id ? latestProject : item))
+    setThreads(threadData.threads); setThread(selected); setMessages(chat)
+    setSurveys(surveyData); setSurveyEvidence(evidence); setWorkOrders(orderData)
+    setJobs(jobData.jobs); setActiveJob(jobData.activeJob)
+  }, [])
 
-  const loadProjectsAndSelection = useCallback(async () => {
-    const projectList = await getProjects()
-    setProjects(projectList)
-    if (!projectList.length) {
-      setProject(null)
-      setThreads([])
-      setThread(null)
-      setMessages([])
-      setSurveys([])
-      setSurveyEvidence(null)
-      setWorkOrders([])
-      setJobs([])
-      setActiveJob(null)
-      return
-    }
-    const nextProject = project && projectList.some((candidate) => candidate.id === project.id)
-      ? projectList.find((candidate) => candidate.id === project.id) || projectList[0]
-      : projectList[0]
-    setProject(nextProject)
-  }, [project])
-
-  const bootstrap = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const status = await getSessionStatus()
-      storeSessionStatus(status)
-      setSession(status)
-      await loadProjectsAndSelection()
-    } catch (sessionError) {
-      clearSessionState()
-      setSession(null)
-      setError(sessionError instanceof Error ? sessionError.message : String(sessionError))
-    } finally {
-      setLoading(false)
-    }
-  }, [loadProjectsAndSelection])
+  const activateProject = useCallback(async (next: Project, initialThread = '') => {
+    selection.current = { projectId: next.id, threadId: initialThread, generation: selection.current.generation + 1 }
+    const generation = selection.current.generation
+    setProject(next); setThread(null); setThreads([]); setMessages([])
+    setSurveys([]); setSurveyEvidence(null); setWorkOrders([]); setJobs([]); setActiveJob(null)
+    setLoading(true); setError(null)
+    try { await refreshProjectData() }
+    catch (error) { if (selection.current.generation === generation) setError(failure(error)) }
+    finally { if (selection.current.generation === generation) setLoading(false) }
+  }, [refreshProjectData])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void bootstrap()
-  }, [bootstrap])
+    let disposed = false
+    void (async () => {
+      try {
+        const status = await api.getSessionStatus()
+        if (disposed) return
+        storeSessionStatus(status); setSession(status)
+        const items = await api.getProjects()
+        if (disposed) return
+        setProjects(items)
+        const query = new URLSearchParams(window.location.search)
+        const initial = items.find(item => item.id === query.get('project')) || items[0]
+        if (initial) await activateProject(initial, query.get('thread') || '')
+      } catch (error) {
+        if (!disposed) { clearSessionState(); setError(failure(error)) }
+      } finally { if (!disposed) setLoading(false) }
+    })()
+    return () => { disposed = true; selection.current.generation++ }
+  }, [activateProject])
 
+  // Serial polling reconnects automatically and discovers jobs from other windows.
   useEffect(() => {
-    if (!project) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refreshProjectData().catch((projectError: unknown) => {
-      setError(projectError instanceof Error ? projectError.message : String(projectError))
-    })
-  }, [project, refreshProjectData])
-
-  useEffect(() => {
-    stopPolling()
-    if (!activeJob) return
-    if (!['queued', 'running', 'interrupted'].includes(activeJob.status)) return
-
-    pollTimer.current = window.setInterval(() => {
-      void getAgentJob(activeJob.id)
-        .then((detail) => {
-          setActiveJob(detail.job)
-          if (!['queued', 'running', 'interrupted'].includes(detail.job.status)) {
-            void refreshProjectData()
-            stopPolling()
-          }
-        })
-        .catch((pollError: unknown) => {
-          setError(pollError instanceof Error ? pollError.message : String(pollError))
-          stopPolling()
-        })
-    }, 3000)
-
-    return stopPolling
-  }, [activeJob, refreshProjectData, stopPolling])
-
-  const openBuildFolder = useCallback(async () => {
-    setError(null)
-    const selected = await pickFolder()
-    if (selected.cancelled || !selected.path) return
-    const folderName = selected.path.split(/[\\/]/).filter(Boolean).at(-1) || 'build'
-    await createProject({ name: folderName, path: selected.path })
-    await loadProjectsAndSelection()
-  }, [loadProjectsAndSelection])
-
-  const selectProject = useCallback(async (projectId: string) => {
-    const next = projects.find((item) => item.id === projectId) || null
-    if (!next) return
-    setProject(next)
-    setError(null)
-  }, [projects])
-
-  const selectThread = useCallback(async (threadId: string) => {
-    if (!project) return
-    const nextThread = threads.find((item) => item.id === threadId) || null
-    setThread(nextThread)
-    if (!nextThread) {
-      setMessages([])
-      return
+    if (!project?.id) return
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      const generation = selection.current.generation
+      if (!document.hidden) {
+        try { await refreshProjectData() }
+        catch (error) { if (!disposed && generation === selection.current.generation) setError(failure(error)) }
+      }
+      if (!disposed) timer = setTimeout(poll, 3000)
     }
-    await loadThreadMessages(project.id, nextThread.id)
-  }, [project, threads, loadThreadMessages])
+    timer = setTimeout(poll, 3000)
+    return () => { disposed = true; clearTimeout(timer) }
+  }, [project?.id, refreshProjectData])
 
-  const createConversation = useCallback(async () => {
-    if (!project) return
-    const next = await createThread(project.id, `${project.name} conversation`)
+  const selectProject = async (id: string) => {
+    const next = projects.find(item => item.id === id)
+    if (next) await activateProject(next)
+  }
+  const selectThread = async (id: string) => {
+    if (!project || !threads.some(item => item.id === id)) return
+    selection.current = { projectId: project.id, threadId: id, generation: selection.current.generation + 1 }
+    rememberedThreads.current.set(project.id, id)
+    setThread(threads.find(item => item.id === id) || null); setMessages([]); setLoading(true); setError(null)
+    const generation = selection.current.generation
+    try { await refreshProjectData() }
+    catch (error) { if (generation === selection.current.generation) setError(failure(error)) }
+    finally { if (generation === selection.current.generation) setLoading(false) }
+  }
+  const createConversation = async () => {
+    if (!project) throw new Error('Open a project first.')
+    const snapshot = { ...selection.current }
+    const next = await api.createThread(project.id, 'New conversation')
+    if (snapshot.generation !== selection.current.generation) return
+    selection.current.threadId = next.id; selection.current.generation++
+    rememberedThreads.current.set(project.id, next.id)
+    setThread(next); setMessages([])
     await refreshProjectData()
-    await selectThread(next.id)
-  }, [project, refreshProjectData, selectThread])
-
-  const sendComposer = useCallback(async (content: string) => {
-    if (!project || !thread) return
-    const message = content.trim()
-    if (!message) return
-    setError(null)
-
-    if (mode === 'build') {
-      await startAgentJob(project.id, thread.id, message, 'build')
+  }
+  const openBuildFolder = async (folderPath?: string) => {
+    const picked = folderPath?.trim() ? { cancelled: false, path: folderPath.trim() } : await api.pickFolder()
+    if (picked.cancelled || !picked.path) return
+    const existing = projects.find(item => item.path.toLowerCase() === picked.path!.toLowerCase())
+    const next = existing || await api.createProject({ name: picked.path.split(/[\\/]/).filter(Boolean).at(-1) || 'Project', path: picked.path })
+    setProjects(await api.getProjects())
+    await activateProject(next)
+    if (!next.latestSurveyId && selection.current.projectId === next.id && selection.current.threadId) {
+      await api.startAgentJob(next.id, selection.current.threadId, 'Inspect this build read-only and summarize its current condition.', 'build')
       await refreshProjectData()
-      return
     }
-
-    const response = await sendThreadMessage(project.id, thread.id, message, mode)
-    setMessages(response.messages)
-  }, [mode, project, refreshProjectData, thread])
-
-  const inspectBuild = useCallback(async () => {
-    if (!project || !thread) return
+  }
+  const sendComposer = async (content: string) => {
+    const snapshot = { ...selection.current }
+    if (!snapshot.projectId || !snapshot.threadId) throw new Error('Select a conversation before sending.')
     setError(null)
-    await startAgentJob(
-      project.id,
-      thread.id,
-      'Inspect this build read-only, summarize current condition, and list highest-leverage next work.',
-      'build'
-    )
+    if (mode === 'build') await api.startAgentJob(snapshot.projectId, snapshot.threadId, content, 'build')
+    else await api.sendThreadMessage(snapshot.projectId, snapshot.threadId, content, mode)
+    if (selection.current.generation === snapshot.generation) await refreshProjectData()
+  }
+  const inspectBuild = async () => {
+    if (!project || !thread) throw new Error('Select a conversation before inspecting.')
+    await api.startAgentJob(project.id, thread.id, 'Inspect this build read-only, summarize current condition, and list highest-leverage next work.', 'build')
     await refreshProjectData()
-  }, [project, refreshProjectData, thread])
-
-  const resumeJob = useCallback(async () => {
-    if (!activeJob) return
-    await resumeAgentJob(activeJob.id)
-    await refreshProjectData()
-  }, [activeJob, refreshProjectData])
-
-  const stopJob = useCallback(async () => {
-    if (!activeJob) return
-    await stopAgentJob(activeJob.id)
-    await refreshProjectData()
-  }, [activeJob, refreshProjectData])
-
-  const railStage = useMemo(() => deriveRailStage(project, activeJob), [project, activeJob])
-
-  const value = useMemo<JobContextValue>(() => ({
-    loading,
-    error,
-    session,
-    projects,
-    project,
-    threads,
-    thread,
-    messages,
-    surveys,
-    surveyEvidence,
-    workOrders,
-    jobs,
-    activeJob,
-    railStage,
-    mode,
-    setMode,
-    setError,
-    openBuildFolder,
-    selectProject,
-    selectThread,
-    createConversation,
-    sendComposer,
-    inspectBuild,
-    resumeJob,
-    stopJob,
-    refreshProjectData,
-  }), [
-    loading,
-    error,
-    session,
-    projects,
-    project,
-    threads,
-    thread,
-    messages,
-    surveys,
-    surveyEvidence,
-    workOrders,
-    jobs,
-    activeJob,
-    railStage,
-    mode,
-    openBuildFolder,
-    selectProject,
-    selectThread,
-    createConversation,
-    sendComposer,
-    inspectBuild,
-    resumeJob,
-    stopJob,
-    refreshProjectData,
-  ])
-
-  return <JobContext.Provider value={value}>{children}</JobContext.Provider>
+  }
+  const resumeJob = async () => { if (activeJob) { await api.resumeAgentJob(activeJob.id); await refreshProjectData() } }
+  const stopJob = async () => { if (activeJob) { await api.stopAgentJob(activeJob.id); await refreshProjectData() } }
+  return { loading, error, session, projects, project, threads, thread, messages, surveys, surveyEvidence, workOrders, jobs, activeJob,
+    mode, setMode, setError, openBuildFolder, selectProject, selectThread, createConversation, sendComposer, inspectBuild,
+    resumeJob, stopJob, refreshProjectData, railStage: deriveRailStage(project, activeJob) }
 }
 
-export function useJobContext(): JobContextValue {
+const JobContext = createContext<ReturnType<typeof useWorkspaceController> | undefined>(undefined)
+export function JobProvider({ children }: { children: React.ReactNode }) {
+  const value = useWorkspaceController()
+  return <JobContext.Provider value={value}>{children}</JobContext.Provider>
+}
+export function useJobContext() {
   const context = useContext(JobContext)
   if (!context) throw new Error('useJobContext must be used within JobProvider')
   return context

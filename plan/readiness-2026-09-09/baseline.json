@@ -1,0 +1,35 @@
+{
+  "recordedAt": "2026-09-09T23:23:38.7097082Z",
+  "commit": "ee595a64f733633921dadebe15db3323f1c2d937",
+  "branch": "codex/step4-real-project-criteria",
+  "status": [
+    " M frontend/app/globals.css",
+    " M frontend/app/layout.tsx",
+    " M frontend/tailwind.config.ts",
+    "?? AGENTS.md",
+    "?? FORGE_OPERATOR_LOOP.md",
+    "?? INTENT_TO_MANIFEST.md",
+    "?? \"JC UI refactor.txt\"",
+    "?? JC_FOUNDATIONAL_WORK_SUMMARY.md",
+    "?? JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md",
+    "?? JC_UI_REFACTOR_PEER_REVIEW.md",
+    "?? forge/",
+    "?? memory/",
+    "?? plan/PERFORMANCE_READINESS_PLAN_2026-09-09.md",
+    "?? src/dataModels/",
+    "?? tools/__init__.py",
+    "?? tools/forgetastic/"
+  ],
+  "node": "v22.23.1",
+  "lockHashes": [
+    {
+      "Path": "D:\\AI Builds-OM\\0_PROJECTS\\CODING_Builds\\JoeCoder_Builds\\JoeCoder_Pro_20.1\\package-lock.json",
+      "Hash": "DF12D3D6342D1F58AED02C241E805F3BB794898D43C51FEF2FEDB55F6296E19B"
+    },
+    {
+      "Path": "D:\\AI Builds-OM\\0_PROJECTS\\CODING_Builds\\JoeCoder_Builds\\JoeCoder_Pro_20.1\\frontend\\package-lock.json",
+      "Hash": "4DBAB604E406D19E94F5BA5F65A09368A7B500A73B150950CE9922703DA7B32E"
+    }
+  ],
+  "baselineCheckLog": "{\r\n  \"ok\": false,\r\n  \"mode\": \"draft\",\r\n  \"candidateCommit\": \"bbd6dbde6cebc8e3c35b3926f95128c1584908ab\",\r\n  \"head\": \"ee595a64f733633921dadebe15db3323f1c2d937\",\r\n  \"anchorCommit\": \"ee595a64f733633921dadebe15db3323f1c2d937\",\r\n  \"branch\": \"codex/step4-real-project-criteria\",\r\n  \"draftSpecSha256\": \"577428236205d5ec08f8cfef8e891f572318d006efe522b00a3c78fd1ab87c9e\",\r\n  \"traceabilitySha256\": \"c9bbbb5cb878d371b7626c65a12faf4b77f923c127e996a852f26bc590635c4f\",\r\n  \"clauses\": 28,\r\n  \"statusCounts\": {\r\n    \"unproven\": 15,\r\n    \"partial\": 13\r\n  },\r\n  \"receiptManifest\": {\r\n    \"entries\": 857,\r\n    \"keyId\": \"9e4b3ff870db16c37cf3b44e2cdfdaab2482bc6395c7a5afc0f1b797fd042aa7\",\r\n    \"verified\": false\r\n  },\r\n  \"negativeTests\": [],\r\n  \"failures\": [\r\n    \"git: branch codex/step4-real-project-criteria does not match main\",\r\n    \"git: draft HEAD differs from frozen implementation commit\",\r\n    \"worktree: unexpected change AGENTS.md\",\r\n    \"worktree: unexpected change FORGE_OPERATOR_LOOP.md\",\r\n    \"worktree: unexpected change INTENT_TO_MANIFEST.md\",\r\n    \"worktree: unexpected change \\\"JC UI refactor.txt\\\"\",\r\n    \"worktree: unexpected change JC_FOUNDATIONAL_WORK_SUMMARY.md\",\r\n    \"worktree: unexpected change JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md\",\r\n    \"worktree: unexpected change JC_UI_REFACTOR_PEER_REVIEW.md\",\r\n    \"worktree: unexpected change forge/\",\r\n    \"worktree: unexpected change memory/\",\r\n    \"worktree: unexpected change plan/PERFORMANCE_READINESS_PLAN_2026-09-09.md\",\r\n    \"worktree: unexpected change src/dataModels/\",\r\n    \"worktree: unexpected change tools/__init__.py\",\r\n    \"worktree: unexpected change tools/forgetastic/\",\r\n    \"identity: src/database/schema.ts hash mismatch\",\r\n    \"matrix: recorded hash mismatch\",\r\n    \"receipts: signed manifest verification failed\",\r\n    \"receipts: expected 819 entries for draft verification, observed 857\",\r\n    \"matrix: unknown current_state\"\r\n  ]\r\n}\r\n"
+}
