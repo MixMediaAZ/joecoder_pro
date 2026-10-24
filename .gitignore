@@ -3,6 +3,10 @@ dist/
 .jc/
 .env
 .env.*
+!.env.example
+.claude/settings.local.json
+*.pem
+*.key
 *.log
 *.tmp
 .DS_Store
