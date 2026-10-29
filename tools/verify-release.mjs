@@ -2,6 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { verifyReleaseBundle } from '../dist/supplyChain.js';
 
+if (process.env.JC_ALLOW_POST_STAGE2 !== '1') {
+  throw new Error(
+    'STAGE_FREEZE_ACTIVE: release verification is frozen until the unbound coding-machine bar is explicitly lifted (set JC_ALLOW_POST_STAGE2=1 to override).'
+  );
+}
+
 const releaseRoot = path.resolve(process.argv[2] || '');
 if (!process.argv[2]) throw new Error('Usage: node tools/verify-release.mjs <release-directory>');
 const required = ['SBOM.cdx.json', 'LICENSES.json', 'PROVENANCE.json', 'SHA256SUMS', 'RELEASE-ATTESTATION.json', 'TRUSTED-KEY-ID'];

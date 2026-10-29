@@ -115,10 +115,12 @@ test('a draft Work Order accepts and carries evidence targets end to end', () =>
       constraints: [],
       risks: [],
       evidenceArtifacts: [],
-      evidenceTargets: ['pubspec.yaml']
+      evidenceTargets: ['pubspec.yaml'],
+      requiredApiRoutes: ['/api/health', '/api/projects/upload']
     }
   });
   const draft = buildDraftWorkOrder(body);
   assert.deepEqual(draft.taskSpecific?.evidenceTargets, ['pubspec.yaml']);
+  assert.deepEqual(draft.taskSpecific?.requiredApiRoutes, ['/api/health', '/api/projects/upload']);
   assert.equal(draft.status, 'draft');
 });

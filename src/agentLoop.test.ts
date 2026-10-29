@@ -6,6 +6,7 @@ import test from 'node:test';
 import { discoverStackProfiles, profilesForEditedFiles } from './stackProfiles.js';
 import {
   buildPlanRecoveryContext,
+  contractRecoveryHints,
   generateStructured,
   parsePlanResponse,
   rankPlanCandidates
@@ -94,6 +95,50 @@ test('planning loop observes invalid output, expands context, and self-corrects'
   assert.ok(updates.includes('2:accepted'));
 });
 
+test('contract recovery hints steer DATA_DIR and analysis shallow rejects (G2y)', () => {
+  const dataDirHints = contractRecoveryHints(
+    `EDIT_UPLOAD_DATA_DIR_REQUIRED: 'server/index.ts' implements /api/projects/upload but does not read process.env.DATA_DIR`
+  );
+  assert.ok(dataDirHints.some((hint) => /process\.env\.DATA_DIR/.test(hint)));
+  const analysisHints = contractRecoveryHints('EDIT_ANALYSIS_SHALLOW: count-only');
+  assert.ok(analysisHints.some((hint) => /findings\[\]/.test(hint) || /oracle-seeded-eval/.test(hint)));
+});
+
+test('generateStructured retry prompt includes DATA_DIR contract fix after reject', async () => {
+  const prompts: string[] = [];
+  await generateStructured(
+    {
+      generate: async ({ prompt }) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          return { text: 'not-json', provider: 'test', model: 't', durationMs: 1 };
+        }
+        return {
+          text: '{"schemaVersion":1,"files":["server/index.ts"],"approach":"fix","risks":[]}',
+          provider: 'test',
+          model: 't',
+          durationMs: 1
+        };
+      }
+    },
+    {
+      system: 'test',
+      prompt: 'edit files',
+      parse: (text) => {
+        if (prompts.length === 1) {
+          throw new Error('EDIT_UPLOAD_DATA_DIR_REQUIRED: hardcoded ./data');
+        }
+        return parsePlanResponse(text);
+      },
+      label: 'repair file blocks',
+      maxAttempts: 3,
+      includeRejectedExcerpt: false
+    }
+  );
+  assert.ok(prompts.length >= 2);
+  assert.match(prompts[1] || '', /CONTRACT FIX \(DATA_DIR\)/);
+});
+
 test('verified file ranking may guide schema repair but never substitutes a guessed plan', async () => {
   const survey = surveyFixture();
   const ranked = rankPlanCandidates('repair audio player', survey);
@@ -108,6 +153,6 @@ test('verified file ranking may guide schema repair but never substitutes a gues
         recoveryContext: buildPlanRecoveryContext('repair audio player', survey)
       }
     ),
-    /STRUCTURED_PARSE_FAILED after 2 attempts/
+    /STRUCTURED_PARSE_FAILED after 4 attempts/
   );
 });

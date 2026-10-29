@@ -5,8 +5,14 @@ import { randomBytes } from 'node:crypto';
 export async function atomicWriteFile(filePath: string, content: string | Uint8Array): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const existingMode = await fs.stat(filePath)
+    .then((stat) => stat.mode & 0o777)
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return 0o600;
+      throw error;
+    });
   try {
-    const handle = await fs.open(temporary, 'wx', 0o600);
+    const handle = await fs.open(temporary, 'wx', existingMode);
     try {
       await handle.writeFile(content);
       await handle.sync();

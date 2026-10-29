@@ -73,14 +73,35 @@ export function expiredSessionCookie(secure: boolean): string {
   ].join('; ');
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '::1'
+    || (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized) && normalized.startsWith('127.'));
+}
+
 export function exactAuthority(req: express.Request): string {
-  const localPort = req.socket.localPort;
-  return `${req.protocol}://127.0.0.1:${localPort}`;
+  const host = req.get('host') || `127.0.0.1:${req.socket.localPort}`;
+  return `${req.protocol}://${host}`;
 }
 
 export function validateHostAndOrigin(req: express.Request, consequential: boolean): string | null {
-  const expectedHost = `127.0.0.1:${req.socket.localPort}`;
-  if (req.get('host') !== expectedHost) return `HOST_MISMATCH: expected ${expectedHost}`;
+  const raw = req.get('host');
+  if (!raw || /[\s/@\\?#]/.test(raw)) return 'HOST_MISMATCH: invalid host header';
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${raw}`);
+  } catch {
+    return 'HOST_MISMATCH: invalid host header';
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!isLoopbackHostname(hostname)) return 'HOST_MISMATCH: only loopback hosts are accepted';
+  const requestedPort = parsed.port
+    ? Number(parsed.port)
+    : (req.protocol === 'https' ? 443 : 80);
+  if (!Number.isInteger(requestedPort) || requestedPort !== req.socket.localPort) {
+    return `HOST_MISMATCH: expected loopback port ${req.socket.localPort}`;
+  }
   if (consequential && req.get('origin') !== exactAuthority(req)) {
     return `ORIGIN_MISMATCH: expected ${exactAuthority(req)}`;
   }

@@ -4,6 +4,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { lstatSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { atomicWriteFile, atomicWriteJson } from './persistence.js';
@@ -69,12 +70,15 @@ export class MutationTransactionError extends Error {
 }
 
 const FORBIDDEN_SEGMENTS = new Set(['.git', 'node_modules', '.jc']);
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const MAX_EDIT_BYTES = 2_000_000;
+const MAX_TRANSACTION_BYTES = 8_000_000;
 
 function sha256(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-export function resolveJailedPath(projectRoot: string, relPath: string): string {
+function canonicalRelativePath(projectRoot: string, relPath: string): string {
   if (!relPath) {
     throw new Error("SCOPE_VIOLATION: path must be project-relative: '" + relPath + "'");
   }
@@ -89,6 +93,17 @@ export function resolveJailedPath(projectRoot: string, relPath: string): string 
   ) {
     throw new Error("SCOPE_VIOLATION: path must be project-relative: '" + relPath + "'");
   }
+  const segments = forward.split('/');
+  if (segments.some((segment) =>
+    !segment ||
+    segment === '.' ||
+    segment === '..' ||
+    segment.includes(':') ||
+    /[. ]$/.test(segment) ||
+    WINDOWS_DEVICE_NAME.test(segment)
+  )) {
+    throw new Error("SCOPE_VIOLATION: path is not canonical or portable: '" + relPath + "'");
+  }
   const root = path.resolve(projectRoot);
   const full = path.resolve(root, relPath);
   const rel = path.relative(root, full);
@@ -98,6 +113,33 @@ export function resolveJailedPath(projectRoot: string, relPath: string): string 
   for (const segment of rel.split(path.sep)) {
     if (FORBIDDEN_SEGMENTS.has(segment.toLowerCase())) {
       throw new Error("SCOPE_VIOLATION: writes into '" + segment + "' are not permitted: '" + relPath + "'");
+    }
+  }
+  const canonical = rel.split(path.sep).join('/');
+  if (canonical !== forward) {
+    throw new Error("SCOPE_VIOLATION: path must use its canonical project-relative form: '" + relPath + "'");
+  }
+  return canonical;
+}
+
+function pathIdentity(relPath: string): string {
+  return process.platform === 'win32' ? relPath.toLowerCase() : relPath;
+}
+
+export function resolveJailedPath(projectRoot: string, relPath: string): string {
+  const canonical = canonicalRelativePath(projectRoot, relPath);
+  const root = path.resolve(projectRoot);
+  const full = path.resolve(root, canonical);
+  let current = root;
+  for (const segment of canonical.split('/')) {
+    current = path.join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new Error("SCOPE_VIOLATION: linked paths are not permitted: '" + relPath + "'");
+      }
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      throw error;
     }
   }
   return full;
@@ -114,6 +156,53 @@ function snapshotFileName(relPath: string): string {
 function snapshotRecordPath(snapshotDir: string, record: SnapshotFileRecord): string {
   // Backward-compatible fallback for manifests created before collision-safe names.
   return path.join(snapshotDir, record.snapshotFile || record.relPath.replace(/\//g, '__'));
+}
+
+export function validateSnapshotManifest(
+  value: unknown,
+  options: { expectedSnapshotId?: string; expectedProjectRoot?: string } = {}
+): SnapshotManifest {
+  if (!value || typeof value !== 'object') throw new Error('SNAPSHOT_MANIFEST_INVALID');
+  const manifest = value as Partial<SnapshotManifest>;
+  if (
+    typeof manifest.snapshotId !== 'string' ||
+    !/^SNAP-\d+-[a-f0-9]+$/.test(manifest.snapshotId) ||
+    (options.expectedSnapshotId !== undefined && manifest.snapshotId !== options.expectedSnapshotId) ||
+    typeof manifest.projectRoot !== 'string' ||
+    !path.isAbsolute(manifest.projectRoot) ||
+    typeof manifest.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(manifest.createdAt)) ||
+    !Array.isArray(manifest.files)
+  ) {
+    throw new Error('SNAPSHOT_MANIFEST_INVALID');
+  }
+  if (
+    options.expectedProjectRoot !== undefined &&
+    pathIdentity(path.resolve(manifest.projectRoot)) !== pathIdentity(path.resolve(options.expectedProjectRoot))
+  ) {
+    throw new Error('SNAPSHOT_PROJECT_MISMATCH');
+  }
+  const seen = new Set<string>();
+  for (const candidate of manifest.files) {
+    if (!candidate || typeof candidate !== 'object') throw new Error('SNAPSHOT_RECORD_INVALID');
+    const record = candidate as Partial<SnapshotFileRecord>;
+    if (typeof record.relPath !== 'string') throw new Error('SNAPSHOT_RECORD_INVALID');
+    const canonical = canonicalRelativePath(manifest.projectRoot, record.relPath);
+    const identity = pathIdentity(canonical);
+    if (seen.has(identity)) throw new Error('SNAPSHOT_RECORD_DUPLICATE');
+    seen.add(identity);
+    if (
+      typeof record.existed !== 'boolean' ||
+      (record.snapshotFile !== undefined && record.snapshotFile !== snapshotFileName(canonical)) ||
+      (record.existed
+        ? typeof record.hash !== 'string' || !/^[a-f0-9]{64}$/.test(record.hash) ||
+          !Number.isSafeInteger(record.sizeBytes) || Number(record.sizeBytes) < 0
+        : record.hash !== null || record.sizeBytes !== null)
+    ) {
+      throw new Error('SNAPSHOT_RECORD_INVALID');
+    }
+  }
+  return manifest as SnapshotManifest;
 }
 
 export function countChangedLines(before: string, after: string): number {
@@ -140,9 +229,10 @@ export async function snapshotScopedFiles(
   const files: SnapshotFileRecord[] = [];
   const seen = new Set<string>();
   for (const requestedPath of relPaths) {
-    const relPath = normalizeRel(requestedPath);
-    if (seen.has(relPath)) throw new Error("DUPLICATE_SNAPSHOT_PATH: '" + relPath + "'");
-    seen.add(relPath);
+    const relPath = canonicalRelativePath(projectRoot, requestedPath);
+    const identity = pathIdentity(relPath);
+    if (seen.has(identity)) throw new Error("DUPLICATE_SNAPSHOT_PATH: '" + relPath + "'");
+    seen.add(identity);
 
     const full = resolveJailedPath(projectRoot, relPath);
     const snapshotFile = snapshotFileName(relPath);
@@ -179,24 +269,26 @@ interface StagedEdit {
   beforeBuffer: Buffer | null;
   beforeText: string | null;
   changed: number;
+  bytes: number;
 }
 
-async function restoreCommitted(staged: StagedEdit[]): Promise<RollbackFailure[]> {
+async function restoreCommitted(projectRoot: string, staged: StagedEdit[]): Promise<RollbackFailure[]> {
   const failures: RollbackFailure[] = [];
   for (const item of [...staged].reverse()) {
     try {
+      const full = resolveJailedPath(projectRoot, item.rel);
       if (item.beforeBuffer === null) {
-        await fs.unlink(item.full).catch((error: NodeJS.ErrnoException) => {
+        await fs.unlink(full).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== 'ENOENT') throw error;
         });
-        const stillExists = await fs.stat(item.full).then(() => true).catch((error: NodeJS.ErrnoException) => {
+        const stillExists = await fs.stat(full).then(() => true).catch((error: NodeJS.ErrnoException) => {
           if (error.code === 'ENOENT') return false;
           throw error;
         });
         if (stillExists) throw new Error('CREATED_FILE_STILL_EXISTS');
       } else {
-        await atomicWriteFile(item.full, item.beforeBuffer);
-        const restored = await fs.readFile(item.full);
+        await atomicWriteFile(full, item.beforeBuffer);
+        const restored = await fs.readFile(full);
         if (sha256(restored) !== sha256(item.beforeBuffer)) {
           throw new Error('RESTORE_HASH_MISMATCH');
         }
@@ -218,6 +310,7 @@ export async function applyEdits(
     scopeRelPaths: string[];
     maxFiles: number;
     maxChangedLines?: number;
+    maxChangedBytes?: number;
     beforeWrite?: (relPath: string, index: number) => void | Promise<void>;
   }
 ): Promise<ApplyEditsResult> {
@@ -226,17 +319,21 @@ export async function applyEdits(
     throw new Error('BUDGET_EXCEEDED: ' + edits.length + ' files proposed, budget allows ' + options.maxFiles);
   }
 
-  const scope = new Set(options.scopeRelPaths.map(normalizeRel));
+  const scope = new Set(options.scopeRelPaths.map((item) =>
+    pathIdentity(canonicalRelativePath(projectRoot, item))
+  ));
   const seen = new Set<string>();
   const staged: StagedEdit[] = [];
   let totalChangedLines = 0;
+  let totalChangedBytes = 0;
 
   // Validate and read every pre-state before the first target write.
   for (const edit of edits) {
-    const rel = normalizeRel(edit.relPath);
-    if (seen.has(rel)) throw new Error("DUPLICATE_EDIT: '" + rel + "' proposed twice");
-    seen.add(rel);
-    if (!scope.has(rel)) {
+    const rel = canonicalRelativePath(projectRoot, edit.relPath);
+    const identity = pathIdentity(rel);
+    if (seen.has(identity)) throw new Error("DUPLICATE_EDIT: '" + rel + "' proposed twice");
+    seen.add(identity);
+    if (!scope.has(identity)) {
       throw new Error("SCOPE_VIOLATION: '" + rel + "' is not in the authorized exactPaths scope");
     }
 
@@ -249,12 +346,21 @@ export async function applyEdits(
     }
     const beforeText = beforeBuffer?.toString('utf8') ?? null;
     const changed = countChangedLines(beforeText ?? '', edit.content);
+    const bytes = Buffer.byteLength(edit.content);
+    if (bytes > MAX_EDIT_BYTES) {
+      throw new Error('BUDGET_EXCEEDED: ' + rel + ' contains ' + bytes + ' bytes, per-file budget allows ' + MAX_EDIT_BYTES);
+    }
     totalChangedLines += changed;
-    staged.push({ full, rel, content: edit.content, beforeBuffer, beforeText, changed });
+    totalChangedBytes += bytes;
+    staged.push({ full, rel, content: edit.content, beforeBuffer, beforeText, changed, bytes });
   }
 
   if (options.maxChangedLines !== undefined && totalChangedLines > options.maxChangedLines) {
     throw new Error('BUDGET_EXCEEDED: ' + totalChangedLines + ' changed lines proposed, budget allows ' + options.maxChangedLines);
+  }
+  const byteBudget = Math.min(options.maxChangedBytes ?? MAX_TRANSACTION_BYTES, MAX_TRANSACTION_BYTES);
+  if (totalChangedBytes > byteBudget) {
+    throw new Error('BUDGET_EXCEEDED: ' + totalChangedBytes + ' changed bytes proposed, budget allows ' + byteBudget);
   }
 
   const applied: AppliedChange[] = [];
@@ -264,8 +370,25 @@ export async function applyEdits(
       const item = staged[index];
       if (!item) continue;
       await options.beforeWrite?.(item.rel, index);
-      await atomicWriteFile(item.full, item.content);
+      const full = resolveJailedPath(projectRoot, item.rel);
+      let current: Buffer | null = null;
+      try {
+        current = await fs.readFile(full);
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      if (
+        (item.beforeBuffer === null && current !== null) ||
+        (item.beforeBuffer !== null && (current === null || sha256(current) !== sha256(item.beforeBuffer)))
+      ) {
+        throw new Error("MUTATION_PRECONDITION_FAILED: '" + item.rel + "' changed after staging");
+      }
+      await atomicWriteFile(full, item.content);
       committed.push(item);
+      const written = await fs.readFile(resolveJailedPath(projectRoot, item.rel));
+      if (sha256(written) !== sha256(item.content)) {
+        throw new Error("MUTATION_WRITE_VERIFICATION_FAILED: '" + item.rel + "'");
+      }
       applied.push({
         relPath: item.rel,
         action: item.beforeBuffer === null ? 'created_file' : 'replaced_file',
@@ -277,7 +400,7 @@ export async function applyEdits(
       });
     }
   } catch (error: unknown) {
-    const recoveryFailures = await restoreCommitted(committed);
+    const recoveryFailures = await restoreCommitted(projectRoot, committed);
     const reason = error instanceof Error ? error.message : String(error);
     throw new MutationTransactionError(
       'MUTATION_COMMIT_FAILED: ' + reason,
@@ -297,8 +420,13 @@ export interface RollbackResult {
 
 export async function rollbackToSnapshot(
   snapshotsRoot: string,
-  manifest: SnapshotManifest
+  manifest: SnapshotManifest,
+  options: { expectedProjectRoot?: string } = {}
 ): Promise<RollbackResult> {
+  manifest = validateSnapshotManifest(manifest, {
+    expectedSnapshotId: manifest.snapshotId,
+    ...(options.expectedProjectRoot === undefined ? {} : { expectedProjectRoot: options.expectedProjectRoot })
+  });
   const snapshotDir = path.join(snapshotsRoot, manifest.snapshotId);
   const result: RollbackResult = { restored: [], deleted: [], failures: [] };
 

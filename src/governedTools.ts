@@ -11,6 +11,7 @@ import {
   resolveJailedPath,
   rollbackToSnapshot,
   snapshotScopedFiles,
+  validateSnapshotManifest,
   type SnapshotManifest
 } from './mutation.js';
 import { listProjectFiles, previewProjectFile } from './projectExplorer.js';
@@ -36,8 +37,18 @@ const processes = new Map<string, {
 
 const relativePathSchema = z.string().trim().min(1).max(1000).refine((value) => {
   const forward = value.replace(/\\/g, '/');
+  const unsafeWindowsName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+  const segments = forward.split('/');
   return !path.isAbsolute(value) && !path.posix.isAbsolute(forward) &&
-    !/^[a-zA-Z]:(\/|$)/.test(forward) && !forward.split('/').includes('..') && !value.includes('\0');
+    !/^[a-zA-Z]:(\/|$)/.test(forward) && !value.includes('\0') &&
+    segments.every((segment) =>
+      Boolean(segment) &&
+      segment !== '.' &&
+      segment !== '..' &&
+      !segment.includes(':') &&
+      !/[. ]$/.test(segment) &&
+      !unsafeWindowsName.test(segment)
+    );
 }, 'A project-relative path is required.');
 
 const loopbackUrlSchema = z.string().url().max(2000).refine((value) => {
@@ -71,7 +82,8 @@ function normalizedAuthorityPaths(context: GovernedToolContext): Set<string> {
     const full = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(root, candidate);
     const relative = slash(path.relative(root, full));
     if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) continue;
-    result.add(relative);
+    resolveJailedPath(root, relative);
+    result.add(process.platform === 'win32' ? relative.toLowerCase() : relative);
   }
   return result;
 }
@@ -84,10 +96,11 @@ function requireOperation(context: GovernedToolContext, operation: string | null
 }
 
 function requireMutatingPath(context: GovernedToolContext, relativePath: string): string {
-  const normalized = slash(relativePath);
-  const full = resolveJailedPath(context.projectRoot, normalized);
-  if (!normalizedAuthorityPaths(context).has(normalized)) {
-    throw new GovernedToolError('TOOL_PATH_NOT_AUTHORIZED', `${normalized} is outside the sealed exact-path scope.`);
+  const full = resolveJailedPath(context.projectRoot, slash(relativePath));
+  const canonical = slash(path.relative(path.resolve(context.projectRoot), full));
+  const identity = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  if (!normalizedAuthorityPaths(context).has(identity)) {
+    throw new GovernedToolError('TOOL_PATH_NOT_AUTHORIZED', `${canonical} is outside the sealed exact-path scope.`);
   }
   return full;
 }
@@ -114,12 +127,58 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: 
     );
   });
 }
+
+async function withSettledTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: string): Promise<T> {
+  // Mutating tools must not be orphaned by a timer. Wait for the real outcome.
+  // A late success is still success; converting it into TOOL_TIMEOUT caused
+  // callers to retry work that had already been committed.
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  try {
+    const raced = await Promise.race([
+      promise.then(
+        (value) => ({ kind: 'ok' as const, value }),
+        (error) => ({ kind: 'err' as const, error })
+      ),
+      timeout.then(() => ({ kind: 'timeout' as const }))
+    ]);
+    if (raced.kind === 'ok') return raced.value;
+    if (raced.kind === 'err') throw raced.error;
+    try {
+      return await promise;
+    } catch (error) {
+      throw new GovernedToolError(
+        'TOOL_TIMEOUT',
+        `${toolName} exceeded ${timeoutMs}ms` + (error instanceof Error ? `: ${error.message}` : '.')
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function metadata(input: Omit<GovernedToolMetadata, 'evidenceProducer'>): GovernedToolMetadata {
   return { ...input, evidenceProducer: `joecoder-governed-tool/${input.name}@1` };
 }
 
+async function npmInvocation(args: string[]): Promise<{ command: string; args: string[] }> {
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return { command: process.execPath, args: [candidate, ...args] };
+    } catch {}
+  }
+  return { command: 'npm', args };
+}
+
 async function terminateProcessTree(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
   if (process.platform === 'win32') {
     await new Promise<void>((resolve, reject) => {
       const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
@@ -143,16 +202,25 @@ async function terminateProcessTree(child: ChildProcess, timeoutMs = 10_000): Pr
         else reject(new GovernedToolError('PROCESS_STOP_FAILED', stderr.trim() || `Could not stop governed process ${child.pid}.`));
       });
     });
+    await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    // Windows can report process termination before the final cwd/file handles are released.
+    await new Promise((resolve) => setTimeout(resolve, 750));
     return;
   }
   child.kill('SIGTERM');
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
+  await Promise.race([
+    closed,
+    new Promise<never>((_, reject) => setTimeout(() => {
       child.kill('SIGKILL');
       reject(new GovernedToolError('PROCESS_STOP_TIMEOUT', `Timed out stopping governed process ${child.pid}.`));
-    }, timeoutMs);
-    child.once('close', () => { clearTimeout(timer); resolve(); });
-  });
+    }, timeoutMs))
+  ]);
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
 }
 
 async function readJsonFile(relativePath: string, context: GovernedToolContext): Promise<{ value: any; content: string; full: string }> {
@@ -224,11 +292,18 @@ function snapshotPath(context: GovernedToolContext, snapshotId: string): string 
 }
 
 async function loadSnapshot(context: GovernedToolContext, snapshotId: string): Promise<SnapshotManifest> {
-  const manifest = JSON.parse(await fs.readFile(snapshotPath(context, snapshotId), 'utf8')) as SnapshotManifest;
-  if (path.resolve(manifest.projectRoot) !== path.resolve(context.projectRoot)) {
-    throw new GovernedToolError('SNAPSHOT_PROJECT_MISMATCH', 'The snapshot belongs to a different project.');
+  const stored = JSON.parse(await fs.readFile(snapshotPath(context, snapshotId), 'utf8')) as unknown;
+  try {
+    return validateSnapshotManifest(stored, {
+      expectedSnapshotId: snapshotId,
+      expectedProjectRoot: context.projectRoot
+    });
+  } catch (error: unknown) {
+    const code = error instanceof Error && error.message === 'SNAPSHOT_PROJECT_MISMATCH'
+      ? 'SNAPSHOT_PROJECT_MISMATCH'
+      : 'SNAPSHOT_MANIFEST_INVALID';
+    throw new GovernedToolError(code, 'The snapshot manifest is invalid or belongs to a different project.');
   }
-  return manifest;
 }
 
 function setJsonPointer(root: any, pointer: string, value: unknown): void {
@@ -454,7 +529,8 @@ const definitions: AnyDefinition[] = [
       const candidates: Record<string, string[]> = { build: ['build'], test: ['test'], lint: ['lint'], typecheck: ['typecheck', 'type-check'] };
       const script = candidates[input.check]!.find((name) => typeof scripts[name] === 'string');
       if (!script) throw new GovernedToolError('PROJECT_CHECK_UNAVAILABLE', `No ${input.check} script is declared.`);
-      return runBoundedProcess({ command: 'npm', args: ['run', script, '--'], cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
+      const npm = await npmInvocation(['run', script, '--']);
+      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
     },
     summarize: (output) => ({ exitCode: output.exitCode, timedOut: output.timedOut, stdout: output.stdout, stderr: output.stderr })
   },
@@ -465,7 +541,8 @@ const definitions: AnyDefinition[] = [
       const scripts = await packageScripts(context.projectRoot);
       const script = ['format:check', 'format-check'].find((name) => typeof scripts[name] === 'string');
       if (!script) throw new GovernedToolError('FORMAT_CHECK_UNAVAILABLE', 'No non-mutating format check script is declared.');
-      return runBoundedProcess({ command: 'npm', args: ['run', script, '--'], cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
+      const npm = await npmInvocation(['run', script, '--']);
+      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
     },
     summarize: (output) => output
   },
@@ -476,7 +553,8 @@ const definitions: AnyDefinition[] = [
       const scripts = await packageScripts(context.projectRoot);
       if (!scripts[input.script]) throw new GovernedToolError('LAUNCH_SCRIPT_UNAVAILABLE', `No ${input.script} script is declared.`);
       const handle = `proc-${randomBytes(8).toString('hex')}`;
-      const child = spawn('npm', ['run', input.script, '--'], { cwd: context.projectRoot, shell: false, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } });
+      const npm = await npmInvocation(['run', input.script, '--']);
+      const child = spawn(npm.command, npm.args, { cwd: context.projectRoot, shell: false, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } });
       const record = { child, projectRoot: path.resolve(context.projectRoot), jobId: context.jobId, startedAt: Date.now(), command: `npm run ${input.script}`, output: [] as string[] };
       const add = (prefix: string, chunk: unknown) => {
         record.output.push(`${prefix}${String(chunk)}`.slice(0, 16_000));
@@ -484,7 +562,7 @@ const definitions: AnyDefinition[] = [
       };
       child.stdout?.on('data', (chunk) => add('', chunk));
       child.stderr?.on('data', (chunk) => add('ERR: ', chunk));
-      child.once('exit', () => processes.delete(handle));
+      child.once('close', () => processes.delete(handle));
       processes.set(handle, record);
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (child.exitCode !== null) throw new GovernedToolError('PROJECT_LAUNCH_FAILED', record.output.join('').slice(-8000));
@@ -647,7 +725,10 @@ export async function executeGovernedTool(
     requireOperation(context, definition.metadata.operation);
     const input = definition.schema.parse(request.input);
     const effectiveTimeout = Math.min(definition.metadata.timeoutMs, context.authority.maxDurationMs);
-    const output = await withTimeout(definition.execute(input, context), effectiveTimeout, request.name);
+    const operation = definition.execute(input, context);
+    const output = await (definition.metadata.authority === 'mutating'
+      ? withSettledTimeout(operation, effectiveTimeout, request.name)
+      : withTimeout(operation, effectiveTimeout, request.name));
     const outputJson = json(output);
     const outputHash = sha256(outputJson);
     const evidence = await context.recordEvidence({
@@ -716,4 +797,3 @@ export async function retryGovernedTool(
   if (previous.ok) return previous;
   return executeGovernedTool(request, context);
 }
-

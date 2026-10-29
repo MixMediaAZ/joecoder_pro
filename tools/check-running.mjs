@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDirectory = path.join(root, '.jc');
 const runtimeFile = path.join(dataDirectory, 'server-runtime.json');
 const launcherLog = path.join(dataDirectory, 'launcher-stdout.log');
+const MAX_LAUNCHER_LOG_SCAN_BYTES = 256 * 1024;
 
 async function readRuntimeState() {
   try {
@@ -18,12 +19,20 @@ async function readRuntimeState() {
 }
 
 async function readLastLoggedUrl() {
+  let handle;
   try {
-    const log = await fs.readFile(launcherLog, 'utf8');
+    handle = await fs.open(launcherLog, 'r');
+    const stat = await handle.stat();
+    const length = Math.min(stat.size, MAX_LAUNCHER_LOG_SCAN_BYTES);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
+    const log = buffer.toString('utf8');
     const matches = [...log.matchAll(/listening on (http:\/\/127\.0\.0\.1:\d+)/g)];
     return matches.at(-1)?.[1] || null;
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => {});
   }
 }
 

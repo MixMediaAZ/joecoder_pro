@@ -15,7 +15,7 @@ Questions and **Ask** or **Plan** mode stay read-only. A clear request in **Auto
 ## Requirements
 
 - Windows
-- Node.js 22 or newer (22.23.1 is the certified version)
+- Node.js 22 or newer (22.23.4 is the pinned Volta version, per the October 21, 2026 Node.js security release; 22.23.1 was the version the 20.1 baseline was certified on)
 - Ollama for real local-model work, unless an authorized cloud provider is configured
 
 The first launch installs the exact lockfile dependencies with lifecycle scripts disabled, then builds the current source. If JoeCoder is already running, `start.bat` opens a fresh session in that instance instead of starting a conflicting copy.
