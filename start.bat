@@ -8,7 +8,7 @@ cd /d "%~dp0"
 
 echo ================================================
 echo   JoeCoder Pro 20.1
-echo   Node 22.23.1 (Volta) - Pure JS - Zero native
+echo   Node 22.23.4 (Volta) - Pure JS - Zero native
 echo ================================================
 echo.
 
