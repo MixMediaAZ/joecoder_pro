@@ -101,11 +101,17 @@ function isSurveyResult(value: unknown): value is SurveyResult {
 
 export function inferIntent(objective: string, survey: unknown): 'inspect' | 'repair' | 'build' {
   const text = objective.toLowerCase();
-  const asksForChange = /\b(fix|repair|change|update|refactor|redesign|replace|remove|add|implement|improve|finish|complete|wire|connect|correct|build|create|scaffold|restore|enable)\b/.test(text)
+  // A selected Automatic mode does not override an explicit read-only request.
+  // In particular, "this build" names the project; it is not permission to build.
+  if (/\bread[- ]only\b|\b(?:do not|don't|without)\s+(?:change|changing|edit|editing|modify|modifying|write|writing)\b/.test(text)
+      || /^(?:please\s+)?(?:explain|describe|tell me|show me how|how (?:do|can|would|should))\b/.test(text.trim())) return 'inspect';
+  const buildCommand = /^\s*(?:please\s+)?build\b|\b(?:and|then)\s+build\b|\bbuild\s+(?:a|an|new|me|the|our|my|us)\b/.test(text);
+  const asksForChange = buildCommand || /\b(fix|repair|change|update|refactor|redesign|replace|remove|add|implement|improve|finish|complete|wire|connect|correct|create|scaffold|restore|enable)\b/.test(text)
     || /\bmake\b[\s\S]{0,160}\b(run|work|functional|usable|available|persist|survive)\b/.test(text)
     || /\bensure\b[\s\S]{0,160}\b(run|work|persist|survive|prevent|reject|handle)\b/.test(text);
   const asksForReadOnly = /\b(inspect|review|audit|analy[sz]e|assess|survey|explain|investigate|diagnose|report|find bugs|look for bugs)\b/.test(text);
   if (asksForReadOnly && !asksForChange) return 'inspect';
+  if (!asksForChange) return 'inspect';
   const candidate = survey as { summary?: { totalFiles?: number }; result?: { summary?: { totalFiles?: number } } } | null;
   const totalFiles = Number(candidate?.summary?.totalFiles ?? candidate?.result?.summary?.totalFiles ?? 999999);
   const asksForNewBuild = /\b(build|create|scaffold|start|new app|new site|from scratch)\b/.test(text);
@@ -396,6 +402,10 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
           const operations = Array.isArray(current.workOrder.scope?.operations)
             ? current.workOrder.scope.operations as string[]
             : [];
+          if (inferIntent(job.objective, null) === 'inspect' && operations.some(operation =>
+            ['edit_files', 'rename_files', 'delete_files', 'install_dependencies'].includes(operation))) {
+            throw new Error('READ_ONLY_MUTATION_DENIED: an inspection request cannot reuse mutating Work Order authority.');
+          }
           const applyAction = operations.includes('edit_files') ? 'apply_edits' : 'export_handoff';
           const workOrderDuration = Number(current.workOrder.budgets?.maxDurationMs || 600_000);
           let result: Record<string, any>;

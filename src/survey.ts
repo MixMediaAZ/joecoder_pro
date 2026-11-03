@@ -4,6 +4,7 @@ import type { BuildCondition, ContentSample, PackageSummary, SurveyFindings, Sur
 import { discoverStackProfiles } from './stackProfiles.js';
 import { diagnoseDependencyConsistency, diagnoseMissingScriptEntrypoints, type ManifestFile } from './dependencyDoctor.js';
 import { extractApiRouteContracts, selectRequiredApiRouteContracts } from './apiRouteContracts.js';
+import { sensitiveName } from './projectExplorer.js';
 
 async function readPackageSummary(projectRoot: string): Promise<PackageSummary | null> {
   try {
@@ -129,41 +130,119 @@ const SAMPLE_EXTENSIONS = new Set([
   '.cs', '.fs', '.kt', '.java', '.yaml', '.yml', '.toml'
 ]);
 
+export const SAMPLE_EXCLUDED_NAMES = new Set([
+  'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'pubspec.lock',
+  'cargo.lock', 'poetry.lock', 'composer.lock', 'gemfile.lock', '.gitignore'
+]);
+export const MAX_DOC_SAMPLES = 3;
+const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.mdx']);
+const CONTEXT_DOC_NAMES = new Set(['agents.md', 'claude.md', 'architecture.md', 'replit.md', 'contributing.md', 'design.md', 'overview.md']);
+const LOW_VALUE_DOC_NAMES = new Set(['changelog.md', 'license.md', 'licence.md', 'code_of_conduct.md', 'security.md', 'history.md']);
+
 /**
- * Pick up to SAMPLE_MAX_FILES text paths: key files first, then source-like
- * extensions from the inventory. Read-only; binary and oversize files skipped.
+ * Choose which files a survey reads for planning and conversation context.
+ *
+ * With only SAMPLE_MAX_FILES slots, order decides what the model ever sees. Key files used to
+ * be sampled first unconditionally, so InspectorCode spent all eight slots on a 371KB lockfile,
+ * .gitignore, npm cache JSON, and two 7-24 byte .launch files: no source code and no project
+ * documentation. Lockfiles and secrets never take a slot, tooling folders are skipped, and up to
+ * MAX_DOC_SAMPLES project docs are promoted ahead of source. Lockfiles remain listed as key
+ * files; they are only kept out of the samples.
+ */
+export function orderSampleCandidates(keyFiles: string[], filePaths: string[]): string[] {
+  const normalize = (p: string) => p.replace(/\\/g, '/');
+  const k = keyFiles.map(normalize);
+  const f = filePaths.map(normalize);
+
+  const isDoc = (p: string): boolean => {
+    const parts = p.split('/');
+    const basename = (parts[parts.length - 1] ?? '').toLowerCase();
+    const ext = path.extname(basename).toLowerCase();
+    return DOC_EXTENSIONS.has(ext) || basename === 'readme' || basename.startsWith('readme.');
+  };
+
+  const getRank = (p: string): number => {
+    const parts = p.split('/');
+    const basename = (parts[parts.length - 1] ?? '').toLowerCase();
+    if (basename === 'readme' || basename.startsWith('readme.')) return 0;
+    if (CONTEXT_DOC_NAMES.has(basename)) return 1;
+    if (LOW_VALUE_DOC_NAMES.has(basename)) return 3;
+    return 2;
+  };
+
+  const getDepth = (p: string): number => p.split('/').length;
+
+  const isDropped = (p: string, fromFilePaths: boolean): boolean => {
+    const parts = p.split('/');
+    const basename = (parts[parts.length - 1] ?? '').toLowerCase();
+
+    if (SAMPLE_EXCLUDED_NAMES.has(basename)) return true;
+    // Samples reach chat as well as planning; a secret must never be read into either.
+    if (sensitiveName(basename)) return true;
+    if (parts.some((seg) => seg === 'node_modules')) return true;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i] ?? '';
+      if (seg.startsWith('.') && seg !== '.github') return true;
+    }
+
+    if (fromFilePaths) {
+      if (basename.startsWith('.')) return true;
+      const ext = path.extname(basename).toLowerCase();
+      if (ext.length > 0 && !SAMPLE_EXTENSIONS.has(ext)) return true;
+    }
+
+    return false;
+  };
+
+  const keyDocs: string[] = [];
+  const keyNonDocs: string[] = [];
+  for (const p of k) {
+    if (!isDropped(p, false)) {
+      if (isDoc(p)) keyDocs.push(p);
+      else keyNonDocs.push(p);
+    }
+  }
+
+  const fileDocs: string[] = [];
+  const fileNonDocs: string[] = [];
+  for (const p of f) {
+    if (!isDropped(p, true)) {
+      if (isDoc(p)) fileDocs.push(p);
+      else fileNonDocs.push(p);
+    }
+  }
+
+  // Shallowest key files first: the root manifest is the one the toolchain reads, and it must be
+  // in the samples a planner sees before any nested copy with the same filename.
+  const tierA = [...keyNonDocs].sort((a, b) => getDepth(a) - getDepth(b));
+
+  const uniqueDocs = Array.from(new Set([...keyDocs, ...fileDocs]));
+  const sortedDocs = uniqueDocs.sort((a, b) => {
+    const dA = getDepth(a);
+    const dB = getDepth(b);
+    if (dA !== dB) return dA - dB;
+    return getRank(a) - getRank(b);
+  });
+  const tierB = sortedDocs.slice(0, MAX_DOC_SAMPLES);
+
+  // A key file also appears in the inventory; it must hold one slot, not two.
+  const result = Array.from(new Set([...tierA, ...tierB, ...fileNonDocs]));
+  return result.slice(0, SAMPLE_MAX_FILES * 3); // extra candidates for skips
+}
+
+/**
+ * Read up to SAMPLE_MAX_FILES of the candidates chosen by orderSampleCandidates.
+ * Read-only; binary and oversize files skipped.
  */
 async function collectContentSamples(
   projectRoot: string,
   keyFiles: string[],
   entries: SurveyResult['entries']
 ): Promise<ContentSample[]> {
-  // Shallowest key files first: the root manifest is the one the toolchain reads, and it must be
-  // in the samples a planner sees before any nested copy with the same filename.
-  const keyFilesRootFirst = [...keyFiles].sort(
-    (a, b) => a.split(/[\\/]/).length - b.split(/[\\/]/).length
+  const ordered = orderSampleCandidates(
+    keyFiles,
+    entries.filter((e) => e.type === 'file').map((e) => e.path)
   );
-  const preferred = [
-    ...keyFilesRootFirst,
-    ...entries
-      .filter((e) => e.type === 'file')
-      .map((e) => e.path.replace(/\\/g, '/'))
-      .filter((rel) => {
-        const ext = path.extname(rel).toLowerCase();
-        return SAMPLE_EXTENSIONS.has(ext) || !ext;
-      })
-  ];
-
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-  for (const raw of preferred) {
-    const rel = raw.replace(/\\/g, '/');
-    if (seen.has(rel)) continue;
-    if (/(^|\/)(node_modules|\.git|\.jc)(\/|$)/.test(rel)) continue;
-    seen.add(rel);
-    ordered.push(rel);
-    if (ordered.length >= SAMPLE_MAX_FILES * 3) break; // extra candidates for skips
-  }
 
   const samples: ContentSample[] = [];
   for (const rel of ordered) {

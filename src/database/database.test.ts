@@ -12,6 +12,7 @@ import {
   closeDatabase,
   ensureProjectThread,
   createAgentJob,
+  listAgentJobPage,
   getActiveAgentJob,
   getAgentJob,
   appendAgentJobEvent,
@@ -186,6 +187,27 @@ test('SQLite foundation migrates, constrains, imports, backs up, and reopens', a
     assert.equal(listAgentJobEvents(agentJob.id).length, 1);
     assert.equal(interruptRunningAgentJobs(), 1);
     assert.equal(getAgentJob(agentJob.id)?.status, 'interrupted');
+    const historyIds = [agentJob.id];
+    for (let index = 0; index < 44; index++) {
+      const recorded = createAgentJob({ projectId: p.id, threadId: thread.id, objective: `History item ${index}`, mode: 'read_only' });
+      updateAgentJob(recorded.id, { status: 'completed' });
+      historyIds.push(recorded.id);
+    }
+    const firstPage = listAgentJobPage(p.id, thread.id);
+    assert.equal(firstPage.jobs.length, 20);
+    assert.ok(firstPage.nextCursor);
+    // Status updates must not move a record across creation-ordered page boundaries.
+    updateAgentJob(agentJob.id, { message: 'Changed after first page was read' });
+    const secondPage = listAgentJobPage(p.id, thread.id, firstPage.nextCursor!);
+    const thirdPage = listAgentJobPage(p.id, thread.id, secondPage.nextCursor!);
+    assert.equal(secondPage.jobs.length, 20);
+    assert.equal(thirdPage.jobs.length, 5);
+    assert.equal(thirdPage.nextCursor, null);
+    assert.deepEqual(new Set([...firstPage.jobs, ...secondPage.jobs, ...thirdPage.jobs].map(job => job.id)), new Set(historyIds));
+    assert.equal(listAgentJobPage(p.id, 'another-thread').jobs.length, 0);
+    assert.throws(() => listAgentJobPage('another-project', thread.id, firstPage.nextCursor!), /INVALID_JOB_HISTORY_CURSOR/);
+    assert.throws(() => listAgentJobPage(p.id, 'another-thread', firstPage.nextCursor!), /INVALID_JOB_HISTORY_CURSOR/);
+    assert.throws(() => listAgentJobPage(p.id, thread.id, 'missing'), /INVALID_JOB_HISTORY_CURSOR/);
     assert.equal(loadThreadConversation(thread.id)[0]?.content, 'Database migration test');
     assert.ok(listModelPresets().some((preset) => preset.id === 'preset-auto'));
     const emptyBrain = getProjectBrain(p.id);

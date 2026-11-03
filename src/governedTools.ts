@@ -35,6 +35,16 @@ const processes = new Map<string, {
   output: string[];
 }>();
 
+/** Read-only view of processes already launched through governed job authority. */
+export function inspectProjectProcesses(projectRoot: string) {
+  const root = path.resolve(projectRoot);
+  return [...processes.entries()].filter(([, record]) => record.projectRoot === root).map(([handle, record]) => {
+    const output = record.output.join('').slice(-16_000);
+    const urls = [...new Set(output.match(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/[^\s<>"']*)?/g) || [])];
+    return { handle, jobId: record.jobId, command: record.command, startedAt: record.startedAt, output, urls };
+  });
+}
+
 const relativePathSchema = z.string().trim().min(1).max(1000).refine((value) => {
   const forward = value.replace(/\\/g, '/');
   const unsafeWindowsName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;

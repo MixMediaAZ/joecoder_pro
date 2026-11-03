@@ -1,0 +1,2 @@
+# Test runner for the Python repair/rollback acceptance fixture (not an app dependency).
+pytest==9.1.1

@@ -22,7 +22,7 @@ export function workflowLabel(stage?: WorkflowStage): string {
     awaiting_approval: 'Protecting',
     approved: 'Ready to run',
     executing: 'Working',
-    complete: 'Verified work recorded',
+    complete: 'Job completed — review results',
     partial: 'Result has limits',
     blocked: 'Needs attention',
     cancelled: 'Stopped',

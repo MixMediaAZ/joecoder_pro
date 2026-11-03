@@ -65,6 +65,14 @@ if not exist "node_modules" (
 )
 
 echo [INFO] Building current source...
+if exist "frontend\package.json" (
+    if not exist "frontend\node_modules" (
+        call npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
+        if errorlevel 1 exit /b 1
+    )
+    call npm --prefix frontend run build
+    if errorlevel 1 exit /b 1
+)
 call npm run build
 if errorlevel 1 (
     echo [ERROR] Build failed. JoeCoder will not start stale output.
