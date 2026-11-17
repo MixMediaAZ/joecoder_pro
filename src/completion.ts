@@ -141,9 +141,10 @@ export async function evaluateRepairCompletion(
   const requiredApiRoutes = (workOrder.taskSpecific?.requiredApiRoutes || [])
     .map((route) => route.replace(/\\/g, '/'));
   const apiProof = apiContractProofSatisfied(verification, requiredApiRoutes);
+  const uploadAnalysisApi = requiredApiRoutes.some(route => /\/api\/(?:projects\/upload|analysis)(?:\/|$)/i.test(route));
   let apiSourceOk = true;
   let apiSourceDetail = 'No on-disk server source check required.';
-  if (runtimeRequired && requiredApiRoutes.length && options.projectRoot) {
+  if (runtimeRequired && uploadAnalysisApi && options.projectRoot) {
     const candidates = ['server/index.ts', 'server/index.js', 'server/index.mjs', 'backend/index.ts', 'backend/index.js'];
     let source: string | null = null;
     for (const rel of candidates) {
@@ -224,7 +225,7 @@ export async function evaluateRepairCompletion(
     {
       id: `${workOrder.id}-API`,
       criterion: requiredApiRoutes.length
-        ? 'Sealed client API contracts have passing api-route-smoke proof (real upload extract under env DATA_DIR; not build-only / placeholder / hardcoded ./data theater)'
+        ? 'Sealed client API contracts have passing runtime smoke evidence'
         : 'No sealed client API route contracts for this work order',
       passed: apiContractsPassed,
       evidenceIds: [applyEvidenceId],
@@ -251,6 +252,6 @@ export async function evaluateRepairCompletion(
         : proofLevel === 'integrity'
           ? 'The authorized file change completed with hash integrity proof; runtime behavior remains unproven.'
           : 'The authorized repair lifecycle completed without runtime proof.'
-      : `Repair completion denied: ${observed.filter((r) => !r.passed).map((r) => r.criterion).join('; ')}.`
+      : `Repair completion denied: ${observed.filter((r) => !r.passed).map((r) => r.detail || r.criterion).join('; ')}.`
   };
 }

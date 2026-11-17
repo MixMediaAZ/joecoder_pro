@@ -163,3 +163,20 @@ test('a question never becomes an authorization or a competing job', () => {
   assert.equal(question.branch, 'open');
   assert.equal(question.suggestions?.[0]?.id, 'review_work_orders');
 });
+
+test('direct read requests reach evidence-backed conversation instead of an acknowledgment', () => {
+  for (const request of ['ok - look at your md files', 'look at yourself here: D:\\Projects\\JoeCoder', 'read README.md']) {
+    assert.equal(buildGuardedReply(request, project('folder_selected'), []).branch, 'open', request);
+  }
+  assert.notEqual(buildGuardedReply('look at README.md and edit it', project('folder_selected'), []).branch, 'open');
+  assert.notEqual(buildGuardedReply('read README.md and authorize changes', project('folder_selected'), []).branch, 'open');
+});
+
+test('complete bounded replies retain their ending and evidence limits without mid-sentence truncation', () => {
+  const guarded = buildGuardedReply('Explain the project files.', project('folder_selected'), []);
+  const reply = 'Observed source configuration. '.repeat(100) + 'Runtime remains unverified; no test was executed.';
+  assert.ok(reply.length > 2000);
+  assert.equal(selectGuardedReplyText(guarded, reply), reply);
+  assert.equal(selectGuardedReplyText(guarded, 'x'.repeat(12001)), guarded.content);
+  assert.equal(selectGuardedReplyText({ ...guarded, branch: 'approval' }, reply), guarded.content);
+});

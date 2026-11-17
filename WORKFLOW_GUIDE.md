@@ -8,11 +8,25 @@ This guide describes the shipped durable-agent workflow. It does not describe th
 2. Choose a build folder. Joe registers it read-only and immediately records a bounded inspection job.
 3. Review the inspection result in the conversation, the read-only Explorer, or Joe Live.
 4. Ask a question in **Ask**, request a read-only approach in **Plan**, or state one outcome in **Automatic**.
-5. In Automatic mode, pressing **Send** is the explicit operator gesture for one project-bound objective. Joe creates one durable Agent Job and advances it through deterministic gates.
+5. New conversations start in **Ask**. Fix, Add feature, and Refactor jobs started from the workspace pause after planning and peer review until you choose **Approve and build**. Pressing the start button is the explicit operator gesture for one project-bound objective. Joe creates one durable Agent Job and advances it through deterministic gates.
 6. Follow committed progress in the conversation or Joe Live. The only job controls exposed in the browser are **Stop** and **Resume**.
 7. Review the evidence-derived receipt. A file-integrity result is not presented as runtime proof.
 
 There is no browser Accept, Draft, Authorize, or Apply sequence. Those lifecycle routes are internal to the durable server runtime and require a process-secret runtime identity plus the current Agent Job identity.
+
+## Reading an inspection result
+
+Project-condition summaries come from file observations. They distinguish files
+listed from content excerpts included, identify the evidence and capture time,
+and state the bounded coverage. A listed file without an excerpt is not missing.
+References outside the selected project remain unknown and are not followed.
+
+Ask for the current project condition to refresh the bounded read, or explicitly
+ask about the recorded project survey to use the saved evidence. The latter says
+that files have not been refreshed. Inspection completion means the read-only
+work finished; the summary explicitly states that it did not run the application,
+build or tests. Questions about code and Plan requests still use the model and
+should be treated as interpretation, not execution evidence.
 
 ## What Automatic means
 

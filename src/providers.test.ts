@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   configuredModelAdapters,
+  generationModels,
   DEFAULT_LOCAL_CODING_MODEL,
   generateWithProvider,
   missingProviderCapabilities,
@@ -11,6 +12,17 @@ import {
   resetProviderCache,
   resolveProvider
 } from './providers.js';
+
+test('fallback inventory includes LMC generation models and excludes non-chat models and duplicates', () => {
+  assert.deepEqual(generationModels([
+    { name: 'lmc/verified', capabilities: ['completion', 'tools'] },
+    { name: 'coder:14b', capabilities: ['completion'] },
+    { name: 'coder:14b', capabilities: ['completion'] },
+    { name: 'embed', capabilities: ['embedding'] },
+    { name: 'tev1:4b', capabilities: ['decision'] },
+    { name: 'nomic-embed-text:latest' }
+  ]).map(model => model.name), ['lmc/verified', 'coder:14b']);
+});
 import { resetPowerRouterCache } from './powerrouterClient.js';
 
 test('pickOllamaModel prefers the small coding default over large general models', () => {
@@ -247,6 +259,7 @@ test('configuredModelAdapters powerrouter generate keeps allow_cloud false under
         seenBody = JSON.parse(String(init?.body || '{}'));
         return new Response(JSON.stringify({
           content: 'routed',
+          finish_reason: 'length',
           model: 'qwen2.5-coder:14b',
           provider: 'ollama',
           tier: 'local',
@@ -272,7 +285,9 @@ test('configuredModelAdapters powerrouter generate keeps allow_cloud false under
       timeoutMs: 5000
     } as any);
     assert.equal(seenBody.allow_cloud, false);
+    assert.equal(seenBody.think, false);
     assert.equal(result.text, 'routed');
+    assert.equal(result.finishReason, 'length');
   } finally {
     globalThis.fetch = originalFetch;
     if (priorUrl === undefined) delete process.env.JC_POWERROUTER_URL; else process.env.JC_POWERROUTER_URL = priorUrl;
@@ -315,6 +330,7 @@ test('generateWithProvider passes through explicit powerrouter allowCloud=false'
     );
     assert.equal(result.provider, 'powerrouter');
     assert.equal(seenBody.allow_cloud, false);
+    assert.equal(seenBody.think, false);
     assert.equal(result.text, 'routed');
   } finally {
     globalThis.fetch = originalFetch;

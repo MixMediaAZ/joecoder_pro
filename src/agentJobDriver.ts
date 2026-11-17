@@ -10,6 +10,8 @@ import type { SurveyResult, WorkOrder } from './types.js';
 import { appendAgentJobMemory } from './database/database.js';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { isNearEmptySurvey } from './repair.js';
+import { reviewPlan } from './planReview.js';
 
 export interface AgentJobCredentials {
   baseUrl: string;
@@ -112,10 +114,13 @@ export function inferIntent(objective: string, survey: unknown): 'inspect' | 're
   const asksForReadOnly = /\b(inspect|review|audit|analy[sz]e|assess|survey|explain|investigate|diagnose|report|find bugs|look for bugs)\b/.test(text);
   if (asksForReadOnly && !asksForChange) return 'inspect';
   if (!asksForChange) return 'inspect';
-  const candidate = survey as { summary?: { totalFiles?: number }; result?: { summary?: { totalFiles?: number } } } | null;
-  const totalFiles = Number(candidate?.summary?.totalFiles ?? candidate?.result?.summary?.totalFiles ?? 999999);
+  const wrapped = survey as { result?: unknown } | null;
+  const candidate = (wrapped?.result || survey) as Partial<SurveyResult> | null;
+  const totalFiles = Number(candidate?.summary?.totalFiles ?? 999999);
   const asksForNewBuild = /\b(build|create|scaffold|start|new app|new site|from scratch)\b/.test(text);
-  return totalFiles === 0 && asksForNewBuild ? 'build' : 'repair';
+  const nearEmpty = candidate?.status !== 'truncated' && (Array.isArray(candidate?.entries)
+    ? isNearEmptySurvey(candidate as SurveyResult) : totalFiles === 0);
+  return nearEmpty && asksForNewBuild ? 'build' : 'repair';
 }
 
 function workOrderBudgets(workOrder: Record<string, any>): Record<string, unknown> {
@@ -337,6 +342,14 @@ export function createHttpAgentDriver(credentials: AgentJobCredentials): AgentRu
               },
               { kind: 'budget', payload: { revision: planRevision, budgets } }
             ]
+          };
+        },
+
+        review_plan: async () => {
+          const review = await reviewPlan(job.id, { objective: job.objective, plan: state.plan ?? null, hypotheses: state.hypotheses ?? null });
+          return {
+            statePatch: { reviewCompleted: true, review },
+            journals: [{ kind: 'decision', payload: { decision: 'plan_reviewed', review } }]
           };
         },
 

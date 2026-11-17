@@ -116,12 +116,21 @@ export interface AgentJob {
   projectId: string
   threadId: string
   workOrderId?: string
+  intent?: 'inspect' | 'repair' | 'build' | 'export' | null
   objective: string
   status: AgentJobStatus
   stage: AgentJobStage
   terminalState?: string
   message?: string
+  errorCode?: string | null
   errorMessage?: string
+  runtimeState?: {
+    completedActions?: string[]
+    approvalMode?: 'plan' | 'none'
+    reviewRequested?: boolean
+    planApproved?: boolean
+    review?: PlanReview
+  }
   createdAt?: string
   updatedAt?: string
   result?: {
@@ -184,3 +193,7 @@ export interface SessionStatus {
   idleExpiresIn: number
   absoluteExpiresAt: string
 }
+export interface PlanReviewFinding { kind: 'fact' | 'assumption' | 'unknown' | 'risk'; severity: 'high' | 'medium' | 'low'; text: string }
+export type PlanReview =
+  | { status: 'completed'; verdict: 'proceed' | 'proceed_with_cautions' | 'revise'; summary: string; findings: PlanReviewFinding[]; provider: string; model: string }
+  | { status: 'unavailable'; reason: string }

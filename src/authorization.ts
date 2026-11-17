@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Project, WorkOrder } from './types.js';
+import { assertObjectiveFileScope } from './objectiveScope.js';
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -44,12 +45,13 @@ export function authorizationEnvelopeHash(workOrder: WorkOrder, project: Project
 }
 
 export function sealAuthorizationEnvelope(workOrder: WorkOrder, project: Project): string {
+  if (workOrder.scope.operations.includes('edit_files')) assertObjectiveFileScope(workOrder.objective, workOrder.scope.exactPaths);
   return authorizationEnvelopeHash(workOrder, project);
 }
 
 export interface AuthorizationEnvelopeVerification {
   valid: boolean;
-  code: 'AUTHORIZATION_ENVELOPE_VALID' | 'AUTHORIZATION_ENVELOPE_MISSING' | 'AUTHORIZATION_ENVELOPE_MISMATCH';
+  code: 'AUTHORIZATION_ENVELOPE_VALID' | 'AUTHORIZATION_ENVELOPE_MISSING' | 'AUTHORIZATION_ENVELOPE_MISMATCH' | 'OBJECTIVE_SCOPE_VIOLATION';
   reason: string;
   authorizedHash: string | null;
   currentHash: string;
@@ -61,6 +63,11 @@ export function verifyAuthorizationEnvelope(
 ): AuthorizationEnvelopeVerification {
   const currentHash = authorizationEnvelopeHash(workOrder, project);
   const authorizedHash = workOrder.authorization.envelopeHash ?? null;
+  try {
+    if (workOrder.scope.operations.includes('edit_files')) assertObjectiveFileScope(workOrder.objective, workOrder.scope.exactPaths);
+  } catch (error) {
+    return { valid: false, code: 'OBJECTIVE_SCOPE_VIOLATION', reason: error instanceof Error ? error.message : String(error), authorizedHash, currentHash };
+  }
   if (workOrder.authorization.envelopeVersion !== 1 || !authorizedHash) {
     return {
       valid: false,

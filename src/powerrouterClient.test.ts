@@ -96,11 +96,15 @@ test('powerRouterDispatch posts /api/dispatch with auth, project, and allow_clou
         messages: [{ role: 'user', content: 'ping' }],
         allowCloud: false,
         sessionId: 'sess-1',
-        stage: 'plan'
+        stage: 'plan',
+        think: false,
+        format: 'json'
       });
       assert.equal(seenUrl, 'http://127.0.0.1:7474/api/dispatch');
       assert.match(seenHeaders.authorization || '', /Bearer sk-pr-joecoder/i);
       assert.equal(seenBody.allow_cloud, false);
+      assert.equal(seenBody.think, false);
+      assert.deepEqual(seenBody.response_format, { type: 'json_object' });
       assert.equal(seenBody.project, 'joecoder-pro-20.1');
       assert.deepEqual((seenBody.routing as { sessionId: string; stage: string }), { sessionId: 'sess-1', stage: 'plan' });
       assert.equal(result.content, 'ok');

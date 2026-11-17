@@ -31,7 +31,8 @@ export interface FileListing { directory: string; entries: FileEntry[]; truncate
 export interface FilePreview { path: string; content: string; size: number; lineCount: number; truncated: boolean }
 export interface LiveEvent { id: string; ts: number; type: string; what: string; meaning: string; next: string; evidenceId: string | null }
 export interface JobDetail {
-  events: Array<{ ordinal: number; stage: string; kind: string; what: string; meaning: string; next: string; createdAt: number }>
+  workflowBudget?: { modelTurns: number; toolActions: number; spentOrReservedUsd: number; cloudLimitUsd: number; deadlineAt: number; limits?: { modelTurns: number; toolActions: number } } | null
+  events: Array<{ ordinal: number; stage: string; kind: string; what: string; meaning: string; next: string; createdAt: number; payload?: Record<string, unknown> }>
   journal: Array<{ ordinal: number; kind: string; stage: string; payload: unknown; evidenceId: string | null; createdAt: number }>
   historySummary?: string
 }
@@ -44,7 +45,7 @@ export interface Brain {
 export interface Settings {
   presets: Array<{ id: string; name: string; description: string; privacyMode: string }>
   brainPresets: Array<{ id: string; name: string; description: string }>
-  liveProviderStatus: { localModel?: string; localCapabilities?: string[]; cloudConfigured?: boolean; mockModel?: boolean; powerRouter?: { configured?: boolean; reachable?: boolean } }; capabilities: unknown;
+  liveProviderStatus: { localModel?: string; localCapabilities?: string[]; cloudConfigured?: boolean; preferredCloudProvider?: string; cloudProviders?: Array<{ provider: string; model: string; configured: boolean; status: string; error?: string }>; mockModel?: boolean; powerRouter?: { configured?: boolean; reachable?: boolean } }; capabilities: unknown;
   governance: { statusSummary: { enforced: number; partial: number; missing: number }; limitations: Array<{ id: string; title: string; boundary: string }> }
   rules: Record<string, string>
 }

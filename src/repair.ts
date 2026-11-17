@@ -15,6 +15,7 @@ import type { SurveyResult } from './types.js';
 import { resolveJailedPath, type ProposedEdit } from './mutation.js';
 import { needsDependencyInstall } from './dependencyPolicy.js';
 import { isServerManagedLockfilePath } from './installPolicy.js';
+import { assertObjectiveFileScope, limitObjectiveFiles } from './objectiveScope.js';
 import { assertCssToolchainPackageJsonRepair, isBuildOutputPath } from './dependencyDoctor.js';
 import { enforceApiImplementationContracts } from './apiRouteContracts.js';
 export { enforceApiImplementationContracts } from './apiRouteContracts.js';
@@ -159,7 +160,10 @@ const PLAN_SYSTEM = [
   'You are Joe, a careful build-repair planner inside an evidence-governed tool.',
   'You are given a read-only survey of a project and a repair objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
-  '{"schemaVersion":1,"files":["relative/path.ext"],"approach":"one paragraph","risks":["..."],"fileResponsibilities":[{"path":"relative/path.ext","responsibility":"material change this file owns","evidence":"observed project fact requiring it","layer":"UI|service|storage|configuration"}],"architecture":{"summary":"Shared UI, API, and DATA_DIR persistence design for upload/analyze/restart.","contracts":["exact interface/API contract"],"persistence":"durable state under process.env.DATA_DIR"}}',
+  '{"schemaVersion":1,"files":["relative/path.ext"],"approach":"one paragraph describing the observed cause and fix","risks":["relevant risk"],"fileResponsibilities":[{"path":"relative/path.ext","responsibility":"material change this file owns","evidence":"observed project fact requiring it","layer":"configuration"}]}',
+  'architecture is optional: omit it for a narrow repair. When needed, use {summary, contracts, persistence} grounded in this project; never invent upload, API or storage requirements.',
+  'Keep narrow plans brief: one approach paragraph and 0-2 one-sentence risks. Schema limits: approach <=2000 characters; at most 10 risks, each <=500 characters; each responsibility 10-400 characters, evidence 5-400 characters, layer 2-80 characters.',
+  'An explicit user file restriction takes precedence over all file selection heuristics. If a necessary change is outside it, report the conflict; do not expand the scope.',
   'Rules: list ONLY the files that must be modified or created to meet the objective;',
   'use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; prefer the smallest correct file set (1-12 files).',
@@ -175,7 +179,12 @@ const BUILD_SYSTEM = [
   'You are Joe, a careful greenfield app planner inside an evidence-governed tool.',
   'The target folder is empty or nearly empty. Propose a complete, maintainable file set that meets the objective.',
   'Respond with STRICT JSON only — no prose, no markdown fences — matching:',
-  '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."]}',
+  '{"schemaVersion": 1, "files": ["relative/path.ext", ...], "approach": "one paragraph", "risks": ["..."],',
+  '"architecture": {"summary": "20-800 characters", "contracts": ["5-300 characters each"], "persistence": "5-400 characters"}}',
+  'For a multi-layer app, architecture is required: specify exact module exports, API methods/paths,',
+  'JSON request/response shapes, validation limits, DOM element IDs used by the browser, and durable storage behavior.',
+  'Each generation batch receives these same contracts. Choose one module format and use it throughout.',
+  'architecture has ONLY summary (string), contracts (array of strings, never objects), persistence (string). No modules key or other extra keys.',
   'Rules: use project-root-relative paths with forward slashes; never list paths under',
   'node_modules, .git, or .jc; use separate files for distinct browser UI, HTTP routing, validation,',
   'persistent storage, and automated-test responsibilities when the objective spans those concerns (up to 10 files);',
@@ -187,7 +196,13 @@ const BUILD_SYSTEM = [
   // because the plan assumed express. The standard library covers small apps entirely.
   'CRITICAL: use ONLY the platform standard library (for Node: node:http, node:fs, node:path).',
   'Do NOT plan any third-party dependency unless the objective explicitly names one; package.json,',
-  'when included, must have an empty dependencies object and a plain "start": "node server.js" script.'
+  'when included, must have empty dependencies AND devDependencies objects and a plain "start": "node server.js" script.',
+  'Default Node builds use directly runnable JavaScript (.js/.cjs/.mjs), HTML and CSS; no TypeScript compiler, bundler, ORM or shell scripts.',
+  'Use Node scripts for Windows-compatible tests and builds; include start.bat and README.md.',
+  'The server must honor PORT (including 0), bind to loopback by default, and print the actual local URL.',
+  'Tests must run with node --test, import node:test and node:assert/strict, and launch/import the ACTUAL server module, never duplicate the implementation.',
+  'Export createServer({dataDir}) from server.js without listening on import; CLI entry starts it with PORT and DATA_DIR. Tests use createServer, listen(0), server.address().port and close in finally.',
+  'Tests must exercise real API behavior and persistence using isolated temporary data from os.tmpdir(); never write test data under the source folder or reset user application data.'
 ].join(' ');
 
 export function buildBuildPlanPrompt(projectName: string, objective: string, survey: SurveyResult): string {
@@ -307,10 +322,10 @@ export function normalizePlanArchitectureSummary(decoded: Record<string, unknown
   }
   const approach = typeof decoded.approach === 'string' ? decoded.approach.trim() : '';
   const pad = approach.slice(0, 220)
-    || 'Shared UI, API, and DATA_DIR persistence design for upload, analysis, and restart.';
+    || 'Preserve the existing interfaces while making the requested change.';
   summary = `${summary} — ${pad}`.replace(/\s+/g, ' ').trim().slice(0, 800);
   if (summary.length < 20) {
-    summary = `${summary} Shared design across upload, analysis, and restart persistence.`.trim().slice(0, 800);
+    summary = `${summary} Preserve the existing project interfaces.`.trim().slice(0, 800);
   }
   architecture.summary = summary;
 }
@@ -326,6 +341,18 @@ export function parsePlanResponse(text: string): RepairPlan {
       delete decoded.appro;
     }
     if (decoded && typeof decoded === 'object') normalizePlanArchitectureSummary(decoded);
+    // Descriptive notes are not file authority. Preserve a labelled bounded excerpt
+    // instead of spending the execution budget retrying otherwise valid 401-character
+    // explanations. Oversized payloads and all scope/schema fields remain strict.
+    if (Array.isArray(decoded?.fileResponsibilities)) for (const entry of decoded.fileResponsibilities) {
+      if (!entry || typeof entry !== 'object') continue;
+      for (const key of ['responsibility', 'evidence']) {
+        const note = (entry as Record<string, unknown>)[key];
+        if (typeof note === 'string' && note.length > 400 && note.length <= 4000) {
+          (entry as Record<string, unknown>)[key] = note.slice(0, 380) + ' [excerpt truncated]';
+        }
+      }
+    }
     candidate = RepairPlanSchema.parse(decoded);
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -361,6 +388,8 @@ export function validatePlanForObjective(
   intent: 'repair' | 'build',
   survey?: SurveyResult
 ): RepairPlan {
+  // Reject a model-proposed violation so the retry receives the actual user boundary.
+  assertObjectiveFileScope(objective, plan.files);
   const isTestPath = (file: string): boolean =>
     /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[^/]+$/i.test(file);
   const explicitlyChangesTests = /\b(add|create|change|update|repair|fix|rewrite)\s+(?:the\s+|existing\s+)?(?:(?:unit|integration|api|browser|visual)\s+)?tests?\b/i.test(objective)
@@ -508,9 +537,12 @@ export function validatePlanForObjective(
     }
   }
   // Never drop evidence targets or sealed configuration to satisfy the file cap.
+  // Automatic configuration/caller discovery can suggest files, but cannot grant authority.
+  files = limitObjectiveFiles(objective, files);
+  if (!files.length) throw new Error('PLAN_REJECTED: no implementation file remains inside the explicit user file restriction');
   files = preferProtectedPaths(
     files,
-    [...evidenceTargets, ...sealedConfiguration],
+    limitObjectiveFiles(objective, [...evidenceTargets, ...sealedConfiguration]),
     MAX_PLAN_FILES
   );
   const causalEvidence = intent === 'repair' && isCausalEvidenceRepair(objective, evidenceTargets);
@@ -531,10 +563,29 @@ export function validatePlanForObjective(
       );
     }
   }
+  if (intent === 'build') {
+    if (files.includes('server.js') && !files.includes('package.json')) {
+      if (files.length >= MAX_PLAN_FILES || !limitObjectiveFiles(objective, ['package.json']).length) throw new Error('PLAN_REJECTED: a new Node application needs package.json for start/build/test, but it does not fit the permitted file scope.');
+      files.unshift('package.json');
+    }
+    if (substantial && !plan.architecture) {
+      throw new Error('PLAN_REJECTED: a new multi-layer app requires architecture with exact shared module, API, UI and persistence contracts before file generation.');
+    }
+    const defaultNode = files.includes('package.json') && !/\b(?:typescript|tsx|react|next\.?js|vite|angular)\b/i.test(objective);
+    if (defaultNode && (files.some(file => /\.(?:tsx?|jsx|sh)$/i.test(file)) || !files.includes('server.js'))) {
+      throw new Error('PLAN_REJECTED: the default dependency-free Node build must include server.js and directly runnable JavaScript, HTML, CSS and Node test/build scripts. Do not introduce TypeScript, JSX or shell scripts without a requested toolchain.');
+    }
+    if (defaultNode) {
+      const design = [plan.approach, plan.architecture?.summary, ...(plan.architecture?.contracts || [])].join(' ');
+      const unrequested = design.match(/\b(?:express|drizzle|prisma|knex|sequelize|webpack)\b/gi)
+        ?.find(name => !new RegExp(`\\b${name}\\b`, 'i').test(objective));
+      if (unrequested) throw new Error(`PLAN_REJECTED: default build contract mentions unrequested dependency ${unrequested}. Describe the node:http and node:fs implementation without third-party framework or ORM contracts.`);
+    }
+  }
   return {
     ...plan,
     files,
-    ...(plan.architecture ? { architecture: sanitizeArchitectureContracts(plan.architecture) } : {})
+    ...(plan.architecture ? { architecture: intent === 'repair' ? sanitizeArchitectureContracts(plan.architecture) : plan.architecture } : {})
   };
 }
 
@@ -567,6 +618,65 @@ export interface ScopedFileContent {
   truncated: boolean;
   /** Locked for write/install, but excluded from model generation (oversized npm lockfiles). */
   serverManaged?: boolean;
+}
+
+/** Size a complete-file response to the assigned source, leaving room for edits and new files.
+ * The provider still owns context admission; an oversized request must fail before mutation.
+ * Asking for 64K tokens for every repair excludes otherwise capable local gateway models.
+ */
+export function repairOutputTokenBudget(files: ScopedFileContent[], ceiling = 65536): number {
+  const sourceBytes = files.reduce((sum, file) => sum + Buffer.byteLength(file.content, 'utf8'), 0);
+  const newFiles = files.filter((file) => !file.exists).length;
+  return Math.min(ceiling, Math.max(2048, Math.ceil(sourceBytes) + files.length * 256 + newFiles * 4096));
+}
+
+/** Reject an unusable new manifest before any project file is written. */
+export function requireBuildPackageScripts(edits: ProposedEdit[], plannedPaths?: string[], existingManifest?: string | null): ProposedEdit[] {
+  const manifestText = edits.find(edit => edit.relPath === 'package.json')?.content || existingManifest;
+  if (manifestText) {
+    const manifest = JSON.parse(manifestText);
+    const testCommand = String(manifest.scripts?.test || '');
+    if (/\bnode\s+--test\b/.test(testCommand)) for (const edit of edits) {
+      if (!/\.[cm]?js$/.test(edit.relPath) || !testCommand.includes(edit.relPath)) continue;
+      if (!/["']node:test["']/.test(edit.content) || !/["']node:assert(?:\/strict)?["']/.test(edit.content)) {
+        throw new Error(`BUILD_TEST_ASSERTIONS_REQUIRED: ${edit.relPath} must register real node:test cases and node:assert assertions against the actual application. Logging requests or catching failures without throwing is not a test.`);
+      }
+      if (/tmpdir\s*\(/.test(edit.content) && !/mkdtemp/.test(edit.content)) throw new Error(`BUILD_TEST_ISOLATION_REQUIRED: ${edit.relPath} must create its own temporary directory with mkdtemp, never use the shared temp root as application data.`);
+    }
+  }
+  for (const edit of edits.filter(edit => edit.relPath.replace(/\\/g, '/') === 'package.json')) {
+    const manifest = z.object({ scripts: z.record(z.string()) }).passthrough().parse(JSON.parse(edit.content));
+    for (const script of ['start', 'build', 'test']) {
+      if (!manifest.scripts[script]?.trim() || /^\s*(?:echo\b|exit\s+0\b)/i.test(manifest.scripts[script])) {
+        throw new Error(`BUILD_CHECKS_REQUIRED: package.json must define a runnable ${script} script that performs real work. Include tests using Node's test runner and a build/check script; start alone is insufficient.`);
+      }
+      if (/^\s*node\s+-e\s+["']\s*console\.(?:log|info)\s*\(/i.test(manifest.scripts[script]!)) {
+        throw new Error(`BUILD_CHECKS_REQUIRED: ${script} only prints a success message. Run real syntax checks or automated tests against the application.`);
+      }
+      if (script === 'test' && manifest.scripts.start?.startsWith('node ') && !Object.keys((manifest.dependencies || {}) as object).length && !Object.keys((manifest.devDependencies || {}) as object).length && !/\bnode\s+--test\b/.test(manifest.scripts.test!)) {
+        throw new Error('BUILD_CHECKS_REQUIRED: dependency-free new Node apps must run real node:test cases with node --test against the planned test files. Tests must import or launch the actual application, use temporary data and close owned servers. Do not duplicate the application as a fake test server.');
+      }
+      if (plannedPaths) {
+        for (const match of manifest.scripts[script]!.matchAll(/(?:^|\s|["'])([\w./-]+\.(?:[cm]?js|tsx?))(?=$|\s|["'])/g)) {
+          const target = normalizeRelPath(match[1]!);
+          if (!plannedPaths.map(normalizeRelPath).includes(target)) {
+            throw new Error(`BUILD_SCRIPT_TARGET_MISSING: ${script} references ${target}, which is outside the planned files. Use actual planned source and test paths: ${plannedPaths.join(', ')}. Do not invent another script file.`);
+          }
+        }
+      }
+    }
+  }
+  return edits;
+}
+
+/** Small repairs fit together: the first failing caller is not necessarily the only cause.
+ * Larger scopes retain the evidence-selected subset to bound model context.
+ */
+export function correctionReviewFiles(files: ScopedFileContent[], observedPaths: Set<string>): ScopedFileContent[] {
+  const smallScope = files.length <= 4 && files.reduce((sum, file) => sum + Buffer.byteLength(file.content, 'utf8'), 0) <= 16000;
+  return smallScope || !observedPaths.size
+    ? files
+    : files.filter((file) => observedPaths.has(file.relPath.replace(/\\/g, '/')));
 }
 
 export async function readScopedFiles(projectRoot: string, relPaths: string[]): Promise<ScopedFileContent[]> {
@@ -643,9 +753,16 @@ function chunkScopedFiles(files: ScopedFileContent[], size: number): ScopedFileC
 export function buildRepairGenerationBatches(
   modelScoped: ScopedFileContent[],
   evidenceTargets: string[],
-  options: { causalEvidence: boolean; substantialObjective: boolean; sealedOperationalApi?: boolean }
+  options: { causalEvidence: boolean; substantialObjective: boolean; sealedOperationalApi?: boolean; newProject?: boolean }
 ): ScopedFileContent[][] {
   if (modelScoped.length === 0) return [];
+  // New files have no source-size estimate. Two complete files leave room for
+  // shared contracts and prior interfaces on local gateways with a 16K window.
+  if (options.newProject) {
+    // Generate the manifest before imports are admitted, and tests after actual source exists.
+    const priority = (file: ScopedFileContent) => file.relPath === 'package.json' ? 0 : /(?:^|\/)(?:tests?|__tests__)(?:\/|\.)|\.(?:test|spec)\./i.test(file.relPath) ? 2 : 1;
+    return chunkScopedFiles([...modelScoped].sort((a, b) => priority(a) - priority(b)), 2);
+  }
   const normalize = (rel: string) => rel.replace(/\\/g, '/');
   const evidenceSet = new Set(evidenceTargets.map(normalize));
   const isServerEntry = (rel: string): boolean =>
@@ -723,7 +840,7 @@ const EDIT_SYSTEM = [
   'omit scoped files that need no change; never return byte-identical content or placeholders such as "rest unchanged";',
   'preserve the existing code style of each file;',
   'treat existing tests as acceptance contracts and never weaken or rewrite them merely to make implementation failures pass unless the objective explicitly requires test changes.'
-].join(' ');
+].join('\n');
 
 export function buildEditsPrompt(
   objective: string,
@@ -816,7 +933,9 @@ export function buildEditsPrompt(
       'Use exact SEARCH/REPLACE patch blocks for those files so unchanged content is not retransmitted.'
     ] : []),
     '',
-    'For any other existing file, either a complete ===FILE=== block or an exact ===PATCH=== block is valid. New files require complete ===FILE=== blocks.',
+    files.every((file) => file.content.length <= 8000)
+      ? 'This is a small-file response: use ONLY complete ===FILE: path=== blocks. Copy each current file and change the necessary lines. Do not use PATCH, SEARCH or REPLACE markers. End each block once with ===END FILE===.'
+      : 'For any other existing file, either a complete ===FILE=== block or an exact ===PATCH=== block is valid. New files require complete ===FILE=== blocks.',
     'Produce the changes now using the required block mode for each file. Close every complete file with ===END FILE=== or every patch with ===END PATCH===; unterminated blocks are rejected.'
   ].join('\n');
 }
@@ -1315,6 +1434,7 @@ export function buildPlanRecoveryContext(objective: string, survey: SurveyResult
     `Detected stacks: ${survey.stackProfiles?.map((profile) => profile.label + ' [' + profile.root + ']').join(', ') || survey.projectType}`,
     `High-value candidate files: ${candidates.join(', ') || '(none)'}`,
     'Choose the smallest exact subset that must change. Do not return an empty files array.',
+    'Use brief plain sentences. Each risk must be <=500 characters; use 0-2 risks for narrow repairs. Do not repeat diagnostic dumps in descriptive fields.',
     `If architecture.contracts is present, consolidate to ≤${MAX_ARCHITECTURE_CONTRACTS} concise shared contracts (group related API/type/persistence concerns; do not list one string per route beyond that bound).`
   ].join('\n');
 }
@@ -1383,7 +1503,7 @@ export function contractRecoveryHints(previousError: string): string[] {
   const hints: string[] = [];
   if (/PLAN_PARSE_FAILED/i.test(previousError) && /architecture[\s\S]*summary|path.*summary/i.test(previousError)) {
     hints.push(
-      'CONTRACT FIX (plan architecture.summary): set architecture.summary to one sentence of at least 20 characters, e.g. "Shared UI, API, and DATA_DIR persistence for upload, analysis, and restart."'
+      'CONTRACT FIX (plan architecture.summary): use one sentence of at least 20 characters about this project and objective, or omit optional architecture for a narrow repair.'
     );
   }
   if (/EDIT_PATCH_REJECTED:\s*SEARCH text was not found/i.test(previousError)) {
@@ -1467,6 +1587,7 @@ export async function generateStructured<T>(
           'FORMAT RECOVERY (mandatory): emit ONLY well-formed ===FILE: path=== ... ===END FILE=== and/or ===PATCH: path=== ... ===END PATCH=== blocks.',
           'Delete every sentence, thinking tag, apology, and markdown fence outside those blocks.',
           'Close every FILE with ===END FILE=== and every PATCH with ===END PATCH===. Unterminated blocks are rejected.',
+          'Never append ===END FILE=== after ===END PATCH===; the closing marker must match its opening marker exactly once.',
           'If SEARCH failed: prefer a complete ===FILE=== rewrite for small files (package.json, configs).'
         ]
       : [];

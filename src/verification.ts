@@ -1,3 +1,6 @@
+import { checkWorkflow, reserveToolAction } from './agentWorkflowBudget.js';
+import { sourceVersions, changedSources } from './sourceGuard.js';
+import { projectProcessEnvironment, redactProcessOutput } from './processPolicy.js';
 /**
  * Runtime verification — jailed spawn of the target project's own build/test
  * scripts, plus a file-integrity fallback when no scripts exist.
@@ -18,9 +21,10 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverStackProfiles, profilesForEditedFiles, type StackProfile, type StackVerificationCommand } from './stackProfiles.js';
-import { resolveCommand, runBoundedProcess } from './boundedProcess.js';
+import { resolveCommand, runBoundedProcess, terminateOwnedProcess } from './boundedProcess.js';
 import { findUndeclaredImportsInProjectFiles } from './packageImportPolicy.js';
 import { assessApiImplementationSource } from './apiRouteContracts.js';
+import { verifyWebStartup } from './webStartupVerification.js';
 
 export interface VerificationItem {
   script: 'build' | 'test' | 'lint' | 'analyze' | 'file_integrity';
@@ -28,6 +32,10 @@ export interface VerificationItem {
   root: string;
   exitCode: number | null;
   timedOut: boolean;
+  cancelled?: boolean;
+  outputTruncated?: boolean;
+  durationMs?: number;
+  launchError?: string;
   passed: boolean;
   outputTail: string[];
 }
@@ -77,25 +85,23 @@ export function adjustVerificationForBaseline(
   const baselineFailedByKey = new Map(
     baseline.items.filter((item) => !item.passed).map((item) => [key(item), item] as const)
   );
-  // A check that fails on both sides can still have gotten WORSE. Observed live: a one-file edit
-  // took flutter analyze from 25 to 39 issues, and pass/fail comparison called it "pre-existing"
-  // because analyze failed at baseline too. Where both outputs report a countable magnitude
-  // ("N issues found"), a larger count after the change is a regression, not an inherited state.
-  const magnitude = (item: VerificationItem): number | null => {
-    const joined = (item.outputTail || []).join('\n');
-    const match = joined.match(/(\d+)\s+issues?\s+found/i) || joined.match(/(\d+)\s+(?:error|failure)s?\b/i);
-    return match ? Number(match[1]) : null;
-  };
+  // Equal counts do not prove equal errors. Normalize only known timing fields.
+  // Missing or truncated diagnostics cannot establish baseline equivalence.
+  const diagnostic = (item: VerificationItem) => item.outputTail.join('\n')
+    .replace(/\(ran in \d+(?:\.\d+)?s\)/g, '(ran in <duration>)')
+    .replace(/^(\s*#?\s*duration_ms:)\s*[\d.]+\s*$/gm, '$1 <duration>')
+    .trim();
   const regressions: VerificationItem[] = [];
   const preexisting: VerificationItem[] = [];
   for (const item of post.items) {
     if (item.passed) continue;
     const baselineItem = item.script !== 'file_integrity' ? baselineFailedByKey.get(key(item)) : undefined;
     if (!baselineItem) { regressions.push(item); continue; }
-    const before = magnitude(baselineItem);
-    const after = magnitude(item);
-    if (before !== null && after !== null && after > before) regressions.push(item);
-    else preexisting.push(item);
+    const same = !item.timedOut && !baselineItem.timedOut && !item.cancelled && !baselineItem.cancelled
+      && !item.outputTruncated && !baselineItem.outputTruncated && !item.launchError && !baselineItem.launchError
+      && item.exitCode !== null && item.exitCode === baselineItem.exitCode
+      && diagnostic(item).length > 0 && diagnostic(item) === diagnostic(baselineItem);
+    if (same) preexisting.push(item); else regressions.push(item);
   }
   if (!regressions.length && preexisting.length) {
     return {
@@ -167,38 +173,7 @@ function sha256(content: Buffer | string): string {
 }
 
 /** Minimal env: enough for npm/node, no inherited secrets or home expansion surprises. */
-let jailedEnvironmentSequence = 0;
-
-function jailedEnv(): NodeJS.ProcessEnv {
-  const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';
-  const pathVal = process.env[pathKey] || process.env.PATH || '';
-  // Windows toolchains (flutter.bat and friends) dereference the standard system variables;
-  // stripping them made `flutter test` die on "%PROGRAMFILES(X86)% environment variable not
-  // found". These identify OS install locations, not secrets — the jail's purpose is to withhold
-  // credentials and project-external configuration, not to break the OS contract.
-  const windowsSystem: NodeJS.ProcessEnv = process.platform === 'win32'
-    ? Object.fromEntries(
-        ['SystemRoot', 'SystemDrive', 'ComSpec', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData',
-         'ProgramW6432', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'PUBLIC', 'TEMP', 'TMP',
-         'PATHEXT', 'windir', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']
-          .filter((name) => process.env[name] !== undefined)
-          .map((name) => [name, process.env[name]])
-      )
-    : {};
-  return {
-    ...windowsSystem,
-    [pathKey]: pathVal,
-    PATH: pathVal,
-    CI: '1',
-    FORCE_COLOR: '0',
-    NODE_ENV: process.env.NODE_ENV || 'test',
-    npm_config_yes: 'true',
-    npm_config_audit: 'false',
-    npm_config_fund: 'false',
-    PYTHONDONTWRITEBYTECODE: '1',
-    PYTHONPYCACHEPREFIX: path.join(os.tmpdir(), 'jc-python-fresh-cache', `${process.pid}-${++jailedEnvironmentSequence}`)
-  };
-}
+function jailedEnv(): NodeJS.ProcessEnv { return projectProcessEnvironment(); }
 
 async function collectProjectFiles(projectRoot: string, maxFiles = 2500): Promise<string[]> {
   const files: string[] = [];
@@ -247,7 +222,9 @@ async function runStackCommand(
     root: profile.root,
     exitCode: result.exitCode,
     timedOut: result.timedOut,
-    passed: !result.timedOut && result.exitCode === 0,
+    cancelled: result.cancelled ?? false, outputTruncated: result.outputTruncated ?? false,
+    durationMs: result.durationMs, launchError: result.launchError,
+    passed: !result.timedOut && !result.cancelled && !result.launchError && result.exitCode === 0,
     outputTail: [
       ...diagnosticExcerpt(result.stdout),
       ...diagnosticExcerpt(result.stderr),
@@ -268,25 +245,33 @@ async function readScripts(projectRoot: string): Promise<Record<string, string>>
 async function runScript(
   runRoot: string,
   rootLabel: string,
-  script: 'build' | 'test',
-  timeoutMs: number
+  script: 'build' | 'test' | 'lint' | 'typecheck' | 'type-check',
+  timeoutMs: number,
+  selectedScript: string
 ): Promise<VerificationItem> {
+  if ((await readScripts(runRoot))[script] !== selectedScript) throw new Error('COMMAND_PROFILE_CHANGED: package script changed before launch.');
+  const scriptHash = createHash('sha256').update(selectedScript).digest('hex');
   const resolved = resolveCommand('npm');
   const result = await runBoundedProcess(
     resolved.executable,
     [...resolved.prefixArgs, 'run', script, '--silent'],
-    { cwd: runRoot, timeoutMs, env: jailedEnv() }
+    { cwd: runRoot, timeoutMs, env: jailedEnv(), profile: { script, scriptHash, packageRoot: runRoot } }
   );
+  const emptyNodeTests = script === 'test' && /\bnode\s+--test\b/.test(selectedScript)
+    && /(?:^|\n)# tests 0\s*(?:\n|$)/.test(result.stdout);
   return {
-    script,
+    script: script === 'typecheck' || script === 'type-check' ? 'analyze' : script,
     command: `npm run ${script}`,
     root: rootLabel,
     exitCode: result.exitCode,
     timedOut: result.timedOut,
-    passed: !result.timedOut && result.exitCode === 0,
+    cancelled: result.cancelled ?? false, outputTruncated: result.outputTruncated ?? false,
+    durationMs: result.durationMs, launchError: result.launchError,
+    passed: !result.timedOut && !result.cancelled && !result.launchError && result.exitCode === 0 && !emptyNodeTests,
     outputTail: [
       ...diagnosticExcerpt(result.stdout),
       ...diagnosticExcerpt(result.stderr),
+      ...(emptyNodeTests ? ['NO_TEST_CASES: node --test executed zero tests; add real assertions against the application.'] : []),
       ...(result.launchError ? [result.launchError] : [])
     ]
   };
@@ -558,6 +543,13 @@ async function runApiContractVerification(
   requiredRoutes: string[],
   timeoutMs: number
 ): Promise<VerificationItem> {
+  // The staged ZIP/analysis oracle below belongs only to that route family.
+  // Other Node APIs are launched through their actual package script and probed
+  // at the sealed read routes; no dist/index.js or /api/health is invented.
+  if (!requiredRoutes.some(route => /\/api\/(?:projects\/upload|analysis)(?:\/|$)/i.test(route))) {
+    const item = await verifyWebStartup(projectRoot, Math.min(timeoutMs, 20000), { requireHtml: false, readRoutes: requiredRoutes });
+    return { ...item, command: 'api-route-smoke' };
+  }
   const server = await readServerEntrySource(projectRoot);
   if (!server) {
     return {
@@ -598,6 +590,7 @@ async function runApiContractVerification(
     };
   }
 
+  checkWorkflow(); reserveToolAction();
   const port = await freeLoopbackPort();
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-api-smoke-'));
   const env = {
@@ -613,16 +606,28 @@ async function runApiContractVerification(
     cwd: projectRoot,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
+    windowsHide: true, detached: process.platform !== 'win32'
   });
   let stdout = '';
   let stderr = '';
+  let launchError = '';
   const attachLogs = (proc: ReturnType<typeof spawn>): void => {
+    proc.once('error', error => { launchError = error.message; });
     proc.stdout?.on('data', (chunk) => { stdout = (stdout + chunk.toString()).slice(-4000); });
     proc.stderr?.on('data', (chunk) => { stderr = (stderr + chunk.toString()).slice(-4000); });
   };
   attachLogs(activeChild);
 
+  const smokeController = new AbortController();
+  const cancelPoll = setInterval(() => {
+    try { checkWorkflow(); } catch (error) { smokeController.abort(error); }
+  }, 250);
+  cancelPoll.unref();
+  const smokeFetch = (url: string, options: RequestInit = {}) => {
+    checkWorkflow();
+    if (launchError) throw new Error(launchError);
+    return fetch(url, { ...options, signal: AbortSignal.any([smokeController.signal, AbortSignal.timeout(Math.min(timeoutMs, 10000))]) });
+  };
   const base = `http://127.0.0.1:${port}`;
   const smokeDeadline = Date.now() + Math.min(timeoutMs, 20_000);
   let healthy = false;
@@ -631,7 +636,7 @@ async function runApiContractVerification(
     while (Date.now() < smokeDeadline) {
       if (activeChild.exitCode !== null) break;
       try {
-        const health = await fetch(`${base}/api/health`);
+        const health = await smokeFetch(`${base}/api/health`);
         healthStatus = health.status;
         if (health.status === 200) {
           healthy = true;
@@ -662,7 +667,7 @@ async function runApiContractVerification(
     const form = new FormData();
     form.append('name', 'jc-api-smoke');
     form.append('file', new Blob([Uint8Array.from(zipBytes)], { type: 'application/zip' }), 'smoke.zip');
-    const upload = await fetch(`${base}/api/projects/upload`, {
+    const upload = await smokeFetch(`${base}/api/projects/upload`, {
       method: 'POST',
       headers: { accept: 'application/json' },
       body: form
@@ -692,7 +697,7 @@ async function runApiContractVerification(
     let analysisGetStatus = 0;
     let analysisMeaning = { ok: false, fileCount: 0, seededFinding: false, placeholder: false };
     if (uploadOk && projectId) {
-      const started = await fetch(`${base}/api/analysis/start/${encodeURIComponent(projectId)}`, {
+      const started = await smokeFetch(`${base}/api/analysis/start/${encodeURIComponent(projectId)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ options: { depth: 'deep' }, testingInstructions: 'Inspect the real uploaded files.' })
@@ -700,7 +705,7 @@ async function runApiContractVerification(
       analysisStartStatus = started?.status ?? 0;
       const analysisDeadline = Date.now() + 8_000;
       while (Date.now() < analysisDeadline) {
-        const got = await fetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
+        const got = await smokeFetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
           headers: { accept: 'application/json' }
         }).catch(() => null);
         analysisGetStatus = got?.status ?? 0;
@@ -725,7 +730,7 @@ async function runApiContractVerification(
     let rootStatus = 0;
     let rootLooksLikeUi = false;
     if (analysisRouted) {
-      const root = await fetch(`${base}/`).catch(() => null);
+      const root = await smokeFetch(`${base}/`).catch(() => null);
       rootStatus = root?.status ?? 0;
       const rootText = root ? await root.text().catch(() => '') : '';
       rootLooksLikeUi = rootStatus === 200 && /inspectorcode|upload/i.test(rootText);
@@ -736,7 +741,7 @@ async function runApiContractVerification(
     let saveStatus = 0;
     let saveOk = false;
     if (analysisRouted && rootLooksLikeUi && projectId) {
-      const saved = await fetch(`${base}/api/projects/save/${encodeURIComponent(projectId)}`, {
+      const saved = await smokeFetch(`${base}/api/projects/save/${encodeURIComponent(projectId)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ name: 'jc-api-smoke-saved', description: 'persistence probe' })
@@ -760,7 +765,7 @@ async function runApiContractVerification(
       const slipForm = new FormData();
       slipForm.append('name', 'jc-api-smoke-slip');
       slipForm.append('file', new Blob([Uint8Array.from(slipZip)], { type: 'application/zip' }), 'slip.zip');
-      const slipUpload = await fetch(`${base}/api/projects/upload`, {
+      const slipUpload = await smokeFetch(`${base}/api/projects/upload`, {
         method: 'POST',
         headers: { accept: 'application/json' },
         body: slipForm
@@ -788,17 +793,17 @@ async function runApiContractVerification(
     if (slipOk) {
       const malformedForm = new FormData();
       malformedForm.append('name', 'missing-archive');
-      const malformed = await fetch(`${base}/api/projects/upload`, {
+      const malformed = await smokeFetch(`${base}/api/projects/upload`, {
         method: 'POST',
         headers: { accept: 'application/json' },
         body: malformedForm
       }).catch(() => null);
       malformedStatus = malformed?.status ?? 0;
-      const unknownGet = await fetch(`${base}/api/analysis/999999999`, {
+      const unknownGet = await smokeFetch(`${base}/api/analysis/999999999`, {
         headers: { accept: 'application/json' }
       }).catch(() => null);
       unknownGetStatus = unknownGet?.status ?? 0;
-      const unknownStart = await fetch(`${base}/api/analysis/start/999999999`, {
+      const unknownStart = await smokeFetch(`${base}/api/analysis/start/999999999`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ options: {} })
@@ -818,9 +823,7 @@ async function runApiContractVerification(
     let portFreed = false;
     if (honestyOk && projectId) {
       if (activeChild.exitCode === null) {
-        activeChild.kill('SIGTERM');
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        if (activeChild.exitCode === null) activeChild.kill('SIGKILL');
+        await terminateOwnedProcess(activeChild);
       }
       portFreed = await waitForLoopbackPortFree(port, 10_000);
       if (!portFreed) {
@@ -830,28 +833,28 @@ async function runApiContractVerification(
           cwd: projectRoot,
           env,
           stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true
+          windowsHide: true, detached: process.platform !== 'win32'
         });
         attachLogs(activeChild);
         const restartDeadline = Date.now() + 15_000;
         while (Date.now() < restartDeadline) {
           if (activeChild.exitCode !== null) break;
           try {
-            const health = await fetch(`${base}/api/health`);
+            const health = await smokeFetch(`${base}/api/health`);
             restartHealth = health.status;
             if (health.status === 200) break;
           } catch { /* retry */ }
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
         if (restartHealth === 200) {
-          const recent = await fetch(`${base}/api/projects/recent`, {
+          const recent = await smokeFetch(`${base}/api/projects/recent`, {
             headers: { accept: 'application/json' }
           }).catch(() => null);
           recentStatus = recent?.status ?? 0;
           const recentBody = recent ? await recent.json().catch(() => null) : null;
           recentHasProject = recentStatus === 200
             && JSON.stringify(recentBody ?? {}).includes(String(projectId));
-          const persisted = await fetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
+          const persisted = await smokeFetch(`${base}/api/analysis/${encodeURIComponent(projectId)}`, {
             headers: { accept: 'application/json' }
           }).catch(() => null);
           const persistedBody = persisted ? await persisted.json().catch(() => null) : null;
@@ -909,6 +912,7 @@ async function runApiContractVerification(
       ]
     };
   } finally {
+    clearInterval(cancelPoll); smokeController.abort();
     if (activeChild.exitCode === null) {
       activeChild.kill('SIGTERM');
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -918,7 +922,7 @@ async function runApiContractVerification(
   }
 }
 
-export async function runVerification(
+async function runVerificationUnchecked(
   projectRoot: string,
   options: {
     timeoutMs?: number;
@@ -926,6 +930,8 @@ export async function runVerification(
     expectedHashes?: ExpectedFileHash[];
     /** When set, build pass is not enough — server must implement and smoke these routes (G2m). */
     apiRouteContracts?: string[];
+    requireWebStartup?: boolean;
+    requireWindowsLauncher?: boolean;
   } = {}
 ): Promise<VerificationReport> {
   const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -978,16 +984,19 @@ export async function runVerification(
   for (const runRoot of runRoots) {
     const rootLabel = path.relative(resolvedRoot, runRoot).replace(/\\/g, '/') || '.';
     const scripts = await readScripts(runRoot);
-    const runnable: Array<'build' | 'test'> = [];
+    const runnable: Array<'build' | 'test' | 'lint' | 'typecheck' | 'type-check'> = [];
     if (typeof scripts.build === 'string' && scripts.build.trim()) runnable.push('build');
     if (typeof scripts.test === 'string' && scripts.test.trim() && !scripts.test.includes(PLACEHOLDER_TEST)) {
       runnable.push('test');
     }
+    if (typeof scripts.lint === 'string' && scripts.lint.trim()) runnable.push('lint');
+    if (typeof scripts.typecheck === 'string' && scripts.typecheck.trim()) runnable.push('typecheck');
+    else if (typeof scripts['type-check'] === 'string' && scripts['type-check'].trim()) runnable.push('type-check');
     // Always attempt declared scripts. Pure `node -e` / local tools often work
     // without node_modules. Missing-deps failures are real failures unless the
     // caller also supplied expectedHashes for integrity fallback after a skip.
     for (const script of runnable) {
-      items.push(await runScript(runRoot, rootLabel, script, timeoutMs));
+      items.push(await runScript(runRoot, rootLabel, script, timeoutMs, scripts[script]!));
     }
   }
 
@@ -1045,6 +1054,17 @@ export async function runVerification(
     }
   }
 
+  if (passed && options.requireWebStartup) {
+    const startup = await verifyWebStartup(resolvedRoot, Math.min(timeoutMs, 20000));
+    items.push(startup);
+    passed = startup.passed;
+  }
+  if (passed && options.requireWindowsLauncher && process.platform === 'win32') {
+    const launcher = await verifyWebStartup(resolvedRoot, Math.min(timeoutMs, 20000), { windowsLauncher: true });
+    items.push(launcher);
+    passed = launcher.passed;
+  }
+
   // G2m: build-green placeholder servers must not complete operational repairs.
   if (passed && (options.apiRouteContracts || []).length) {
     const apiItem = await runApiContractVerification(
@@ -1063,4 +1083,16 @@ export async function runVerification(
       : `Verification failed: ${items.filter((i) => !i.passed).map((i) => `${i.command} [${i.root}] (exit ${i.timedOut ? 'timeout' : i.exitCode})`).join(', ')}.`,
     items
   };
+}
+
+/** A script named "test" can still mutate source. Never label such a run verified. */
+export async function runVerification(
+  projectRoot: string, options: Parameters<typeof runVerificationUnchecked>[1] = {}
+): Promise<VerificationReport> {
+  const before = await sourceVersions(projectRoot);
+  const result = await runVerificationUnchecked(projectRoot, options);
+  for (const item of result.items) item.outputTail = item.outputTail.map(redactProcessOutput);
+  const changed = changedSources(before, await sourceVersions(projectRoot));
+  if (changed.length) throw new Error('SOURCE_CHECK_SIDE_EFFECT: source changed during checks; automatic correction is blocked: ' + changed.join(', '));
+  return result;
 }

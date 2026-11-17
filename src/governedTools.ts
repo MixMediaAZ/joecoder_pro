@@ -1,3 +1,5 @@
+import { projectProcessEnvironment, redactProcessOutput } from './processPolicy.js';
+import { runBoundedProcess as runProcess, terminateOwnedProcess, resolveCommand } from './boundedProcess.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -14,7 +16,9 @@ import {
   validateSnapshotManifest,
   type SnapshotManifest
 } from './mutation.js';
-import { listProjectFiles, previewProjectFile } from './projectExplorer.js';
+import { previewProjectFile } from './projectExplorer.js';
+import { listAgentFiles, readAgentFile, searchAgentFiles } from './repositoryReader.js';
+import { sourceVersions, changedSources } from './sourceGuard.js';
 import {
   GovernedToolError,
   type GovernedToolContext,
@@ -39,7 +43,7 @@ const processes = new Map<string, {
 export function inspectProjectProcesses(projectRoot: string) {
   const root = path.resolve(projectRoot);
   return [...processes.entries()].filter(([, record]) => record.projectRoot === root).map(([handle, record]) => {
-    const output = record.output.join('').slice(-16_000);
+    const output = redactProcessOutput(record.output.join('').slice(-16_000));
     const urls = [...new Set(output.match(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/[^\s<>"']*)?/g) || [])];
     return { handle, jobId: record.jobId, command: record.command, startedAt: record.startedAt, output, urls };
   });
@@ -79,7 +83,7 @@ function sha256(value: string | Buffer): string {
 }
 
 function codeFor(error: unknown): string {
-  if (error instanceof GovernedToolError) return error.code;
+  if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code;
   const message = error instanceof Error ? error.message : String(error);
   const prefix = message.match(/^([A-Z][A-Z0-9_]{3,})/);
   return prefix?.[1] || 'GOVERNED_TOOL_FAILED';
@@ -173,65 +177,10 @@ function metadata(input: Omit<GovernedToolMetadata, 'evidenceProducer'>): Govern
 }
 
 async function npmInvocation(args: string[]): Promise<{ command: string; args: string[] }> {
-  const candidates = [
-    process.env.npm_execpath,
-    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return { command: process.execPath, args: [candidate, ...args] };
-    } catch {}
-  }
-  return { command: 'npm', args };
+  const resolved = resolveCommand('npm');
+  return { command: resolved.executable, args: [...resolved.prefixArgs, ...args] };
 }
-
-async function terminateProcessTree(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
-  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
-  if (process.platform === 'win32') {
-    await new Promise<void>((resolve, reject) => {
-      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-        shell: false,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-      let stderr = '';
-      killer.stderr?.on('data', (chunk) => { stderr += String(chunk); });
-      const timer = setTimeout(() => {
-        killer.kill();
-        reject(new GovernedToolError('PROCESS_STOP_TIMEOUT', `Timed out stopping governed process ${child.pid}.`));
-      }, timeoutMs);
-      killer.once('error', (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      killer.once('close', (code) => {
-        clearTimeout(timer);
-        if (code === 0 || child.exitCode !== null || child.signalCode !== null) resolve();
-        else reject(new GovernedToolError('PROCESS_STOP_FAILED', stderr.trim() || `Could not stop governed process ${child.pid}.`));
-      });
-    });
-    await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
-    child.stdin?.destroy();
-    child.stdout?.destroy();
-    child.stderr?.destroy();
-    // Windows can report process termination before the final cwd/file handles are released.
-    await new Promise((resolve) => setTimeout(resolve, 750));
-    return;
-  }
-  child.kill('SIGTERM');
-  await Promise.race([
-    closed,
-    new Promise<never>((_, reject) => setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new GovernedToolError('PROCESS_STOP_TIMEOUT', `Timed out stopping governed process ${child.pid}.`));
-    }, timeoutMs))
-  ]);
-  child.stdin?.destroy();
-  child.stdout?.destroy();
-  child.stderr?.destroy();
-}
+const terminateProcessTree = terminateOwnedProcess;
 
 async function readJsonFile(relativePath: string, context: GovernedToolContext): Promise<{ value: any; content: string; full: string }> {
   const preview = await previewProjectFile(context.projectRoot, relativePath);
@@ -244,44 +193,43 @@ async function readJsonFile(relativePath: string, context: GovernedToolContext):
 }
 
 async function runBoundedProcess(input: {
-  command: string;
-  args: string[];
-  cwd: string;
-  timeoutMs: number;
-  maxOutputBytes: number;
-}): Promise<{ command: string; args: string[]; exitCode: number | null; signal: string | null; stdout: string; stderr: string; timedOut: boolean }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(input.command, input.args, {
-      cwd: input.cwd,
-      shell: false,
-      windowsHide: true,
-      env: { ...process.env, CI: '1', NO_COLOR: '1' }
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    const append = (current: string, chunk: unknown) => {
-      const next = current + String(chunk);
-      return Buffer.byteLength(next) <= input.maxOutputBytes
-        ? next
-        : next.slice(-(Math.floor(input.maxOutputBytes / 2)));
-    };
-    child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); });
-    child.once('error', reject);
-    const timer = setTimeout(() => { timedOut = true; void terminateProcessTree(child).catch(() => child.kill()); }, input.timeoutMs);
-    child.once('close', (exitCode, signal) => {
-      clearTimeout(timer);
-      resolve({ command: input.command, args: input.args, exitCode, signal, stdout, stderr, timedOut });
-    });
+  command: string; args: string[]; cwd: string; timeoutMs: number; maxOutputBytes: number; signal?: AbortSignal;
+  profile?: { script: string; scriptHash: string; packageRoot: string };
+}) {
+  const result = await runProcess(input.command, input.args, {
+    cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputCharacters: input.maxOutputBytes,
+    env: projectProcessEnvironment(), ...(input.signal ? { signal: input.signal } : {}),
+    ...(input.profile ? { profile: input.profile } : {})
   });
+  return { command: input.command, args: input.args, ...result };
 }
 
 async function packageScripts(projectRoot: string): Promise<Record<string, string>> {
-  const content = await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8').catch(() => null);
+  const preview = await previewProjectFile(projectRoot, 'package.json');
+  if (preview.truncated) throw new GovernedToolError('PACKAGE_JSON_TOO_LARGE', 'Package scripts exceed the safe read limit.');
+  const content = preview.content;
   if (!content) throw new GovernedToolError('PACKAGE_JSON_REQUIRED', 'This governed command requires a package.json.');
-  const parsed = JSON.parse(content) as { scripts?: Record<string, string> };
+  const parsed = z.object({ scripts: z.record(z.string()).optional() }).passthrough().parse(JSON.parse(content));
   return parsed.scripts || {};
+}
+
+async function runProjectCheck(context: GovernedToolContext, packagePath: string | undefined, candidates: string[]) {
+  const runRoot = packagePath ? resolveJailedPath(context.projectRoot, packagePath) : path.resolve(context.projectRoot);
+  const scripts = await packageScripts(runRoot);
+  const script = candidates.find(name => typeof scripts[name] === 'string');
+  if (!script) throw new GovernedToolError('PROJECT_CHECK_UNAVAILABLE', 'No ' + candidates.join('/') + ' script is declared in ' + (packagePath || '.') + '.');
+  const before = await sourceVersions(context.projectRoot);
+  const npm = await npmInvocation(['run', script, '--']);
+  if (JSON.stringify(await packageScripts(runRoot)) !== JSON.stringify(scripts)) {
+    throw new GovernedToolError('COMMAND_PROFILE_CHANGED', 'Package scripts changed before launch. Inspect them again.');
+  }
+  const result = await runBoundedProcess({ ...npm, cwd: runRoot,
+    timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes,
+    ...(context.signal ? { signal: context.signal } : {}),
+    profile: { script, scriptHash: sha256(JSON.stringify(scripts)), packageRoot: runRoot } });
+  const changed = changedSources(before, await sourceVersions(context.projectRoot));
+  return { ...result, passed: result.exitCode === 0 && !result.cancelled && !result.timedOut && !result.launchError && changed.length === 0,
+    changedSources: changed, ...(changed.length ? { code: 'SOURCE_CHECK_SIDE_EFFECT' } : {}) };
 }
 
 function safeArtifactPath(context: GovernedToolContext, relative: string): string {
@@ -340,47 +288,20 @@ function setJsonPointer(root: any, pointer: string, value: unknown): void {
 const definitions: AnyDefinition[] = [
   {
     metadata: metadata({ name: 'files.list', title: 'List project files', authority: 'read_only', operation: null, readsPaths: true, writesPaths: false, timeoutMs: 10_000, maxOutputBytes: 128_000, costClass: 'local_free', reversibility: 'not_applicable', idempotent: true }),
-    schema: z.object({ path: z.string().max(1000).optional().default('') }).strict(),
-    execute: (input, context) => listProjectFiles(context.projectRoot, input.path),
+    schema: z.object({ path: z.string().max(1000).optional().default(''), cursor: z.string().max(4000).optional(), limit: z.number().int().min(1).max(500).optional() }).strict(),
+    execute: (input, context) => listAgentFiles(context.projectRoot, input),
     summarize: (output) => output
   },
   {
     metadata: metadata({ name: 'files.search', title: 'Search project text', authority: 'read_only', operation: null, readsPaths: true, writesPaths: false, timeoutMs: 20_000, maxOutputBytes: 128_000, costClass: 'local_free', reversibility: 'not_applicable', idempotent: true }),
-    schema: z.object({ query: z.string().trim().min(1).max(120), path: z.string().max(1000).optional().default(''), maxResults: z.number().int().min(1).max(200).optional().default(100) }).strict(),
-    execute: async (input, context) => {
-      const results: Array<{ path: string; line: number; text: string }> = [];
-      const queue = [input.path];
-      let visited = 0;
-      while (queue.length && results.length < input.maxResults && visited < 10_000) {
-        const current = queue.shift()!;
-        const listing = await listProjectFiles(context.projectRoot, current);
-        for (const entry of listing.entries) {
-          visited += 1;
-          if (entry.type === 'directory') { queue.push(entry.path); continue; }
-          if (entry.protected || (entry.size || 0) > 512 * 1024) continue;
-          let preview;
-          try { preview = await previewProjectFile(context.projectRoot, entry.path); } catch { continue; }
-          const lines = preview.content.split(/\r?\n/);
-          for (let index = 0; index < lines.length && results.length < input.maxResults; index += 1) {
-            if ((lines[index] || '').toLowerCase().includes(input.query.toLowerCase())) {
-              results.push({ path: entry.path, line: index + 1, text: (lines[index] || '').slice(0, 500) });
-            }
-          }
-        }
-      }
-      return { query: input.query, results, truncated: results.length >= input.maxResults || visited >= 10_000, visited };
-    },
+    schema: z.object({ query: z.string().trim().min(1).max(120), path: z.string().max(1000).optional().default(''), maxResults: z.number().int().min(1).max(200).optional().default(100), cursor: z.string().max(4000).optional(), caseSensitive: z.boolean().optional(), pathFilter: z.string().max(250).optional() }).strict(),
+    execute: (input, context) => searchAgentFiles(context.projectRoot, input, context.signal),
     summarize: (output) => output
   },
   {
     metadata: metadata({ name: 'files.read', title: 'Read a project file range', authority: 'read_only', operation: null, readsPaths: true, writesPaths: false, timeoutMs: 10_000, maxOutputBytes: 256_000, costClass: 'local_free', reversibility: 'not_applicable', idempotent: true }),
-    schema: z.object({ path: relativePathSchema, startLine: z.number().int().min(1).optional().default(1), endLine: z.number().int().min(1).max(100_000).optional() }).strict(),
-    execute: async (input, context) => {
-      const preview = await previewProjectFile(context.projectRoot, input.path);
-      const lines = preview.content.split(/\r?\n/);
-      const end = Math.min(input.endLine || input.startLine + 399, input.startLine + 399, lines.length);
-      return { ...preview, content: lines.slice(input.startLine - 1, end).join('\n'), startLine: input.startLine, endLine: end };
-    },
+    schema: z.object({ path: relativePathSchema, startLine: z.number().int().min(1).optional().default(1), endLine: z.number().int().min(1).max(10_000_000).optional(), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict(),
+    execute: (input, context) => readAgentFile(context.projectRoot, input, context.signal),
     summarize: (output) => output
   },
   {
@@ -415,7 +336,7 @@ const definitions: AnyDefinition[] = [
     schema: z.object({ view: z.enum(['status', 'diff_stat', 'recent_commits']).optional().default('status') }).strict(),
     execute: async (input, context) => {
       const args = input.view === 'status' ? ['status', '--short'] : input.view === 'diff_stat' ? ['diff', '--stat'] : ['log', '-n', '10', '--oneline'];
-      return runBoundedProcess({ command: 'git', args, cwd: context.projectRoot, timeoutMs: 15_000, maxOutputBytes: 128_000 });
+      return runBoundedProcess({ command: 'git', args, cwd: context.projectRoot, timeoutMs: 15_000, maxOutputBytes: 128_000, ...(context.signal ? { signal: context.signal } : {}) });
     },
     summarize: (output) => output
   },
@@ -533,27 +454,17 @@ const definitions: AnyDefinition[] = [
   },
   {
     metadata: metadata({ name: 'project.run_check', title: 'Run an allowlisted project check', authority: 'mutating', operation: 'run_tests', readsPaths: true, writesPaths: false, timeoutMs: 120_000, maxOutputBytes: 256_000, costClass: 'local_process', reversibility: 'not_applicable', idempotent: true }),
-    schema: z.object({ check: z.enum(['build', 'test', 'lint', 'typecheck']) }).strict(),
+    schema: z.object({ check: z.enum(['build', 'test', 'lint', 'typecheck']), packagePath: relativePathSchema.optional() }).strict(),
     execute: async (input, context) => {
-      const scripts = await packageScripts(context.projectRoot);
       const candidates: Record<string, string[]> = { build: ['build'], test: ['test'], lint: ['lint'], typecheck: ['typecheck', 'type-check'] };
-      const script = candidates[input.check]!.find((name) => typeof scripts[name] === 'string');
-      if (!script) throw new GovernedToolError('PROJECT_CHECK_UNAVAILABLE', `No ${input.check} script is declared.`);
-      const npm = await npmInvocation(['run', script, '--']);
-      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
+      return runProjectCheck(context, input.packagePath, candidates[input.check]!);
     },
-    summarize: (output) => ({ exitCode: output.exitCode, timedOut: output.timedOut, stdout: output.stdout, stderr: output.stderr })
+    summarize: (output) => output
   },
   {
     metadata: metadata({ name: 'project.format_check', title: 'Check project formatting', authority: 'mutating', operation: 'run_tests', readsPaths: true, writesPaths: false, timeoutMs: 120_000, maxOutputBytes: 256_000, costClass: 'local_process', reversibility: 'not_applicable', idempotent: true }),
-    schema: z.object({}).strict(),
-    execute: async (_input, context) => {
-      const scripts = await packageScripts(context.projectRoot);
-      const script = ['format:check', 'format-check'].find((name) => typeof scripts[name] === 'string');
-      if (!script) throw new GovernedToolError('FORMAT_CHECK_UNAVAILABLE', 'No non-mutating format check script is declared.');
-      const npm = await npmInvocation(['run', script, '--']);
-      return runBoundedProcess({ ...npm, cwd: context.projectRoot, timeoutMs: Math.min(context.authority.maxDurationMs, 120_000), maxOutputBytes: context.authority.maxOutputBytes });
-    },
+    schema: z.object({ packagePath: relativePathSchema.optional() }).strict(),
+    execute: async (input, context) => runProjectCheck(context, input.packagePath, ['format:check', 'format-check']),
     summarize: (output) => output
   },
   {
@@ -564,7 +475,7 @@ const definitions: AnyDefinition[] = [
       if (!scripts[input.script]) throw new GovernedToolError('LAUNCH_SCRIPT_UNAVAILABLE', `No ${input.script} script is declared.`);
       const handle = `proc-${randomBytes(8).toString('hex')}`;
       const npm = await npmInvocation(['run', input.script, '--']);
-      const child = spawn(npm.command, npm.args, { cwd: context.projectRoot, shell: false, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } });
+      const child = spawn(npm.command, npm.args, { cwd: context.projectRoot, shell: false, windowsHide: true, env: projectProcessEnvironment({ NODE_ENV: input.script === 'dev' ? 'development' : 'production' }), detached: process.platform !== 'win32' });
       const record = { child, projectRoot: path.resolve(context.projectRoot), jobId: context.jobId, startedAt: Date.now(), command: `npm run ${input.script}`, output: [] as string[] };
       const add = (prefix: string, chunk: unknown) => {
         record.output.push(`${prefix}${String(chunk)}`.slice(0, 16_000));
@@ -576,7 +487,7 @@ const definitions: AnyDefinition[] = [
       processes.set(handle, record);
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (child.exitCode !== null) throw new GovernedToolError('PROJECT_LAUNCH_FAILED', record.output.join('').slice(-8000));
-      return { handle, pid: child.pid, command: record.command, startedAt: record.startedAt, output: record.output.join('').slice(-8000) };
+      return { handle, pid: child.pid, command: record.command, startedAt: record.startedAt, output: redactProcessOutput(record.output.join('').slice(-8000)) };
     },
     summarize: (output) => output
   },
@@ -590,7 +501,7 @@ const definitions: AnyDefinition[] = [
       }
       await terminateProcessTree(record.child);
       processes.delete(input.handle);
-      return { handle: input.handle, stopped: true, output: record.output.join('').slice(-8000) };
+      return { handle: input.handle, stopped: true, output: redactProcessOutput(record.output.join('').slice(-8000)) };
     },
     summarize: (output) => output
   },
@@ -735,7 +646,10 @@ export async function executeGovernedTool(
     requireOperation(context, definition.metadata.operation);
     const input = definition.schema.parse(request.input);
     const effectiveTimeout = Math.min(definition.metadata.timeoutMs, context.authority.maxDurationMs);
-    const operation = definition.execute(input, context);
+    context.signal?.throwIfAborted();
+    const timeoutSignal = AbortSignal.timeout(Math.max(1, effectiveTimeout));
+    const signal = context.signal ? AbortSignal.any([context.signal, timeoutSignal]) : timeoutSignal;
+    const operation = definition.execute(input, { ...context, signal });
     const output = await (definition.metadata.authority === 'mutating'
       ? withSettledTimeout(operation, effectiveTimeout, request.name)
       : withTimeout(operation, effectiveTimeout, request.name));

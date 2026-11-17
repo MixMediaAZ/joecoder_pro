@@ -84,9 +84,6 @@ export function selectRequiredApiRouteContracts(
     return [...operationalSet].sort((a, b) => a.localeCompare(b));
   }
 
-  if (normalized.some((item) => item.startsWith('/api/'))) {
-    set.add('/api/health');
-  }
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 

@@ -16,6 +16,9 @@ import {
   buildPlanRecoveryContext,
   changedLineBudgetForPlan,
   buildRepairGenerationBatches,
+  repairOutputTokenBudget,
+  requireBuildPackageScripts,
+  correctionReviewFiles,
   isEvidenceTargetAlreadySatisfied,
   keepAssignedEditBlocksOnly,
   MAX_ARCHITECTURE_CONTRACTS,
@@ -39,6 +42,22 @@ async function makeTempProject(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'jc-repair-test-'));
 }
 
+test('small repairs fit local output windows while new and larger files get bounded growth room', () => {
+  const tiny = { relPath: 'start.bat', exists: true, content: '@echo off\r\nnode server.cjs\r\n', truncated: false };
+  assert.ok(repairOutputTokenBudget([tiny]) <= 4096);
+  const added = { ...tiny, relPath: 'money.cjs', exists: false, content: '' };
+  assert.ok(repairOutputTokenBudget([tiny, added]) > repairOutputTokenBudget([tiny]));
+  assert.ok(repairOutputTokenBudget([{ ...tiny, content: 'x'.repeat(12000) }]) >= 12000);
+  assert.equal(repairOutputTokenBudget([{ ...tiny, content: 'x'.repeat(80000) }], 24576), 24576);
+});
+
+test('correction retains both authorized callers of a shared module when only the first appears in the stack', () => {
+  const files = ['cart.cjs', 'invoice.cjs', 'money.cjs'].map((relPath) => ({ relPath, exists: true, content: 'module.exports = {};', truncated: false }));
+  const observed = new Set(['cart.cjs', 'money.cjs']);
+  assert.deepEqual(correctionReviewFiles(files, observed).map(file => file.relPath), ['cart.cjs', 'invoice.cjs', 'money.cjs']);
+  assert.deepEqual(correctionReviewFiles(files.map(file => ({ ...file, content: 'x'.repeat(16000) })), observed).map(file => file.relPath), ['cart.cjs', 'money.cjs']);
+});
+
 test('greenfield planning keeps new tests and requires separated runtime concerns', () => {
   const plan = validatePlanForObjective({
     schemaVersion: 1,
@@ -58,7 +77,8 @@ test('substantial objectives accept narrow-but-real plans and reject implementat
     schemaVersion: 1,
     files: ['server.js', 'public/app.js'],
     approach: 'Put everything in two files.',
-    risks: []
+    risks: [],
+    architecture: { summary: 'The HTTP service owns persistent item state.', contracts: ['GET /api/items returns an array of items.'], persistence: 'Atomic writes under DATA_DIR.' }
   }, 'Build a polished UI and HTTP API with durable state after restart.', 'build'));
   assert.throws(() => validatePlanForObjective({
     schemaVersion: 1,
@@ -66,6 +86,52 @@ test('substantial objectives accept narrow-but-real plans and reject implementat
     approach: 'Only touch runtime configuration.',
     risks: []
   }, 'Build a polished UI and HTTP API with durable state after restart.', 'build'), /no implementation files/i);
+});
+
+test('new apps require consistent runtime and shared contracts without repair-specific assumptions', () => {
+  const objective = 'Build a polished browser app with an API and durable storage.';
+  const architecture = { summary: 'The HTTP service owns persistent item state.', contracts: ['GET /api/items returns an array of items.'], persistence: 'Atomic JSON storage under the project data folder.' };
+  const plan = { schemaVersion: 1 as const, files: ['package.json', 'server.js', 'public/app.js'], approach: 'Create the requested app.', risks: [] };
+  assert.throws(() => validatePlanForObjective(plan, objective, 'build'), /requires architecture/);
+  const valid = validatePlanForObjective({ ...plan, architecture }, objective, 'build');
+  assert.deepEqual(valid.architecture, architecture);
+  assert.throws(() => validatePlanForObjective({ ...plan, architecture, approach: 'Use Express with Drizzle persistence.' }, objective, 'build'), /unrequested dependency/);
+  assert.throws(() => validatePlanForObjective({ ...plan, architecture, files: ['package.json', 'src/server.ts', 'scripts/test.sh'] }, objective, 'build'), /directly runnable JavaScript/);
+});
+
+test('new-project batches preserve the complete sealed file set within local output capacity', () => {
+  const files = ['package.json', 'server.js', 'src/storage.js', 'src/validation.js', 'public/index.html', 'public/app.js', 'public/styles.css', 'test/api.test.js', 'start.bat', 'README.md'].map(relPath => ({ relPath, exists: false, content: '', truncated: false }));
+  for (const scope of [files.slice(0, 3), files]) {
+    const batches = buildRepairGenerationBatches(scope, [], { causalEvidence: false, substantialObjective: true, newProject: true });
+    assert.deepEqual(batches.flat().map(file => file.relPath).sort(), scope.map(file => file.relPath).sort());
+    assert.equal(batches[0]?.[0]?.relPath, 'package.json');
+    if (scope.length === files.length) assert.equal(batches.flat().at(-1)?.relPath, 'test/api.test.js');
+    assert.ok(batches.every(batch => batch.length <= 2 && repairOutputTokenBudget(batch) < 9000));
+  }
+});
+
+test('long descriptive plan notes become labelled excerpts without changing or relaxing file authority', () => {
+  const input = { schemaVersion: 1, files: ['server.js'], approach: 'Repair startup.', risks: [],
+    fileResponsibilities: [{ path: 'server.js', responsibility: 'Observed startup responsibility. '.repeat(30), evidence: 'Observed source file.', layer: 'runtime' }] };
+  const plan = parsePlanResponse(JSON.stringify(input));
+  assert.deepEqual(plan.files, ['server.js']);
+  assert.equal(plan.fileResponsibilities?.[0]?.responsibility.length, 400);
+  assert.match(plan.fileResponsibilities![0]!.responsibility, /\[excerpt truncated\]$/);
+  assert.throws(() => parsePlanResponse(JSON.stringify({ ...input, files: ['../escape.js'] })), /unsafe path/);
+  assert.throws(() => parsePlanResponse(JSON.stringify({ ...input, authority: 'unlimited' })), /PLAN_PARSE_FAILED/);
+});
+
+test('new app manifests must provide executable build and test checks before writes', () => {
+  const edit = (scripts: Record<string, string>) => [{ relPath: 'package.json', content: JSON.stringify({ name: 'app', scripts }) }];
+  assert.throws(() => requireBuildPackageScripts(edit({ start: 'node server.js' })), /BUILD_CHECKS_REQUIRED/);
+  assert.throws(() => requireBuildPackageScripts(edit({ start: 'node server.js', build: 'node --check server.js', test: 'echo tests passed' })), /BUILD_CHECKS_REQUIRED/);
+  assert.throws(() => requireBuildPackageScripts(edit({ start: 'node server.js', build: 'node -e "console.log(\'passed\')"', test: 'node --test tests/api.test.js' })), /only prints/);
+  assert.throws(() => requireBuildPackageScripts(edit({ start: 'node server.js', build: 'node --check server.js', test: 'node tests/api.test.js' })), /node --test/);
+  const valid = edit({ start: 'node server.js', build: 'node --check server.js', test: 'node --test tests/api.test.js' });
+  assert.deepEqual(requireBuildPackageScripts(valid, ['package.json', 'server.js', 'tests/api.test.js']), valid);
+  assert.throws(() => requireBuildPackageScripts(valid, ['package.json', 'server.js', 'test/other.test.js']), /BUILD_SCRIPT_TARGET_MISSING/);
+  assert.throws(() => requireBuildPackageScripts([{ relPath: 'tests/api.test.js', content: 'console.log("passed")' }], undefined, valid[0]!.content), /BUILD_TEST_ASSERTIONS_REQUIRED/);
+  assert.throws(() => requireBuildPackageScripts([{ relPath: 'tests/api.test.js', content: 'import test from "node:test"; import assert from "node:assert/strict"; const data = os.tmpdir();' }], undefined, valid[0]!.content), /BUILD_TEST_ISOLATION_REQUIRED/);
 });
 
 test('runnable repair plans include verified runtime configuration before authorization', () => {
@@ -756,6 +822,11 @@ test('G2u: parse ignores narration around well-formed blocks; incomplete markers
     'const x = 1;',
     // missing ===END FILE===
   ].join('\n')), /no well-formed file blocks|incomplete or malformed/);
+
+  assert.throws(() => parseEditResponse([
+    '===PATCH: package.json===', '===SEARCH===', '"^4.1.8"',
+    '===REPLACE===', '"^3.4.1"', '===END PATCH===', '===END FILE==='
+  ].join('\n'), scoped), /incomplete or malformed patch blocks/);
 });
 
 test('exact patch transport updates large files and can create a separate scoped file', () => {
@@ -860,6 +931,14 @@ test('verification reports no_scripts honestly for script-less projects', async 
   await fs.writeFile(path.join(root, 'package.json'), JSON.stringify(placeholder));
   const report2 = await runVerification(root);
   assert.equal(report2.status, 'no_scripts');
+});
+
+test('verification rejects an empty node test run', async () => {
+  const root = await makeTempProject();
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  const result = await runVerification(root, { timeoutMs: 10000 });
+  assert.equal(result.status, 'failed');
+  assert.match(result.items.flatMap(item => item.outputTail).join('\n'), /NO_TEST_CASES/);
 });
 
 test('verification finds the nearest package root above edited files', async () => {

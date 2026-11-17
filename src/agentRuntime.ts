@@ -5,6 +5,7 @@ import {
   getAgentJob,
   getAgentJobCheckpoint,
   getAgentJobJournalEntry,
+  listAgentJobJournal,
   updateAgentJob,
   type AgentJobJournalKind,
   type AgentJobRecord,
@@ -22,7 +23,15 @@ export const AGENT_ACTION_CATALOG = [
   'finalize'
 ] as const;
 
-export type AgentRuntimeAction = typeof AGENT_ACTION_CATALOG[number];
+/** Actions that run only when the job asked for them (see initialState). */
+export const OPTIONAL_AGENT_ACTIONS = ['review_plan'] as const;
+const ALL_AGENT_ACTIONS: readonly string[] = [...AGENT_ACTION_CATALOG, ...OPTIONAL_AGENT_ACTIONS];
+
+export type AgentRuntimeAction = typeof AGENT_ACTION_CATALOG[number] | typeof OPTIONAL_AGENT_ACTIONS[number];
+
+/** errorCode on a job that is paused, resumable, and waiting for the operator to approve its plan. */
+export const PLAN_APPROVAL_CODE = 'PLAN_APPROVAL_REQUIRED';
+export interface AgentJobOptions { approvalMode: 'plan' | 'none'; reviewRequested: boolean }
 
 export interface AgentRuntimeSnapshot extends Record<string, unknown> {
   schemaVersion: 1;
@@ -83,6 +92,12 @@ const ACTION_PRESENTATION: Record<AgentRuntimeAction, {
     meaning: 'The plan must start from what is actually present.',
     next: 'Produce the smallest evidence-backed plan.'
   },
+  review_plan: {
+    stage: 'plan',
+    what: 'I am asking a second model to challenge the plan.',
+    meaning: 'The review checks facts, assumptions, unknowns, and failure modes before any file can change.',
+    next: 'Hold the plan for your approval, or protect its boundary.'
+  },
   produce_plan: {
     stage: 'plan',
     what: 'I am planning the smallest complete job.',
@@ -117,9 +132,15 @@ const ACTION_PRESENTATION: Record<AgentRuntimeAction, {
 
 function initialState(job: AgentJobRecord): AgentRuntimeSnapshot {
   const candidate = job.runtimeState as Partial<AgentRuntimeSnapshot>;
+  if (candidate.schemaVersion !== undefined && candidate.schemaVersion !== 1) {
+    throw new Error('AGENT_RUNTIME_VERSION_UNSUPPORTED: resume with a compatible JoeCoder version; this checkpoint was preserved.');
+  }
+  if (candidate.schemaVersion === 1 && !Array.isArray(candidate.completedActions)) {
+    throw new Error('AGENT_RUNTIME_STATE_INVALID: completed action history is missing.');
+  }
   if (candidate.schemaVersion === 1 && Array.isArray(candidate.completedActions)) {
     const completedActions = candidate.completedActions.filter(
-      (action): action is AgentRuntimeAction => AGENT_ACTION_CATALOG.includes(action as AgentRuntimeAction)
+      (action): action is AgentRuntimeAction => ALL_AGENT_ACTIONS.includes(action)
     );
     return {
       ...candidate,
@@ -135,11 +156,14 @@ function initialState(job: AgentJobRecord): AgentRuntimeSnapshot {
       finalizedAt: candidate.finalizedAt ?? (completedActions.includes('finalize') ? 1 : undefined)
     };
   }
+  // Job options are recorded before the first checkpoint and carried into the first snapshot.
   return {
     schemaVersion: 1,
     completedActions: [],
     transitionCount: 0,
-    objective: job.objective
+    objective: job.objective,
+    approvalMode: candidate.approvalMode === 'plan' ? 'plan' : 'none',
+    reviewRequested: candidate.reviewRequested === true
   };
 }
 
@@ -156,6 +180,7 @@ export function selectNextPermittedAction(state: AgentRuntimeSnapshot): AgentRun
   if (!state.objectiveRecorded && !done('capture_objective')) return 'capture_objective';
   if (!state.evidenceReady && !done('establish_evidence')) return 'establish_evidence';
   if (!state.planRevision || !state.workOrderId || !state.plan) return 'produce_plan';
+  if (state.reviewRequested === true && !state.reviewCompleted && !done('review_plan')) return 'review_plan';
   if (!state.authorizationSealed && !done('seal_authorization')) return 'seal_authorization';
   if (!state.executionCompleted && !state.executionResult && !done('execute_change')) return 'execute_change';
   if ((!state.verificationEvaluated && !done('evaluate_verification')) || !state.requestedTerminalState) return 'evaluate_verification';
@@ -216,6 +241,12 @@ function committedActionEvent(action: AgentRuntimeAction, state: AgentRuntimeSna
   if (action === 'produce_plan') return {
     what: 'I decided on the smallest evidence-backed plan.', meaning: `${files.length} file(s) are in the maximum affected area.`, next: 'Protect that exact boundary before any write.', payload: { ...common, category: 'Found', operations }
   };
+  if (action === 'review_plan') {
+    const review = state.review as { status?: string; verdict?: string; summary?: string } | undefined;
+    return review?.status === 'completed'
+      ? { what: `Peer review: ${String(review.verdict || 'unclear').replaceAll('_', ' ')}.`, meaning: String(review.summary || 'The review is recorded with the plan.'), next: 'Continue to the approval or protection step.', payload: { ...common, category: 'Checked', verdict: review.verdict } }
+      : { what: 'Peer review could not run.', meaning: String((state.review as { reason?: string } | undefined)?.reason || 'No eligible model answered.'), next: 'Continue without a review; the plan is unchanged.', payload: { ...common, category: 'Needs you' } };
+  }
   if (action === 'seal_authorization') return {
     what: `Automatic authorization: ${objective}.`, meaning: `Joe may ${operations.join(', ') || 'perform the recorded work'} only in ${files.length} named file(s), within the recorded time, file, line, and cost limits.`, next: 'Execute the authorized work.', payload: { ...common, category: 'Doing now', operations }
   };
@@ -282,6 +313,69 @@ function recordTerminal(
   });
 }
 
+function planFiles(state: AgentRuntimeSnapshot): string[] {
+  const paths = (state.plan as { scope?: { exactPaths?: unknown } } | undefined)?.scope?.exactPaths;
+  return Array.isArray(paths) ? paths.map(String) : [];
+}
+
+/**
+ * Pauses before any authorization. The job uses the resumable 'interrupted' status so it keeps
+ * its Work Order (no other job can start) and the generic recovery paths stay valid. Resuming
+ * without approval re-enters this gate; only approvePlan() lets seal_authorization run.
+ */
+function pauseForPlanApproval(job: AgentJobRecord, state: AgentRuntimeSnapshot): AgentJobRecord {
+  const revision = Number(state.planRevision || 0);
+  const review = state.review as { status?: string; summary?: string; reason?: string } | undefined;
+  appendAgentJobJournal({
+    jobId: job.id, kind: 'decision', stage: 'plan', actionKey: `${job.id}-await-plan-approval-r${revision}-v${job.stateVersion}`,
+    payload: { decision: 'awaiting_plan_approval', planRevision: revision, workOrderId: state.workOrderId || null }
+  });
+  appendAgentJobEvent({
+    jobId: job.id, stage: 'plan', kind: 'decision',
+    what: 'The plan is ready for your approval.',
+    meaning: review?.status === 'completed' ? String(review.summary || 'The peer review is attached.')
+      : review ? `Peer review could not run: ${String(review.reason || 'no eligible model answered')}.` : 'No peer review was requested for this job.',
+    next: 'Approve to protect the files and make the change, or discard the plan.',
+    payload: { category: 'Needs you', files: planFiles(state), planRevision: revision }
+  });
+  return updateAgentJob(job.id, {
+    status: 'interrupted', terminalState: 'interrupted', stage: 'plan',
+    message: 'Plan ready — waiting for your approval.',
+    errorCode: PLAN_APPROVAL_CODE, errorMessage: null, finishedAt: null, lastHeartbeatAt: Date.now()
+  });
+}
+
+function requirePausedForApproval(jobId: string): { job: AgentJobRecord; state: AgentRuntimeSnapshot } {
+  const job = getAgentJob(jobId);
+  if (!job) throw Object.assign(new Error(`AGENT_JOB_NOT_FOUND: ${jobId}`), { status: 404 });
+  if (job.status !== 'interrupted' || job.errorCode !== PLAN_APPROVAL_CODE) {
+    throw Object.assign(new Error('This job is not waiting for plan approval.'), { status: 409, code: 'PLAN_NOT_AWAITING_APPROVAL' });
+  }
+  return { job, state: loadState(job) };
+}
+
+/** Records the operator's approval as a checkpoint. The caller then resumes the job. */
+export function approvePlan(jobId: string): AgentJobRecord {
+  const { job, state } = requirePausedForApproval(jobId);
+  const revision = Number(state.planRevision || 0);
+  const approved = commitAgentJobCheckpoint({
+    jobId, state: { ...state, planApproved: true, planApprovedAt: Date.now() },
+    lastCompletedAction: `${jobId}-plan-approved-r${revision}`, patch: { lastHeartbeatAt: Date.now() }
+  });
+  appendAgentJobEvent({
+    jobId, stage: 'plan', kind: 'decision', what: 'You approved the plan.',
+    meaning: `Joe may now protect and change only the ${planFiles(state).length} file(s) in this plan.`,
+    next: 'Protect the boundary, then make the change.', payload: { category: 'Doing now', planRevision: revision, workOrderId: job.workOrderId }
+  });
+  return approved;
+}
+
+/** Ends a paused job before any authorization. The caller releases its Work Order. */
+export function discardPlan(jobId: string): AgentJobRecord {
+  const { job, state } = requirePausedForApproval(jobId);
+  return recordTerminal(job, state, 'cancelled', 'You discarded the plan. No files were changed.', 'runtime');
+}
+
 function errorCode(error: unknown): string {
   if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code;
   return 'AGENT_RUNTIME_FAILED_SAFE';
@@ -308,6 +402,10 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
     const reason = String(state.terminalReason || 'The runtime exhausted its actions without a terminal proof.');
     job = recordTerminal(job, state, terminal, reason, 'runtime');
     return { job, action: null, recoveredResult: false, terminal: true };
+  }
+
+  if (action === 'seal_authorization' && state.approvalMode === 'plan' && state.planApproved !== true) {
+    return { job: pauseForPlanApproval(job, state), action: null, recoveredResult: false, terminal: true };
   }
 
   const presentation = ACTION_PRESENTATION[action];
@@ -344,6 +442,14 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
   let recoveredResult = false;
   const priorResult = getAgentJobJournalEntry(jobId, 'tool_result', key);
   try {
+    const journal = listAgentJobJournal(jobId);
+    const receipts = new Set(journal.filter(entry => entry.kind === 'tool_result').map(entry => entry.actionKey));
+    const uncertain = journal.find(entry => entry.kind === 'tool_request'
+      && entry.actionKey?.startsWith('command-') && !receipts.has(entry.actionKey));
+    if (uncertain) {
+      throw Object.assign(new Error('A project command has no recorded outcome after interruption. Inspect its process and source changes before starting a new job; automatic replay is blocked.'),
+        { code: 'COMMAND_OUTCOME_UNKNOWN' });
+    }
     if (priorResult) {
       outcome = priorResult.payload as AgentActionOutcome;
       recoveredResult = true;
@@ -372,7 +478,7 @@ export async function runAgentRuntimeStep(jobId: string, driver: AgentRuntimeDri
     const code = errorCode(error);
     const reason = error instanceof Error ? error.message : String(error);
     updateAgentJob(jobId, { errorCode: code, errorMessage: reason });
-    job = recordTerminal(getAgentJob(jobId)!, state, 'failed_safe', reason, action);
+    job = recordTerminal(getAgentJob(jobId)!, state, getAgentJob(jobId)?.stopRequested || code === 'AGENT_STOP_REQUESTED' ? 'cancelled' : 'failed_safe', reason, action);
     return { job, action, recoveredResult, terminal: true };
   }
 

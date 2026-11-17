@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { evaluateExportCompletion, evaluateRepairCompletion } from './completion.js';
 import type { WorkOrder } from './types.js';
+import { runVerification } from './verification.js';
 
 function workOrder(): WorkOrder {
   return {
@@ -35,6 +36,25 @@ function workOrder(): WorkOrder {
     updatedAt: new Date().toISOString()
   };
 }
+
+test('ordinary Node API completion accepts live sealed-route proof without a framework-specific source layout', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-completion-root-api-'));
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { start: 'node server.cjs', build: 'node --check server.cjs' } }));
+  await fs.writeFile(path.join(root, 'server.cjs'), `const server=require('node:http').createServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end('[]');});server.listen(Number(process.env.PORT),'127.0.0.1',()=>console.log('http://127.0.0.1:'+server.address().port));`);
+  const wo = { ...workOrder(), intent: 'repair', objective: 'Make this app run locally end to end.',
+    scope: { exactPaths: ['server.cjs'], operations: ['read_files', 'edit_files', 'verify_runtime'], network: ['loopback only'], providers: ['ollama'] },
+    taskSpecific: { requiredApiRoutes: ['/api/items'] }
+  } as WorkOrder;
+  const applied = { applied: [{ relPath: 'server.cjs', action: 'replaced_file' as const, previousHash: 'a', newHash: 'b', linesBefore: 1, linesAfter: 2, changedLines: 1 }], totalChangedLines: 1 };
+  const report = await runVerification(root, { apiRouteContracts: ['/api/items'], timeoutMs: 10000 });
+  assert.equal(report.status, 'passed', JSON.stringify(report));
+  const decision = await evaluateRepairCompletion(wo, applied, report, 'EVC-apply', async () => true, { projectRoot: root });
+  assert.equal(decision.passed, true, JSON.stringify(decision));
+  const withoutApi = { ...report, items: report.items.filter(item => item.command !== 'api-route-smoke') };
+  const denied = await evaluateRepairCompletion(wo, applied, withoutApi, 'EVC-apply', async () => true, { projectRoot: root });
+  assert.equal(denied.results.find(result => result.id.endsWith('-API'))?.passed, false);
+  assert.match(denied.reason, /API route smoke was not run/);
+});
 
 test('completion passes only with contained artifacts and verified evidence', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-completion-'));

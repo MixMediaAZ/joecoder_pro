@@ -1,29 +1,45 @@
+import { budgetedModelCall, currentAgentJobId } from './agentWorkflowBudget.js';
+import './providerEnv.js';
 /**
  * Model provider layer — local-first, fail-closed.
  *
  * Ollama (loopback) is the preferred provider and is auto-detected at runtime.
- * Anthropic (cloud) is a fallback that activates only when ANTHROPIC_API_KEY is
- * set AND the caller explicitly allows cloud (a Work Order must carry a
- * non-zero maxCloudCostUsd budget). Dependency-free by design: this package
+ * Anthropic, direct DeepSeek, and Replicate cloud providers require configured
+ * credentials AND explicit cloud authorization with a positive budget. Dependency-free by design: this package
  * installs with --ignore-scripts --prefer-offline, so both clients use the
  * Node's built-in HTTP/fetch clients instead of SDKs.
  */
 
+import { cloudPreference, cloudKey, cloudProfile, cloudCost, cloudInputTokens, generateCloud, CLOUD_PROVIDERS, type AddedCloudProvider } from './cloudProviders.js';
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { ModelRouter, type ModelProviderAdapter, type ModelTaskType, type RoutedModelTurnRequest, type RoutedModelTurnResult } from './modelRouter.js';
 import { powerRouterAvailable, powerRouterConfigured, powerRouterDispatch, resetPowerRouterCache } from './powerrouterClient.js';
 
-export type ProviderName = 'ollama' | 'anthropic' | 'powerrouter';
+// Default model is Opus 5: official base rates checked 2026-10-27. Configure overrides for another model.
+function anthropicRates() {
+  const input = Number(process.env.JC_ANTHROPIC_INPUT_COST_PER_MILLION || 5);
+  const output = Number(process.env.JC_ANTHROPIC_OUTPUT_COST_PER_MILLION || 25);
+  if (![input, output].every(value => Number.isFinite(value) && value > 0)) throw new Error('ANTHROPIC_PRICING_INVALID');
+  return { input, output };
+}
+
+export type ProviderName = 'ollama' | 'anthropic' | 'powerrouter' | AddedCloudProvider;
+export function isCloudProvider(provider: ProviderName | null): boolean {
+  return provider !== null && CLOUD_PROVIDERS.includes(provider as typeof CLOUD_PROVIDERS[number]);
+}
+const cloudBalances = new WeakMap<ProviderResolution, number>();
 
 export interface ModelRequest {
   system: string;
   prompt: string;
   maxTokens?: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
   /** Sampling temperature. Structured-output calls (plan/edit) pin this low so
    *  strict-format responses stay parseable; omit for the provider default. */
   temperature?: number;
+  format?: 'json';
 }
 
 export interface ModelResponse {
@@ -32,6 +48,7 @@ export interface ModelResponse {
   model: string;
   durationMs: number;
   stopReason?: string;
+  costUsd?: number;
 }
 
 export interface ProviderResolution {
@@ -40,6 +57,7 @@ export interface ProviderResolution {
   model: string | null;
   reason: string;
   allowCloud?: boolean;
+  maxCloudCostUsd?: number;
   capabilities?: string[];
   unmetCapabilities?: string[];
   routingReason?: string;
@@ -72,6 +90,21 @@ const DEFAULT_GENERATE_TIMEOUT_MS = 120000;
  * can emit well-formed repair blocks. If missing, pickOllamaModel falls back to smallest *coder*.
  */
 export const DEFAULT_LOCAL_CODING_MODEL = 'qwen2.5-coder:14b';
+
+export interface OllamaInventoryModel {
+  name: string;
+  capabilities?: string[];
+}
+
+export function generationModels(models: OllamaInventoryModel[]): OllamaInventoryModel[] {
+  const seen = new Set<string>();
+  return models.filter(model => {
+    if (!model.name || seen.has(model.name)) return false;
+    if (model.capabilities ? !model.capabilities.includes('completion') : /embed|rerank|^tev/i.test(model.name)) return false;
+    seen.add(model.name);
+    return true;
+  });
+}
 
 let ollamaCache: { checkedAt: number; model: string | null } | null = null;
 let productionRouter: { signature: string; router: ModelRouter } | null = null;
@@ -145,6 +178,7 @@ export function anthropicKeyPresent(): boolean {
  * plain-language reason.
  */
 export function providerCapabilities(provider: ProviderName): string[] {
+  if (provider === 'deepseek' || provider === 'replicate') return cloudProfile(provider).capabilities;
   if (provider === 'anthropic') return ['chat', 'code', 'long_context', 'vision', 'tools'];
   const configured = (process.env.JC_OLLAMA_CAPABILITIES || 'chat,code,long_context,tools')
     .split(',')
@@ -160,7 +194,8 @@ export function missingProviderCapabilities(provider: ProviderName, required: st
 }
 
 export async function resolveProvider(options: ProviderRoutingOptions): Promise<ProviderResolution> {
-  const required = Array.from(new Set(options.requiredCapabilities || []));
+  const preferredCloud = cloudPreference();
+  const required = Array.from(new Set(options.requiredCapabilities || [])).map(value => value.toLowerCase());
   const taskType = options.taskType || 'conversation';
   const contextTokens = Math.max(1, Math.ceil((options.contextCharacters || 0) / 4)) + 4096;
   const excluded = new Set(options.excludeModels || []);
@@ -187,12 +222,11 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
   const localEligible = Boolean(localModel) && !excluded.has(localModel || '') && localMissing.length === 0 && contextTokens <= localContextWindow;
 
   const cloudAllowed = options.allowCloud && options.privacyMode !== 'local_only';
-  const allowCloud = Boolean(options.allowCloud && options.privacyMode !== 'local_only' && (options.maxCloudCostUsd ?? 0) > 0);
   const cloudCapabilities = providerCapabilities('anthropic');
   const cloudMissing = missingProviderCapabilities('anthropic', required);
   const cloudContextWindow = 200_000;
-  const maximumCloudCost = options.maxCloudCostUsd ?? 0;
-  const estimatedCloudCost = (Math.ceil((options.contextCharacters || 0) / 4) * 3 + 4096 * 15) / 1_000_000;
+  const maximumCloudCost = Number.isFinite(options.maxCloudCostUsd) ? Math.max(0, options.maxCloudCostUsd ?? 0) : 0;
+  const estimatedCloudCost = (Math.ceil((options.contextCharacters || 0) / 2) * anthropicRates().input + 4096 * anthropicRates().output) / 1_000_000;
   const cloudEligible = anthropicKeyPresent() && cloudAllowed && !excluded.has(ANTHROPIC_DEFAULT_MODEL) &&
     cloudMissing.length === 0 && contextTokens <= cloudContextWindow && estimatedCloudCost <= maximumCloudCost;
   const routerUp = await powerRouterAvailable();
@@ -200,14 +234,29 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
   const routerExcluded = excluded.has('auto') || excluded.has('powerrouter:auto');
   const routerContextEligible = contextTokens <= localContextWindow;
   const routerEligible = routerUp && routerMissing.length === 0 && !routerExcluded && routerContextEligible;
-  const frontierGranted = (options.maxCloudCostUsd ?? 0) > 0;
-  const preferDirectAnthropic = cloudEligible && (options.privacyMode === 'authorized_cloud' || frontierGranted);
+  const frontierGranted = maximumCloudCost > 0;
+  const cloudCandidates: Array<{ provider: ProviderName; model: string; capabilities: string[]; cost: number }> = [];
+  if (cloudEligible) cloudCandidates.push({ provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL, capabilities: cloudCapabilities, cost: estimatedCloudCost });
+  for (const name of ['deepseek', 'replicate'] as const) {
+    if (!cloudKey(name)) continue;
+    const profile = cloudProfile(name);
+    const input = Math.max(1, (options.contextCharacters || 0) * 3 + 96);
+    const cost = cloudCost(profile, input, 4096);
+    if (cloudAllowed && frontierGranted && !excluded.has(profile.model) && !excluded.has(profile.id)
+      && required.every(capability => profile.capabilities.includes(capability))
+      && input + 4096 <= profile.contextWindowTokens && cost <= maximumCloudCost) {
+      cloudCandidates.push({ provider: name, model: profile.model, capabilities: profile.capabilities, cost });
+    }
+  }
+  cloudCandidates.sort((a, b) => Number(b.provider === preferredCloud) - Number(a.provider === preferredCloud));
+  const selectedCloud = cloudCandidates[0];
+  const preferDirectCloud = Boolean(selectedCloud && frontierGranted);
   const eligibleProviders: ProviderName[] = [
     ...(routerEligible ? ['powerrouter' as const] : []),
     ...(localEligible ? ['ollama' as const] : []),
-    ...(cloudEligible ? ['anthropic' as const] : [])
+    ...cloudCandidates.map(candidate => candidate.provider)
   ];
-  if (routerEligible && !preferDirectAnthropic) {
+  if (routerEligible && !preferDirectCloud) {
     const reason = `PowerRouter-primary route selected; task=${taskType};${presetNote} direct Ollama kept as fallback.`;
     return {
       available: true,
@@ -223,14 +272,11 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
     };
   }
 
-  // An explicit positive cloud budget is an operator grant of frontier authorship for this
-  // request: prefer the cloud model even when local is healthy. Without that grant the
-  // route stays local-first and cloud remains only a capability/availability fallback.
-  if (cloudEligible && frontierGranted) {
-    const reason = `Authorized frontier route selected Anthropic/${ANTHROPIC_DEFAULT_MODEL}; explicit cloud budget $${maximumCloudCost.toFixed(2)} granted; task=${taskType}; context=${contextTokens}/${cloudContextWindow};${presetNote} estimated cost=$${estimatedCloudCost.toFixed(6)}.`;
+  if (selectedCloud && frontierGranted) {
+    const reason = `Authorized cloud route selected ${selectedCloud.provider}/${selectedCloud.model}; task=${taskType}; estimated cost=$${selectedCloud.cost.toFixed(6)} within $${maximumCloudCost.toFixed(6)}.`;
     return {
-      available: true, provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL, reason, routingReason: reason,
-      taskType, eligibleProviders, capabilities: cloudCapabilities, allowCloud
+      available: true, provider: selectedCloud.provider, model: selectedCloud.model, reason, routingReason: reason,
+      taskType, eligibleProviders, capabilities: selectedCloud.capabilities, allowCloud: true, maxCloudCostUsd: maximumCloudCost
     };
   }
   if (localEligible) {
@@ -240,24 +286,14 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
       taskType, eligibleProviders, capabilities: localCapabilities
     };
   }
-  if (cloudEligible) {
-    const localReason = !localModel ? 'local unavailable'
-      : excluded.has(localModel) ? 'local excluded after failure'
-        : localMissing.length ? `local missing ${localMissing.join(',')}`
-          : `local context ${contextTokens} exceeds ${localContextWindow}`;
-    const reason = `Authorized cloud fallback selected Anthropic/${ANTHROPIC_DEFAULT_MODEL}; ${localReason}; task=${taskType}; context=${contextTokens}/${cloudContextWindow};${presetNote} estimated cost=$${estimatedCloudCost.toFixed(6)} within $${maximumCloudCost.toFixed(6)}.`;
-    return {
-      available: true, provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL, reason, routingReason: reason,
-      taskType, eligibleProviders, capabilities: cloudCapabilities, allowCloud
-    };
-  }
 
   const blockers = [
     !localModel ? `Ollama is not reachable at ${OLLAMA_BASE_URL}` : null,
     localModel && excluded.has(localModel) ? `local model ${localModel} is excluded after an observed failure` : null,
     localMissing.length ? `local model is healthy but lacks ${localMissing.join(', ')}` : null,
     localModel && contextTokens > localContextWindow ? `local context need ${contextTokens} exceeds ${localContextWindow}` : null,
-    !anthropicKeyPresent() ? 'cloud profile is not configured' : null,
+    !anthropicKeyPresent() && !cloudKey('deepseek') && !cloudKey('replicate') ? 'cloud profile is not configured' : null,
+    cloudAllowed && !selectedCloud ? 'No configured cloud provider fits the capabilities, context, and remaining budget' : null,
     !cloudAllowed ? 'cloud is not authorized by privacy and Work Order policy' : null,
     cloudMissing.length ? `cloud model lacks ${cloudMissing.join(', ')}` : null,
     estimatedCloudCost > maximumCloudCost ? `estimated cloud cost $${estimatedCloudCost.toFixed(6)} exceeds $${maximumCloudCost.toFixed(6)}` : null
@@ -275,10 +311,17 @@ export async function resolveProvider(options: ProviderRoutingOptions): Promise<
   };
 }
 async function generateOllama(model: string, request: ModelRequest): Promise<ModelResponse> {
+  const contextWindow = Number(process.env.JC_OLLAMA_CONTEXT_WINDOW || 32768);
+  const promptEstimate = Math.ceil(Buffer.byteLength(request.system + request.prompt, 'utf8') / 2) + 256;
+  if (!Number.isSafeInteger(contextWindow) || contextWindow < 4096) throw new Error('OLLAMA_CONTEXT_CONFIGURATION_INVALID');
+  if (promptEstimate >= contextWindow) throw new Error('MODEL_CONTEXT_LIMIT: prompt estimate exceeds the configured Ollama window; reduce the batch or configure a supported window.');
   const startedAt = Date.now();
   const timeoutMs = request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS;
   let timedOut = false;
   let activeRequest: ClientRequest | null = null;
+  request.signal?.throwIfAborted();
+  const abort = () => activeRequest?.destroy(new Error('MODEL_REQUEST_CANCELLED'));
+  request.signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
     activeRequest?.destroy(new Error('OLLAMA_REQUEST_DEADLINE'));
@@ -296,13 +339,15 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
       // the structured answer, so thinking is disabled; Ollama ignores the flag
       // for models without the capability.
       think: false,
+      ...(request.format === 'json' ? { format: 'json' } : {}),
       messages: [
         { role: 'system', content: request.system },
         { role: 'user', content: request.prompt }
       ],
       keep_alive: '30m',
       options: {
-        num_predict: request.maxTokens ?? 4096,
+        num_ctx: contextWindow,
+        num_predict: Math.min(request.maxTokens ?? 4096, contextWindow - promptEstimate),
         ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {})
       }
   });
@@ -316,6 +361,7 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
       }
     }, resolve);
     activeRequest = outgoing;
+      if (request.signal?.aborted) abort();
     outgoing.once('error', reject);
     outgoing.end(body);
   });
@@ -360,6 +406,7 @@ async function generateOllama(model: string, request: ModelRequest): Promise<Mod
     throw error;
   } finally {
     clearTimeout(timer);
+    request.signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -368,6 +415,9 @@ async function generateAnthropic(model: string, request: ModelRequest): Promise<
   const timeoutMs = request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS;
   let timedOut = false;
   let activeRequest: ClientRequest | null = null;
+  request.signal?.throwIfAborted();
+  const abort = () => activeRequest?.destroy(new Error('MODEL_REQUEST_CANCELLED'));
+  request.signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
     activeRequest?.destroy(new Error('ANTHROPIC_REQUEST_DEADLINE'));
@@ -398,6 +448,7 @@ async function generateAnthropic(model: string, request: ModelRequest): Promise<
         }
       }, resolve);
       activeRequest = outgoing;
+      if (request.signal?.aborted) abort();
       outgoing.once('error', reject);
       outgoing.end(body);
     });
@@ -460,6 +511,7 @@ async function generateAnthropic(model: string, request: ModelRequest): Promise<
     throw error;
   } finally {
     clearTimeout(timer);
+    request.signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -473,7 +525,9 @@ function routedToLegacyRequest(request: RoutedModelTurnRequest): ModelRequest {
     prompt,
     maxTokens: request.maxOutputTokens,
     timeoutMs: request.timeoutMs,
-    temperature: request.temperature
+    temperature: request.temperature,
+    ...(request.structuredSchemaName ? { format: 'json' as const } : {}),
+    ...(request.signal ? { signal: request.signal } : {})
   };
 }
 
@@ -529,6 +583,8 @@ export async function configuredModelAdapters(): Promise<ModelProviderAdapter[]>
         const out = await powerRouterDispatch({
           messages,
           allowCloud,
+          think: false,
+          ...(routed.structuredSchemaName ? { format: 'json' as const } : {}),
           ...(routed.temperature != null ? { temperature: routed.temperature } : {}),
           ...(routed.maxOutputTokens != null ? { maxTokens: routed.maxOutputTokens } : {}),
           ...(routed.timeoutMs != null ? { timeoutMs: routed.timeoutMs } : {}),
@@ -541,26 +597,40 @@ export async function configuredModelAdapters(): Promise<ModelProviderAdapter[]>
         };
         return {
           text: out.content,
-          usage
+          model: out.model,
+          usage,
+          ...(out.finishReason ? { finishReason: out.finishReason } : {})
         };
       }
     });
   }
-  const localModel = await detectOllama();
-  if (localModel) {
+  const preferredModel = await detectOllama();
+  let localModels: OllamaInventoryModel[] = [];
+  let inventoryAvailable = false;
+  try {
+    const response = await fetchWithTimeout(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET' }, OLLAMA_DETECT_TIMEOUT_MS);
+    if (response.ok) {
+      localModels = generationModels((await response.json() as { models?: OllamaInventoryModel[] }).models || []);
+      inventoryAvailable = true;
+    }
+  } catch { /* A discovery outage must not invent additional models. */ }
+  if (!inventoryAvailable && preferredModel) localModels = generationModels([{ name: preferredModel }]);
+  for (const discovered of localModels) {
+    const localModel = discovered.name;
     adapters.push({
       profile: {
         id: `ollama:${localModel}`, provider: 'ollama', model: localModel, location: 'local', enabled: true,
-        capabilities: providerCapabilities('ollama'),
+        capabilities: discovered.capabilities ? ['chat', 'code', 'long_context', ...discovered.capabilities.filter(value => ['tools', 'vision'].includes(value))] : providerCapabilities('ollama'),
         contextWindowTokens: Math.max(4096, Number(process.env.JC_OLLAMA_CONTEXT_WINDOW || 32768)),
         taskTypes: ['conversation', 'investigation', 'implementation', 'review', 'structured_control',
           ...(providerCapabilities('ollama').includes('vision') ? ['visual_analysis' as const] : [])],
-        qualityTier: /(?:32b|70b|large)/i.test(localModel) ? 4 : /(?:14b|20b)/i.test(localModel) ? 3 : 2,
+        qualityTier: localModel === preferredModel ? 5 : localModel.startsWith('lmc/') ? 4.5 : /coder/i.test(localModel) ? 4 : 3,
         inputCostPerMillionTokens: 0, outputCostPerMillionTokens: 0
       },
       generate: async (request) => {
         const result = await generateOllama(localModel, routedToLegacyRequest(request as RoutedModelTurnRequest));
-        return { text: result.text, usage: { ...routedUsage(result.text, request as RoutedModelTurnRequest), costUsd: 0 } };
+        return { text: result.text, usage: { ...routedUsage(result.text, request as RoutedModelTurnRequest), costUsd: 0 },
+          ...(result.stopReason ? { finishReason: result.stopReason } : {}) };
       }
     });
   }
@@ -570,7 +640,7 @@ export async function configuredModelAdapters(): Promise<ModelProviderAdapter[]>
         id: `anthropic:${ANTHROPIC_DEFAULT_MODEL}`, provider: 'anthropic', model: ANTHROPIC_DEFAULT_MODEL,
         location: 'cloud', enabled: true, capabilities: providerCapabilities('anthropic'), contextWindowTokens: 200_000,
         taskTypes: ['conversation', 'investigation', 'visual_analysis', 'implementation', 'review', 'structured_control'],
-        qualityTier: 5, inputCostPerMillionTokens: 3, outputCostPerMillionTokens: 15
+        qualityTier: 5, inputCostPerMillionTokens: anthropicRates().input, outputCostPerMillionTokens: anthropicRates().output
       },
       generate: async (request) => {
         const result = await generateAnthropic(ANTHROPIC_DEFAULT_MODEL, routedToLegacyRequest(request as RoutedModelTurnRequest));
@@ -578,7 +648,28 @@ export async function configuredModelAdapters(): Promise<ModelProviderAdapter[]>
       }
     });
   }
-  return adapters;
+  for (const provider of ['deepseek', 'replicate'] as const) {
+    if (!cloudKey(provider)) continue;
+    adapters.push({
+      profile: cloudProfile(provider),
+      generate: request => generateCloud(provider, request, (request as RoutedModelTurnRequest).authorizedCloudBudgetUsd)
+    });
+  }
+  return adapters.map(adapter => ({
+    ...adapter,
+    generate: (request) => {
+      const reserveUsd = adapter.profile.location === 'cloud'
+        ? cloudCost(adapter.profile, cloudInputTokens(request), request.maxOutputTokens) : 0;
+      return budgetedModelCall({
+        provider: adapter.profile.provider, reserveUsd,
+        run: (signal, remainingMs) => adapter.generate({
+          ...request, timeoutMs: Math.min(request.timeoutMs, remainingMs),
+          ...(signal ? { signal: request.signal ? AbortSignal.any([signal, request.signal]) : signal } : {})
+        }),
+        actualCost: result => result.usage?.costUsd
+      });
+    }
+  }));
 }
 
 export async function generateRoutedModelTurn(
@@ -590,7 +681,8 @@ export async function generateRoutedModelTurn(
   if (!productionRouter || productionRouter.signature !== signature) {
     productionRouter = { signature, router: new ModelRouter(adapters) };
   }
-  return productionRouter.router.execute(request, onAttempt);
+  const preference = cloudPreference();
+  return productionRouter.router.execute({ ...request, ...(preference ? { preferredProvider: preference } : {}) }, onAttempt);
 }
 
 /**
@@ -652,7 +744,7 @@ function mockGenerate(request: ModelRequest): ModelResponse {
 }
 
 /** Generate with an already-resolved provider. Throws with a plain reason on failure. */
-export async function generateWithProvider(resolution: ProviderResolution, request: ModelRequest): Promise<ModelResponse> {
+async function generateWithProviderUnbudgeted(resolution: ProviderResolution, request: ModelRequest): Promise<ModelResponse> {
   const startedAt = Date.now();
   if (process.env.JC_MOCK_MODEL === '1') {
     return mockGenerate(request);
@@ -669,19 +761,73 @@ export async function generateWithProvider(resolution: ProviderResolution, reque
       messages,
       // Temporary: keep PowerRouter local-only until cost passthrough exists.
       allowCloud: false,
+      // Match the direct Ollama path: reserve the output budget for actionable content.
+      think: false,
+      ...(request.format ? { format: request.format } : {}),
       ...(request.maxTokens != null ? { maxTokens: request.maxTokens } : {}),
       ...(request.temperature != null ? { temperature: request.temperature } : {}),
-      ...(request.timeoutMs != null ? { timeoutMs: request.timeoutMs } : {})
+      ...(request.timeoutMs != null ? { timeoutMs: request.timeoutMs } : {}),
+      ...(request.signal ? { signal: request.signal } : {})
     });
     return {
       text: out.content,
       provider: 'powerrouter',
       model: out.model,
-      durationMs: Date.now() - startedAt
+      durationMs: Date.now() - startedAt,
+      ...(out.finishReason ? { stopReason: out.finishReason } : {})
     };
   }
   if (resolution.provider === 'ollama') return generateOllama(resolution.model, request);
-  return generateAnthropic(resolution.model, request);
+  if (resolution.provider === 'deepseek' || resolution.provider === 'replicate') {
+    if (!resolution.allowCloud) throw new Error('MODEL_BUDGET_REQUIRED: cloud was not authorized');
+    const profile = cloudProfile(resolution.provider);
+    if (profile.model !== resolution.model) throw new Error('MODEL_UNAVAILABLE: provider configuration changed; resolve again');
+    const remaining = cloudBalances.get(resolution) ?? resolution.maxCloudCostUsd ?? 0;
+    const routed = {
+      messages: [{ role: 'system' as const, content: request.system }, { role: 'user' as const, content: request.prompt }],
+      maxOutputTokens: request.maxTokens ?? 4096, temperature: request.temperature ?? 0.2,
+      timeoutMs: request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS, ...(request.signal ? { signal: request.signal } : {})
+    };
+    const input = cloudInputTokens(routed);
+    routed.maxOutputTokens = Math.min(routed.maxOutputTokens, profile.contextWindowTokens - input, resolution.provider === 'replicate' ? 32768 : 393216);
+    const reserve = cloudCost(profile, input, Math.max(0, routed.maxOutputTokens));
+    if (!Number.isFinite(remaining) || remaining <= 0 || reserve > remaining) throw new Error('MODEL_BUDGET_EXCEEDED: generation does not fit the remaining authorized budget');
+    // Reserve before awaiting; failed or concurrent attempts cannot spend this money again.
+    cloudBalances.set(resolution, remaining - reserve);
+    const result = await generateCloud(resolution.provider, routed, remaining);
+    const cost = result.usage?.costUsd ?? reserve;
+    cloudBalances.set(resolution, (cloudBalances.get(resolution) ?? 0) + reserve - cost);
+    if (cost > remaining) throw new Error('MODEL_BUDGET_EXCEEDED: provider reported usage above the authorized budget');
+    return { text: result.text, provider: resolution.provider, model: resolution.model,
+      durationMs: Date.now() - startedAt, costUsd: cost, ...(result.finishReason ? { stopReason: result.finishReason } : {}) };
+  }
+  if (resolution.provider === 'anthropic') return generateAnthropic(resolution.model, request);
+  throw new Error('MODEL_UNAVAILABLE: unknown provider');
+}
+
+/** One durable job ledger covers planning, implementation and correction. */
+export async function generateWithProvider(resolution: ProviderResolution, request: ModelRequest): Promise<ModelResponse> {
+  if (!currentAgentJobId()) return generateWithProviderUnbudgeted(resolution, request);
+  const inputTokens = Math.ceil(Buffer.byteLength(request.system + request.prompt, 'utf8') / 2) + 256;
+  let reserveUsd = 0;
+  if (resolution.provider === 'deepseek' || resolution.provider === 'replicate') {
+    const profile = cloudProfile(resolution.provider);
+    reserveUsd = cloudCost(profile, inputTokens, Math.max(0, Math.min(request.maxTokens ?? 4096,
+      profile.contextWindowTokens - inputTokens, resolution.provider === 'replicate' ? 32768 : 393216)));
+  } else if (resolution.provider === 'anthropic') {
+    // Same configurable accounting rates as the routed adapter; estimates are not invoices.
+    const inputRate = anthropicRates().input;
+    const outputRate = anthropicRates().output;
+    reserveUsd = (inputTokens * inputRate + (request.maxTokens ?? 4096) * outputRate) / 1_000_000;
+  }
+  return budgetedModelCall({
+    provider: resolution.provider || 'unavailable', reserveUsd,
+    run: (signal, remainingMs) => generateWithProviderUnbudgeted(resolution, {
+      ...request, timeoutMs: Math.min(request.timeoutMs ?? DEFAULT_GENERATE_TIMEOUT_MS, remainingMs),
+      ...(signal ? { signal: request.signal ? AbortSignal.any([signal, request.signal]) : signal } : {})
+    }),
+    actualCost: result => result.costUsd
+  });
 }
 
 /** Status summary for /health — never includes secrets. */
@@ -689,10 +835,22 @@ export async function providerStatus(): Promise<{
   localModel: string | null;
   localCapabilities: string[];
   cloudConfigured: boolean;
+  cloudProviders: Array<{ provider: string; model: string; configured: boolean; status: string; error?: string }>;
+  preferredCloudProvider: string;
   policy: string;
   mockModel?: boolean;
   powerRouter?: { configured: boolean; reachable: boolean };
 }> {
+  const cloudProviders = CLOUD_PROVIDERS.map(provider => {
+    const configured = provider === 'anthropic' ? anthropicKeyPresent() : Boolean(cloudKey(provider));
+    try {
+      const model = provider === 'anthropic' ? ANTHROPIC_DEFAULT_MODEL : cloudProfile(provider).model;
+      return { provider, model, configured, status: configured ? 'Configured; credentials not verified' : 'Not configured' };
+    } catch (error) {
+      return { provider, model: '', configured, status: 'Configuration error', error: error instanceof Error ? error.message : 'Invalid provider configuration' };
+    }
+  });
+  const preferredCloudProvider = (() => { try { return cloudPreference() || 'auto'; } catch { return 'Invalid configuration'; } })();
   const powerRouter = {
     configured: powerRouterConfigured(),
     reachable: await powerRouterAvailable()
@@ -701,7 +859,8 @@ export async function providerStatus(): Promise<{
     return {
       localModel: 'jc-mock-model',
       localCapabilities: providerCapabilities('ollama'),
-      cloudConfigured: anthropicKeyPresent(),
+      cloudConfigured: cloudProviders.some(item => item.configured && !item.error),
+      cloudProviders, preferredCloudProvider,
       policy: 'JC_MOCK_MODEL=1 active — not for production repairs',
       mockModel: true,
       powerRouter
@@ -710,29 +869,12 @@ export async function providerStatus(): Promise<{
   return {
     localModel: await detectOllama(),
     localCapabilities: providerCapabilities('ollama'),
-    cloudConfigured: anthropicKeyPresent(),
+    cloudConfigured: cloudProviders.some(item => item.configured && !item.error),
+      cloudProviders, preferredCloudProvider,
     policy: 'preset capabilities + local privacy first; cloud only with explicit non-zero Work Order cloud budget',
     mockModel: false,
     powerRouter
   };
-}
-
-/**
- * Preload the local model into memory (fire-and-forget at server start) so the
- * first plan/edit call doesn't pay the multi-GB cold-load on top of inference.
- */
-export async function warmLocalModel(): Promise<void> {
-  try {
-    const model = await detectOllama();
-    if (!model) return;
-    await fetchWithTimeout(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, keep_alive: '30m' })
-    }, 120000);
-  } catch {
-    // Warm-up is best-effort; real calls will load the model themselves.
-  }
 }
 
 /** Test seam: reset the detection cache. */

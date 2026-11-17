@@ -20,6 +20,7 @@ export interface GovernedEvidenceRecorder {
 }
 
 export interface GovernedToolContext {
+  signal?: AbortSignal;
   projectId: string;
   jobId: string;
   workOrderId: string | null;

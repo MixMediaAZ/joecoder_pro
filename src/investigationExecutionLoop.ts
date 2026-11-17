@@ -204,3 +204,10 @@ export async function runVerificationCorrectionLoop<TVerification>(options: {
   }
   throw new Error('VERIFICATION_LOOP_UNREACHABLE');
 }
+
+/** Diagnose infrastructure failures before asking a model to change application code. */
+export function classifyVerificationFailure(report: { items: Array<{ passed: boolean; outputTail: string[] }> }): 'environment' | 'code_or_configuration' {
+  const errors = report.items.filter(item => !item.passed).flatMap(item => item.outputTail).join('\n');
+  return /(?:spawn\s+[^\n]*(?:EACCES|EPERM|ENOENT)|connect\s+EACCES|EAI_AGAIN|ENETUNREACH|BROWSER_EXITED_EARLY|No module named ['"]?pytest)/i.test(errors)
+    ? 'environment' : 'code_or_configuration';
+}

@@ -7,30 +7,41 @@ import path from 'node:path';
 // than granting arbitrary inline script execution to the workspace.
 export async function workspaceAssets(root: string): Promise<express.Router> {
   const router = express.Router();
-  const hashes = new Set<string>();
-  async function scan(directory: string): Promise<void> {
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      const file = path.join(directory, entry.name);
-      if (entry.isDirectory()) { if (entry.name !== '_next') await scan(file); }
-      else if (entry.name.endsWith('.html')) {
-        const html = await fs.readFile(file, 'utf8');
-        for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-          if (!/\bsrc\s*=/.test(match[1] || '') && match[2]) {
-            hashes.add(`'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`);
-          }
-        }
-      }
-    }
-  }
-  try { await scan(root); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-  router.use((_req, res, next) => {
-    res.setHeader('Content-Security-Policy', [
+  const absoluteRoot = path.resolve(root);
+  const policy = (hashes: Set<string>) => [
       "default-src 'self'", `script-src 'self' ${[...hashes].join(' ')}`,
       "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
       "connect-src 'self'", "frame-src http://localhost:* http://127.0.0.1:*", "object-src 'none'", "base-uri 'self'", "frame-ancestors 'self'"
-    ].join('; '));
+    ].join('; ');
+  router.use(async (req, res, next) => {
+    res.setHeader('Content-Security-Policy', policy(new Set()));
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    let requested: string;
+    try { requested = decodeURIComponent(req.path); }
+    catch { res.status(400).send('Invalid workspace path'); return; }
+    const file = path.resolve(absoluteRoot, '.' + requested + (requested.endsWith('/') ? 'index.html' : ''));
+    const relative = path.relative(absoluteRoot, file);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+      res.status(403).send('Invalid workspace path'); return;
+    }
+    if (!file.endsWith('.html')) return next();
+    try {
+      // Read once: the policy and response must describe the same build, even if
+      // a frontend rebuild replaces the export while the server remains running.
+      const html = await fs.readFile(file, 'utf8');
+      const hashes = new Set<string>();
+      for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+        if (!/\bsrc\s*=/i.test(match[1] || '') && match[2]) {
+          hashes.add(`'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`);
+        }
+      }
+      res.setHeader('Content-Security-Policy', policy(hashes));
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('html').send(html);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return next(error);
+    }
     next();
   });
   router.use(express.static(root));

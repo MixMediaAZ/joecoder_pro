@@ -196,11 +196,20 @@ export async function startAgentJob(
   projectId: string,
   threadId: string,
   objective: string,
-  mode: 'build'
+  mode: 'build',
+  options: { approval?: 'plan' | 'none'; review?: boolean } = {}
 ): Promise<AgentJob> {
   const response = await apiRequest<{ ok: true; job: AgentJob }>(
     `/api/v1/projects/${projectId}/threads/${threadId}/agent-jobs`,
-    { method: 'POST', body: JSON.stringify({ objective, mode }) }
+    { method: 'POST', body: JSON.stringify({ objective, mode, ...options }) }
+  )
+  return response.job
+}
+
+export async function decidePlan(jobId: string, decision: 'approve' | 'discard'): Promise<AgentJob> {
+  const response = await apiRequest<{ ok: true; job: AgentJob }>(
+    `/api/v1/agent-jobs/${encodeURIComponent(jobId)}/plan-decision`,
+    { method: 'POST', body: JSON.stringify({ decision }) }
   )
   return response.job
 }

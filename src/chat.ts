@@ -95,8 +95,10 @@ export function selectGuardedReplyText(
   modelText?: string
 ): string {
   if (guarded.branch !== 'open') return guarded.content;
-  const candidate = modelText?.trim().slice(0, 2000);
-  return candidate && modelReplyIsSafe(candidate) ? candidate : guarded.content;
+  const candidate = modelText?.trim();
+  // A mid-sentence cut can discard evidence limits or turn a plan into partial
+  // instructions. Accept a bounded complete reply, or retain the guarded reply.
+  return candidate && candidate.length <= 12_000 && modelReplyIsSafe(candidate) ? candidate : guarded.content;
 }
 
 /**
@@ -129,10 +131,18 @@ const ACTION_REQUEST = /\b(?:can|could|would|will|please)\s+(?:you\s+)?(?:build|
 
 /** True when the message seeks information about the project rather than ordering work on it. */
 export function asksAboutProject(text: string): boolean {
+  if (isProjectReadRequest(text)) return true;
   if (WORKFLOW_SUBJECT.test(text)) return false;
   if (INFO_LEAD.test(text)) return true;
   if (ACTION_REQUEST.test(text)) return false;
   return YESNO_LEAD.test(text) || EXPLAIN_FORM.test(text) || READ_REQUEST.test(text);
+}
+
+/** Reading the selected project is already authorized; this never authorizes edits. */
+export function isProjectReadRequest(content: string): boolean {
+  const text = content.toLowerCase();
+  return /\b(?:look at|read|examine)\b/.test(text)
+    && !/\b(?:fix|repair|edit|change|delete|write|create|install|execute|approve|authorize|work\s*order)\b/.test(text);
 }
 
 export function buildGuardedReply(

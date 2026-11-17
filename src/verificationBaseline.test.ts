@@ -3,7 +3,7 @@ import test from 'node:test';
 import { adjustVerificationForBaseline, type VerificationItem, type VerificationReport } from './verification.js';
 
 function item(script: VerificationItem['script'], command: string, passed: boolean, root = '.'): VerificationItem {
-  return { script, command, root, exitCode: passed ? 0 : 1, timedOut: false, passed, outputTail: [] };
+  return { script, command, root, exitCode: passed ? 0 : 1, timedOut: false, passed, outputTail: passed ? [] : [command + ": known baseline diagnostic"] };
 }
 
 function report(status: VerificationReport['status'], items: VerificationItem[]): VerificationReport {
@@ -79,10 +79,25 @@ test('a both-sides failure that got measurably worse is a regression, not pre-ex
   const adjusted = adjustVerificationForBaseline(report('failed', [before]), report('failed', [after]));
   assert.equal(adjusted.status, 'failed');
 
-  // Same or fewer issues stays pre-existing.
+  // Identical diagnostics with only timing changes stay pre-existing.
   const sameAfter = item('analyze', 'flutter analyze', false);
   sameAfter.outputTail = ['25 issues found. (ran in 3.9s)'];
   const same = adjustVerificationForBaseline(report('failed', [before]), report('failed', [sameAfter]));
   assert.equal(same.status, 'passed');
   assert.equal(same.preexistingFailures?.length, 1);
+});
+
+
+test('equal failure counts with different errors remain a regression', () => {
+  const before = { ...item('test', 'npm test', false), outputTail: ['1 failure: validation rejects empty title'] };
+  const after = { ...before, outputTail: ['1 failure: data is lost after restart'] };
+  assert.equal(adjustVerificationForBaseline(report('failed', [before]), report('failed', [after])).status, 'failed');
+});
+
+test('missing diagnostics, truncation, interruption and launch errors cannot excuse failed checks', () => {
+  const before = item('test', 'npm test', false);
+  for (const delta of [{ outputTail: [] }, { timedOut: true }, { cancelled: true }, { outputTruncated: true }, { launchError: 'PROCESS_STOP_FAILED' }, { exitCode: null }]) {
+    const after = { ...before, ...delta };
+    assert.equal(adjustVerificationForBaseline(report('failed', [after]), report('failed', [after])).status, 'failed');
+  }
 });

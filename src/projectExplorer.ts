@@ -93,7 +93,7 @@ function pathInside(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-async function resolveExistingPath(projectRoot: string, relativePath: string, allowRoot: boolean) {
+export async function resolveExistingPath(projectRoot: string, relativePath: string, allowRoot: boolean) {
   const normalized = normalizeRelativePath(relativePath, allowRoot);
   const root = await fs.realpath(path.resolve(projectRoot));
   const candidate = normalized ? path.resolve(root, normalized) : root;

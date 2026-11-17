@@ -11,19 +11,13 @@ const STAGES: Array<{ id: RailStage; label: string }> = [
   { id: 'verify', label: 'Verify' },
 ]
 
-export function WorkflowRail({ current }: { current: RailStage }) {
+export function WorkflowRail({ current, detail }: { current: RailStage; detail: string }) {
   const currentIndex = STAGES.findIndex(stage => stage.id === current)
-  return (
-    <ol aria-label="Job progress" className="flex flex-wrap items-center gap-2 py-2">
-      {STAGES.map((stage, index) => (
-        <li key={stage.id} aria-current={stage.id === current ? 'step' : undefined}
-          className={`rounded-md border px-3 py-1.5 text-xs ${stage.id === current
-            ? 'border-blue-500/60 bg-blue-500/20 text-blue-200'
-            : index < currentIndex ? 'border-green-500/40 bg-green-500/10 text-green-300'
-              : 'border-white/10 bg-white/5 text-gray-400'}`}>
-          {stage.label}
-        </li>
-      ))}
-    </ol>
-  )
+  return <nav className="workflow-rail" aria-label="Workflow progress">
+    <ol>{STAGES.map((stage, index) => <li key={stage.id} aria-current={stage.id === current ? 'step' : undefined}
+      className={stage.id === current ? 'current' : index < currentIndex ? 'done' : ''}>
+      <span aria-hidden="true">{index + 1}</span>{stage.label}{index < currentIndex && <span className="sr-only"> (done)</span>}
+    </li>)}</ol>
+    <p role="status">{detail}</p>
+  </nav>
 }

@@ -123,6 +123,7 @@ export interface WorkOrder {
     phase: string;
     startedAt: string;
     snapshotId?: string;
+    writtenHashes?: Record<string, string[]>;
     exportPath?: string;
     recoveredAt?: string;
     recoveryReason?: string;

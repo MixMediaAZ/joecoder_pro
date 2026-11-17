@@ -1,3 +1,4 @@
+import { checkWorkflow, reserveToolAction } from './agentWorkflowBudget.js';
 /**
  * Mutation engine: collision-safe snapshots, transactional scoped writes,
  * budget enforcement, and byte-verified rollback.
@@ -12,6 +13,22 @@ import { atomicWriteFile, atomicWriteJson } from './persistence.js';
 export interface ProposedEdit {
   relPath: string;
   content: string;
+  expectedHash?: string | null;
+}
+
+export function bindEditsToReadFiles(edits: ProposedEdit[], files: Array<{ relPath: string; exists: boolean; content: string; truncated: boolean }>): ProposedEdit[] {
+  return edits.map(edit => {
+    const read = files.find(file => file.relPath.replace(/\\/g, '/') === edit.relPath.replace(/\\/g, '/'));
+    if (!read || read.truncated) throw new Error('EDIT_READ_REQUIRED: read the complete current file before replacing it.');
+    let content = edit.content;
+    if (read.exists) {
+      const withoutCrLf = read.content.replace(/\r\n/g, '');
+      if (read.content.includes('\r\n') && !withoutCrLf.includes('\n')) content = content.replace(/\r?\n/g, '\r\n');
+      else if (!read.content.includes('\r')) content = content.replace(/\r\n/g, '\n');
+      if (read.content.startsWith('\uFEFF') && !content.startsWith('\uFEFF')) content = '\uFEFF' + content;
+    }
+    return { ...edit, content, expectedHash: read.exists ? sha256(read.content) : null };
+  });
 }
 
 export interface SnapshotFileRecord {
@@ -277,6 +294,9 @@ async function restoreCommitted(projectRoot: string, staged: StagedEdit[]): Prom
   for (const item of [...staged].reverse()) {
     try {
       const full = resolveJailedPath(projectRoot, item.rel);
+      const current = await fs.readFile(full).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+      if (current && sha256(current) !== sha256(item.content)) throw new Error('RESTORE_CONFLICT: file changed after this transaction wrote it.');
+      if (!current && item.beforeBuffer !== null) throw new Error('RESTORE_CONFLICT: file was removed after this transaction wrote it.');
       if (item.beforeBuffer === null) {
         await fs.unlink(full).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== 'ENOENT') throw error;
@@ -312,8 +332,11 @@ export async function applyEdits(
     maxChangedLines?: number;
     maxChangedBytes?: number;
     beforeWrite?: (relPath: string, index: number) => void | Promise<void>;
+    onPrepared?: (hashes: Record<string, string>) => Promise<void>;
   }
 ): Promise<ApplyEditsResult> {
+  checkWorkflow();
+  reserveToolAction();
   if (!edits.length) throw new Error('NO_EDITS_PROPOSED');
   if (edits.length > options.maxFiles) {
     throw new Error('BUDGET_EXCEEDED: ' + edits.length + ' files proposed, budget allows ' + options.maxFiles);
@@ -344,6 +367,9 @@ export async function applyEdits(
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+    if (edit.expectedHash !== undefined && edit.expectedHash !== (beforeBuffer === null ? null : sha256(beforeBuffer))) {
+      throw new Error("EDIT_VERSION_CONFLICT: '" + rel + "' changed since the model read it; no files were written.");
+    }
     const beforeText = beforeBuffer?.toString('utf8') ?? null;
     const changed = countChangedLines(beforeText ?? '', edit.content);
     const bytes = Buffer.byteLength(edit.content);
@@ -363,12 +389,15 @@ export async function applyEdits(
     throw new Error('BUDGET_EXCEEDED: ' + totalChangedBytes + ' changed bytes proposed, budget allows ' + byteBudget);
   }
 
+  // Persist intended post-images before any replacement. A crash can be reconciled by hash.
+  await options.onPrepared?.(Object.fromEntries(staged.map(item => [item.rel, sha256(item.content)])));
   const applied: AppliedChange[] = [];
   const committed: StagedEdit[] = [];
   try {
     for (let index = 0; index < staged.length; index++) {
       const item = staged[index];
       if (!item) continue;
+      checkWorkflow();
       await options.beforeWrite?.(item.rel, index);
       const full = resolveJailedPath(projectRoot, item.rel);
       let current: Buffer | null = null;
@@ -421,7 +450,7 @@ export interface RollbackResult {
 export async function rollbackToSnapshot(
   snapshotsRoot: string,
   manifest: SnapshotManifest,
-  options: { expectedProjectRoot?: string } = {}
+  options: { expectedProjectRoot?: string; expectedCurrentHashes?: Record<string, string | null | string[]> } = {}
 ): Promise<RollbackResult> {
   manifest = validateSnapshotManifest(manifest, {
     expectedSnapshotId: manifest.snapshotId,
@@ -433,6 +462,13 @@ export async function rollbackToSnapshot(
   for (const record of manifest.files) {
     const full = resolveJailedPath(manifest.projectRoot, record.relPath);
     try {
+      if (options.expectedCurrentHashes) {
+        const current = await fs.readFile(full).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+        const currentHash = current === null ? null : sha256(current);
+        if (currentHash === record.hash) continue;
+        const expected = options.expectedCurrentHashes[record.relPath];
+        if (expected === undefined || (Array.isArray(expected) ? !expected.includes(currentHash || '') : currentHash !== expected)) throw new Error('RESTORE_CONFLICT: current bytes are not the recorded job output; user changes were preserved.');
+      }
       if (record.existed) {
         const source = snapshotRecordPath(snapshotDir, record);
         const content = await fs.readFile(source);

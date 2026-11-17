@@ -545,13 +545,13 @@ export async function performSurvey(
     );
     const hasServerEntry = base.entries.some((entry) =>
       entry.type === 'file'
-      && /^(server|backend)\/index\.[cm]?[tj]sx?$/i.test(entry.path.replace(/\\/g, '/'))
+      && /^(?:(?:server|backend|src)\/index|server|app|index)\.[cm]?[tj]sx?$/i.test(entry.path.replace(/\\/g, '/'))
     );
     if (!hasServerEntry) {
-      findings.broken.push(
-        `Runnable server entry is missing but the client already calls API routes ` +
+      findings.questionable.push(
+        `A conventional server entry was not identified in this bounded survey; the client calls API routes ` +
         `(${requiredApiRoutes.slice(0, 8).join(', ')}${requiredApiRoutes.length > 8 ? '…' : ''}). ` +
-        `Create the script entry file and implement those exact routes — not placeholders, not /api/analyze substitutes.`
+        `Follow the actual package scripts and framework routes before concluding that a server file is missing.`
       );
     }
   }

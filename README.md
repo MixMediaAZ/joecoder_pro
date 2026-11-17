@@ -7,7 +7,7 @@ JoeCoder is a chat-first coding agent with a server-owned safety and verificatio
 1. Run `start.bat`.
 2. JoeCoder opens a fresh private browser session automatically.
 3. Choose a build folder. Joe inspects it without changing files.
-4. Describe the outcome in ordinary language and send it in **Automatic** mode.
+4. Pick a workflow (**Survey**, **Fix**, **Add feature**, **Refactor**, **Plan**, or **Ask**) and describe the outcome. Code-changing workflows run survey, plan, and an AI peer review, then pause with **Approve and build** before any file changes. New conversations start in read-only **Ask**. **Simple** shows the guided steps; **Advanced** adds Files, Output, Brain, Live, Preview, History, and Side chat.
 5. Joe investigates, plans, protects, edits, tests, corrects within its limits, and reports the evidence. Use **Stop** if you want to interrupt the job.
 
 Questions and **Ask** or **Plan** mode stay read-only. A clear request in **Automatic** mode authorizes one bounded non-destructive job. Joe pauses only for a destructive action, a material scope increase, unavailable authority or secret, exhausted limits, or a decision it cannot safely infer.
@@ -41,4 +41,16 @@ Development diagnostics: `node tools/run-readiness-job.mjs repair` (also `refact
 
 `node tools/qualification-oracles/stage6-signed-payload.mjs "<signed-release-directory>"` checks the release signature and file hashes, then tests tamper rejection and restoration on a copy. Exit 1 means integrity failed; exit 2 means integrity passed but actual runtime interruption qualification remains incomplete. This command cannot certify Stage 6 recovery.
 
-Current development findings and remaining qualification gates are recorded in `plan/readiness-2026-09-09/EXECUTION_REPORT.md`.
+Latest inspection refinements and executed checks are recorded in
+[the November 15 evidence refinement report](plan/JOECODER_EVIDENCE_REFINEMENT_2026-11-15.md).
+App-generation changes and independent checks are recorded in
+[the app-builder refinement report](plan/JOECODER_APP_BUILDER_REFINEMENT_2026-11-15.md).
+See [runtime verification](docs/RUNTIME_VERIFICATION.md) for the real startup and
+inspection commands. Earlier development findings and broader qualification
+gates remain in `plan/readiness-2026-09-09/EXECUTION_REPORT.md`; the focused checks
+do not establish full release qualification.
+
+The [November 17 builder handoff](plan/JOECODER_BUILDER_HANDOFF_2026-11-17.md)
+adds live cancellation acceptance and a tested development ZIP workflow.
+`npm run test:packaging` checks bundle integrity and stale-evidence rejection;
+the development package is explicitly separate from signed release qualification.

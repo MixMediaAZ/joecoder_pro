@@ -1,6 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ModelRouter, ModelRoutingError, type ModelProviderAdapter, type ModelProviderProfile } from './modelRouter.js';
+import { groundedReadReply, EMPTY_EVIDENCE_CONTEXT } from './projectContext.js';
+
+test('exhausted job limits stop routing with the actual reason and never try another provider', async () => {
+  for (const code of ['WORKFLOW_MODEL_LIMIT', 'WORKFLOW_TIME_LIMIT', 'AGENT_STOP_REQUESTED']) {
+    let fallbackCalls = 0;
+    const router = new ModelRouter([
+      adapter({ id: 'first', provider: 'ollama', model: 'coder', location: 'local', qualityTier: 5 }, async () => { throw Object.assign(new Error('The job used its permitted model turns.'), { code }); }),
+      adapter({ id: 'second', provider: 'ollama', model: 'other', location: 'local' }, async () => { fallbackCalls++; return { text: '{"ok":true}' }; })
+    ]);
+    await assert.rejects(router.execute(baseRequest), (error: unknown) => error instanceof ModelRoutingError && /permitted model turns/.test(error.message) && error.attempts.length === 1);
+    assert.equal(fallbackCalls, 0);
+  }
+});
+
+test('ungrounded inspection answer retries a different local model before using excerpts', async () => {
+  const evidence = { ...EMPTY_EVIDENCE_CONTEXT, sampledPaths: ['README.md'], readReport: 'Actual excerpt' };
+  const router = new ModelRouter([
+    adapter({ id: 'first', provider: 'ollama', model: 'coder', location: 'local', qualityTier: 5 }, async () => ({ text: 'Please provide the files.' })),
+    adapter({ id: 'lmc', provider: 'ollama', model: 'lmc/verified', location: 'local' }, async () => ({ text: 'README.md documents startup.' }))
+  ]);
+  const request = { ...baseRequest, maxAttempts: 2, validate: (text: string) => {
+    if (groundedReadReply(text, evidence) !== text) throw new Error('INVALID_INSPECTION_ANSWER');
+  } };
+  const result = await router.execute(request);
+  assert.equal(result.model, 'lmc/verified');
+  assert.equal(result.attempts[0]?.errorClass, 'invalid_output');
+  await assert.rejects(new ModelRouter([
+    adapter({ id: 'first', provider: 'ollama', model: 'coder', location: 'local', qualityTier: 5 }, async () => ({ text: 'Please provide the files.' })),
+    adapter({ id: 'second', provider: 'ollama', model: 'other', location: 'local' }, async () => { throw new Error('must not be called'); })
+  ]).execute({ ...request, maxAttempts: 1 }), (error: unknown) => error instanceof ModelRoutingError && error.attempts.length === 1);
+});
 
 function adapter(profile: Partial<ModelProviderProfile> & Pick<ModelProviderProfile, 'id' | 'provider' | 'model' | 'location'>, generate: ModelProviderAdapter['generate']): ModelProviderAdapter {
   return {
@@ -45,6 +76,13 @@ test('weak local invalid output reroutes to a stronger eligible local model and 
   assert.equal(result.attempts[0]?.errorClass, 'invalid_output');
   assert.deepEqual(records, ['coder:7b:selected', 'coder:7b:failed', 'coder:32b:selected', 'coder:32b:succeeded']);
   assert.match(result.routingReason, /task=structured_control specialized/);
+});
+
+test('gateway completion records the actual served model', async () => {
+  const router = new ModelRouter([adapter({ id: 'gateway', provider: 'powerrouter', model: 'auto', location: 'local' }, async () => ({ text: '{"ok":true}', model: 'actual-local-coder' }))]);
+  const result = await router.execute(baseRequest);
+  assert.equal(result.model, 'actual-local-coder');
+  assert.equal(result.attempts.at(-1)?.model, 'actual-local-coder');
 });
 
 test('disabled and failed providers reroute, but local-only never crosses to cloud', async () => {

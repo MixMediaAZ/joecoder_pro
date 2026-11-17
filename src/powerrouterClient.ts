@@ -1,3 +1,4 @@
+import './powerrouterEnv.js';
 const DEFAULT_URL = 'http://127.0.0.1:7474';
 const HEALTH_TIMEOUT_MS = 1500;
 const HEALTH_CACHE_MS = 5000;
@@ -22,6 +23,8 @@ export interface PowerRouterDispatchRequest {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  think?: boolean;
+  format?: 'json';
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -34,6 +37,7 @@ export interface PowerRouterDispatchResult {
   fallback: boolean;
   usage: { prompt_tokens: number; completion_tokens: number };
   requestId: string | null;
+  finishReason?: string;
 }
 
 let healthCache: { checkedAt: number; ok: boolean } | null = null;
@@ -75,11 +79,8 @@ export function resetPowerRouterCache(): void {
 async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Promise<{ status: number; data: any }> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new PowerRouterClientError(`powerrouter timed out after ${timeoutMs}ms`)), timeoutMs);
-  if (init.signal) {
-    init.signal.addEventListener('abort', () => ac.abort(init.signal?.reason), { once: true });
-  }
   try {
-    const res = await fetch(url, { ...init, signal: ac.signal });
+    const res = await fetch(url, { ...init, signal: init.signal ? AbortSignal.any([ac.signal, init.signal]) : ac.signal });
     const raw = await res.text();
     let data: any = null;
     try { data = raw ? JSON.parse(raw) : null; } catch {
@@ -103,7 +104,7 @@ export async function powerRouterAvailable(force = false): Promise<boolean> {
   let ok = false;
   try {
     const { status, data } = await fetchJson(`${powerRouterBaseUrl()}/health`, { method: 'GET' }, HEALTH_TIMEOUT_MS);
-    ok = status === 200 && data?.ok === true;
+    ok = status === 200 && data?.ok === true && data?.ready !== false;
   } catch {
     ok = false;
   }
@@ -134,6 +135,8 @@ export async function powerRouterDispatch(request: PowerRouterDispatchRequest): 
   if (request.model) body.model = request.model;
   if (request.temperature != null) body.temperature = request.temperature;
   if (request.maxTokens != null) body.max_tokens = request.maxTokens;
+  if (request.think !== undefined) body.think = request.think;
+  if (request.format === 'json') body.response_format = { type: 'json_object' };
 
   const dispatchInit: RequestInit = { method: 'POST', headers, body: JSON.stringify(body) };
   if (request.signal) dispatchInit.signal = request.signal;
@@ -166,6 +169,7 @@ export async function powerRouterDispatch(request: PowerRouterDispatchRequest): 
       prompt_tokens: Number(data.usage?.prompt_tokens || 0),
       completion_tokens: Number(data.usage?.completion_tokens || 0)
     },
-    requestId: data.request_id == null ? null : String(data.request_id)
+    requestId: data.request_id == null ? null : String(data.request_id),
+    ...(typeof data.finish_reason === 'string' ? { finishReason: data.finish_reason } : {})
   };
 }

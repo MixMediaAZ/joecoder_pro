@@ -21,6 +21,16 @@ test('ordinary make-it-work language is classified as a repair', () => {
   );
 });
 
+test('new-build intent supports root bootstrap metadata but preserves existing and incompletely surveyed projects', () => {
+  const survey = (paths: string[], status = 'complete') => ({ status, entries: paths.map(path => ({ type: 'file', path })), summary: { totalFiles: paths.length } });
+  assert.equal(inferIntent('Build a local app.', survey(['README.md', '.gitignore'])), 'build');
+  assert.equal(inferIntent('Build a local app.', { result: survey(['README.md']) }), 'build');
+  for (const candidate of [survey(['package.json']), survey(['src/README.md']), survey([], 'truncated')]) {
+    assert.equal(inferIntent('Build a local app.', candidate), 'repair');
+  }
+  assert.equal(inferIntent('Explain how to build an app.', survey(['README.md'])), 'inspect');
+});
+
 test('an explicit read-only analysis remains inspection', () => {
   assert.equal(
     inferIntent('Analyze this project and report what is broken.', { summary: { totalFiles: 20 } }),

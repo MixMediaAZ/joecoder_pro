@@ -6,7 +6,19 @@ import type { AgentJob, ChatMessage, Project, ProjectThread, SessionStatus, Surv
 import { clearSessionState, storeSessionStatus } from '../lib/session'
 import { deriveRailStage } from '../lib/workflow'
 
-type Mode = 'ask' | 'plan' | 'build'
+import { intentFor, type Intent } from '../lib/jobSteps'
+/** Server limit for a job objective (AgentJobStartSchema). */
+export const JOB_OBJECTIVE_LIMIT = 500
+const INTENTS_KEY = 'jc.workspace.intents.v1'
+const INTENT_IDS: Intent[] = ['ask', 'plan', 'survey', 'fix', 'feature', 'refactor']
+/** Code-changing jobs from this UI pause after planning and peer review until the operator approves. */
+const GUIDED = { approval: 'plan' as const, review: true }
+/** The objective text sent for a workflow, enforcing the server's length limit. */
+export function jobObjective(intent: Intent, content: string): string {
+  const objective = (intentFor(intent).prefix + content.trim()).trim()
+  if (objective.length > JOB_OBJECTIVE_LIMIT) throw new Error(`This request is ${objective.length} characters including the workflow label; jobs accept ${JOB_OBJECTIVE_LIMIT}. Shorten it.`)
+  return objective
+}
 const failure = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 function useWorkspaceController() {
@@ -23,11 +35,35 @@ function useWorkspaceController() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [jobs, setJobs] = useState<AgentJob[]>([])
   const [activeJob, setActiveJob] = useState<AgentJob | null>(null)
-  const [mode, setMode] = useState<Mode>('build')
+  // The workflow choice is remembered per conversation. A conversation never chosen defaults
+  // to read-only Ask, so a new thread cannot start code changes by accident.
+  const [intents, setIntents] = useState<Record<string, Intent>>({})
+  const [intentsLoaded, setIntentsLoaded] = useState(false)
   // A generation invalidates old reads even when switching back to the same ID.
   const selection = useRef({ projectId: '', threadId: '', generation: 0 })
   const refreshSequence = useRef(0)
   const rememberedThreads = useRef(new Map<string, string>())
+
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(INTENTS_KEY) || '{}')
+      if (saved && typeof saved === 'object') {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setIntents(Object.fromEntries(Object.entries(saved).filter((entry): entry is [string, Intent] =>
+          entry[0].startsWith('thread-') && INTENT_IDS.includes(entry[1] as Intent))))
+      }
+    } catch { /* Without storage every conversation starts in Ask. */ }
+    setIntentsLoaded(true)
+  }, [])
+  useEffect(() => {
+    if (!intentsLoaded) return
+    try { localStorage.setItem(INTENTS_KEY, JSON.stringify(intents)) } catch { /* Choices stay in memory. */ }
+  }, [intents, intentsLoaded])
+  const intent: Intent = (thread && intents[thread.id]) || 'ask'
+  const setIntent = useCallback((next: Intent) => {
+    const threadId = selection.current.threadId
+    if (threadId) setIntents(values => ({ ...values, [threadId]: next }))
+  }, [])
 
   const refreshProjectData = useCallback(async () => {
     const snapshot = { ...selection.current }
@@ -143,9 +179,28 @@ function useWorkspaceController() {
     const snapshot = { ...selection.current }
     if (!snapshot.projectId || !snapshot.threadId) throw new Error('Select a conversation before sending.')
     setError(null)
-    if (mode === 'build') await api.startAgentJob(snapshot.projectId, snapshot.threadId, content, 'build')
-    else await api.sendThreadMessage(snapshot.projectId, snapshot.threadId, content, mode)
+    const choice = intentFor(intent)
+    if (intent === 'ask' || intent === 'plan') await api.sendThreadMessage(snapshot.projectId, snapshot.threadId, content, intent)
+    else {
+      const objective = jobObjective(intent, content)
+      await api.startAgentJob(snapshot.projectId, snapshot.threadId, objective, 'build', choice.changesCode ? GUIDED : {})
+    }
     if (selection.current.generation === snapshot.generation) await refreshProjectData()
+  }
+  // Starts one guided job from a request the user already sent in Ask or Plan.
+  const runRequestAsJob = async (request: string) => {
+    const snapshot = { ...selection.current }
+    if (!snapshot.projectId || !snapshot.threadId) throw new Error('Select a conversation before starting a job.')
+    const objective = request.trim()
+    if (objective.length > JOB_OBJECTIVE_LIMIT) throw new Error(`This request is ${objective.length} characters; a job request is limited to ${JOB_OBJECTIVE_LIMIT}. Write a shorter request with Fix, Add feature, or Refactor.`)
+    setError(null)
+    await api.startAgentJob(snapshot.projectId, snapshot.threadId, objective, 'build', GUIDED)
+    if (selection.current.generation === snapshot.generation) await refreshProjectData()
+  }
+  const decidePlan = async (jobId: string, decision: 'approve' | 'discard') => {
+    setError(null)
+    await api.decidePlan(jobId, decision)
+    await refreshProjectData()
   }
   const inspectBuild = async () => {
     if (!project || !thread) throw new Error('Select a conversation before inspecting.')
@@ -153,9 +208,14 @@ function useWorkspaceController() {
     await refreshProjectData()
   }
   const resumeJob = async () => { if (activeJob) { await api.resumeAgentJob(activeJob.id); await refreshProjectData() } }
+  const surveyBuild = async (focus = '') => {
+    if (!project || !thread) throw new Error('Select a conversation before starting a survey.')
+    await api.startAgentJob(project.id, thread.id, jobObjective('survey', focus || 'summarize current condition, known issues, missing pieces, and the highest-leverage next work.'), 'build')
+    await refreshProjectData()
+  }
   const stopJob = async () => { if (activeJob) { await api.stopAgentJob(activeJob.id); await refreshProjectData() } }
   return { loading, error, session, projects, project, threads, thread, messages, surveys, surveyEvidence, workOrders, jobs, activeJob,
-    mode, setMode, setError, openBuildFolder, selectProject, selectThread, createConversation, sendComposer, inspectBuild,
+    intent, setIntent, setError, openBuildFolder, selectProject, selectThread, createConversation, sendComposer, runRequestAsJob, decidePlan, surveyBuild, inspectBuild,
     resumeJob, stopJob, refreshProjectData, railStage: deriveRailStage(project, activeJob) }
 }
 

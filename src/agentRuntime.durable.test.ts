@@ -17,10 +17,14 @@ import {
   listAgentJobJournal,
   listAgentJobEvents,
   resumeInterruptedAgentJob,
+  updateAgentJob,
   upsertProject
 } from './database/database.js';
 import {
   AGENT_ACTION_CATALOG,
+  approvePlan,
+  discardPlan,
+  PLAN_APPROVAL_CODE,
   runAgentRuntimeStep,
   type AgentRuntimeAction,
   type AgentRuntimeDriver
@@ -69,6 +73,11 @@ function deterministicDriver(calls: Map<AgentRuntimeAction, number>): AgentRunti
               { kind: 'plan_revision', payload: { revision: 1, files: ['src/fix.ts'] } },
               { kind: 'budget', payload: { maxFiles: 3, maxAttempts: 2 } }
             ]
+          };
+        case 'review_plan':
+          return {
+            statePatch: { reviewCompleted: true, review: { status: 'completed', verdict: 'proceed', summary: 'Fixture review.', findings: [] } },
+            journals: [{ kind: 'decision', payload: { decision: 'plan_reviewed' } }]
           };
         case 'seal_authorization':
           return {
@@ -239,4 +248,86 @@ test('one mutating job is enforced while read-only jobs remain concurrent', asyn
     closeDatabase();
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('plan approval pauses before authorization, survives restart, and resumes only after approval', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-agent-approval-'));
+  try {
+    await initializeDatabase(root);
+    const project = fixtureProject(root);
+    upsertProject(project);
+    const thread = ensureProjectThread(project.id, project.name);
+    const job = createAgentJob({ projectId: project.id, threadId: thread.id, objective: 'Repair the fixture.' });
+    updateAgentJob(job.id, { runtimeState: { approvalMode: 'plan', reviewRequested: true } });
+    const calls = new Map<AgentRuntimeAction, number>();
+    const driver = deterministicDriver(calls);
+
+    const order: Array<AgentRuntimeAction | null> = [];
+    let step = await runAgentRuntimeStep(job.id, driver);
+    while (!step.terminal) { order.push(step.action); step = await runAgentRuntimeStep(job.id, driver); }
+    assert.deepEqual(order, ['capture_objective', 'establish_evidence', 'produce_plan', 'review_plan']);
+    const paused = getAgentJob(job.id)!;
+    assert.equal(paused.status, 'interrupted');
+    assert.equal(paused.errorCode, PLAN_APPROVAL_CODE);
+    assert.equal(paused.stage, 'plan');
+    assert.equal(calls.get('seal_authorization'), undefined, 'authorization must not run before approval');
+    assert.equal(getActiveAgentJob(project.id), null);
+
+    // A restart leaves the paused job untouched, and a resume without approval re-enters the gate.
+    closeDatabase();
+    await initializeDatabase(root);
+    assert.equal(interruptRunningAgentJobs(), 0);
+    resumeInterruptedAgentJob(job.id);
+    const regated = await runAgentRuntimeStep(job.id, driver);
+    assert.equal(regated.action, null);
+    assert.equal(getAgentJob(job.id)!.errorCode, PLAN_APPROVAL_CODE);
+    assert.equal(calls.get('seal_authorization'), undefined);
+
+    approvePlan(job.id);
+    resumeInterruptedAgentJob(job.id);
+    assert.throws(() => approvePlan(job.id), /not waiting for plan approval/, 'a resumed job no longer accepts a plan decision');
+    step = await runAgentRuntimeStep(job.id, driver);
+    while (!step.terminal) step = await runAgentRuntimeStep(job.id, driver);
+    const completed = getAgentJob(job.id)!;
+    assert.equal(completed.status, 'completed');
+    for (const action of [...AGENT_ACTION_CATALOG, 'review_plan'] as AgentRuntimeAction[]) assert.equal(calls.get(action), 1, `${action} repeated`);
+    assert.ok(listAgentJobEvents(job.id).some(event => event.what === 'You approved the plan.'));
+  } finally {
+    closeDatabase();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('discarding a paused plan cancels the job without authorization', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'jc-agent-discard-'));
+  try {
+    await initializeDatabase(root);
+    const project = fixtureProject(root);
+    upsertProject(project);
+    const thread = ensureProjectThread(project.id, project.name);
+    const job = createAgentJob({ projectId: project.id, threadId: thread.id, objective: 'Repair the fixture.' });
+    updateAgentJob(job.id, { runtimeState: { approvalMode: 'plan' } });
+    const calls = new Map<AgentRuntimeAction, number>();
+    const driver = deterministicDriver(calls);
+    let step = await runAgentRuntimeStep(job.id, driver);
+    while (!step.terminal) step = await runAgentRuntimeStep(job.id, driver);
+    assert.equal(calls.get('review_plan'), undefined, 'review runs only when requested');
+    const cancelled = discardPlan(job.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(calls.get('seal_authorization'), undefined);
+    assert.throws(() => discardPlan(job.id), /not waiting for plan approval/);
+  } finally {
+    closeDatabase();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('plan review parser accepts strict JSON and rejects invalid output', async () => {
+  const { parsePlanReview } = await import('./planReview.js');
+  const parsed = parsePlanReview('{"verdict":"proceed_with_cautions","summary":"Scope is right; tests are thin.","findings":[{"kind":"risk","severity":"medium","text":"No test covers the edited path."}]}');
+  assert.equal(parsed.verdict, 'proceed_with_cautions');
+  assert.equal(parsed.findings.length, 1);
+  assert.throws(() => parsePlanReview('Looks good to me!'), /INVALID_PLAN_REVIEW/);
+  assert.throws(() => parsePlanReview('{"verdict":"ship","summary":"x","findings":[]}'), /INVALID_PLAN_REVIEW: verdict/);
+  assert.throws(() => parsePlanReview('{"verdict":"proceed","summary":"x","findings":[{"kind":"vibe","severity":"low","text":"y"}]}'), /INVALID_PLAN_REVIEW: finding/);
 });

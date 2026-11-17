@@ -30,6 +30,9 @@ export function Message({ content }: { content: string }) {
     }
     return <div key={index}>{block.split('\n').map((line, row) => {
       if (/^#{1,4} /.test(line)) return <h3 key={row}>{inline(line.replace(/^#{1,4} /, ''))}</h3>
+      const numbered = line.match(/^\s*(\d{1,3})[.)] (.*)$/)
+      if (numbered) return <div className="message-bullet numbered" key={row}><span>{numbered[1]}.</span><span>{inline(numbered[2])}</span></div>
+      if (/^\s{2,}[-*] /.test(line)) return <div className="message-bullet nested" key={row}><span aria-hidden="true">◦</span><span>{inline(line.replace(/^\s*[-*] /, ''))}</span></div>
       if (/^\s*[-*] /.test(line)) return <div className="message-bullet" key={row}><span aria-hidden="true">•</span><span>{inline(line.replace(/^\s*[-*] /, ''))}</span></div>
       return <p key={row}>{line ? inline(line) : <br />}</p>
     })}</div>
