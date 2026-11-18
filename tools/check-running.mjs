@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dataDirectory = path.join(root, '.jc');
+// Match the service's state directory, including isolated verification launches.
+const dataDirectory = path.resolve(process.env.JC_DATA_DIR || path.join(root, '.jc'));
 const runtimeFile = path.join(dataDirectory, 'server-runtime.json');
 const launcherLog = path.join(dataDirectory, 'launcher-stdout.log');
 const MAX_LAUNCHER_LOG_SCAN_BYTES = 256 * 1024;

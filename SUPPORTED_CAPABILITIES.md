@@ -16,10 +16,12 @@ Ask and Plan remain read-only. Automatic work does not require the user to draft
 
 - Durable SQLite job state, committed checkpoints, restart recovery, and one active mutating job per project.
 - Server-owned action selection from recorded facts and permitted actions.
+- Project-condition summaries rendered from validated file observations, with explicit inventory/excerpt coverage, evidence identity, freshness and unverified runtime status; no model generation is required for these summaries.
 - Strict tool schemas, project path jail, exact authorization boundary, file/time/line/cost budgets, output limits, and evidence identities.
 - Pre-write snapshots, atomic file replacement, recorded before/after hashes, scoped rollback, and failure recovery.
 - Project-aware build, test, type-check, lint, startup, API, and browser checks when those checks exist and are permitted.
 - Bounded diagnosis and correction after failed verification; no-progress and repeated-action protection.
+- Greenfield Node builds use shared interface contracts, manifest-first bounded generation, required executable checks, and independent HTTP startup/asset verification before completion. Each completed verification attempt is retained as evidence.
 - Local and eligible cloud model routing with privacy, capability, budget, timeout, cancellation, accounting, and provider-health constraints.
 - Versioned Project Brain records with freshness, evidence links, stale/contradicted states, and no authority over tools.
 - Joe Live narration generated only from committed events, with plain-language status and evidence links.
@@ -29,6 +31,15 @@ Ask and Plan remain read-only. Automatic work does not require the user to draft
 
 ## Verified limitations
 
+The November 15 development milestone generated a real Node Workboard from an
+empty folder and completed ordinary follow-up changes while preserving saved
+data. Independent API/restart, browser and Windows launcher checks passed. See
+[the retained evidence report](plan/JOECODER_APP_BUILDER_REFINEMENT_2026-11-15.md)
+for the exact model profile, failures, successful runs and qualification boundary.
+
+- New-app generation remains model-dependent. The default greenfield lane is a small Node/JavaScript web app using platform libraries; broader framework/desktop/mobile generation is not qualified. Startup and self-authored tests do not establish every requested feature or embedded-browser compatibility; independent behavior checks remain necessary.
+
+- Inspection is bounded and reference detection covers literal relative references in supplied excerpts only. It does not establish file absence outside that coverage or runtime success. Ordinary model explanations and Plan replies are not factual certification.
 - The release metadata is signed by a machine-local Ed25519 identity, not Windows Authenticode.
 - Qualification on a separately provisioned clean Windows user account remains an external release step.
 - npm dependency admission is supported; equivalent cryptographic admission for every package ecosystem, model, skill, plugin, and MCP server is not claimed.

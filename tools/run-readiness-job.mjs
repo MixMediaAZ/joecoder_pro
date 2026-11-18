@@ -56,9 +56,6 @@ const record = {
   machine: { platform: os.platform(), release: os.release(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, ramBytes: os.totalmem(), node: process.version },
   timings: {}, observations: []
 };
-const tags = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) }).then(r => r.json());
-record.modelIdentity = tags.models?.find(m => m.name === model);
-if (!record.modelIdentity) throw new Error(`Requested local model is not installed: ${model}`);
 const child = spawn(process.execPath, [path.join(root, 'dist/index.js')], {
   cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, JC_DATA_DIR: data, JC_PORT: '0', JC_HOST: '127.0.0.1', JC_NO_OPEN: '1', JC_MOCK_MODEL: '0', JC_OLLAMA_MODEL: model, NODE_ENV: 'test' }
@@ -82,6 +79,9 @@ async function request(method, route, body) {
 }
 const started = performance.now();
 try {
+  const tags = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(5000) }).then(r => r.json());
+  record.modelIdentity = tags.models?.find(m => m.name === model);
+  if (!record.modelIdentity) throw new Error(`Requested local model is not installed: ${model}`);
   let launch;
   const startDeadline = Date.now() + 45_000;
   while (!(launch = logs.match(/(http:\/\/127\.0\.0\.1:\d+)\/bootstrap\.html#token=([a-zA-Z0-9_-]+)/))) {
@@ -133,6 +133,7 @@ try {
   process.exitCode = !record.timedOut && record.terminal?.job?.status === 'completed' && !changedTests.length ? 0 : 1;
 } catch (error) {
   record.error = error.message;
+  record.errorCode = error.cause?.code || error.code || null;
   if (jobId) await request('POST', `/api/v1/agent-jobs/${jobId}/stop`, {}).catch(() => {});
   process.exitCode = 1;
 } finally {

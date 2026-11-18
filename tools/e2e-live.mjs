@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const HOST = '127.0.0.1';
-const PORT = 18765 + (process.pid % 1000);
+const PORT = 0; // Ask Windows for an available port; read the actual URL from startup.
 const SERVER_DATA = path.join(tmpdir(), 'jc-e2e-data-' + process.pid + '-' + randomBytes(3).toString('hex'));
 
 function sleep(ms) {
@@ -87,8 +87,8 @@ async function waitForBootstrap(getOut, timeoutMs = 45000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const out = getOut();
-    const m = out.match(/bootstrap\.html#token=([A-Za-z0-9_-]+)/);
-    if (m) return m[1];
+    const m = out.match(/(http:\/\/127\.0\.0\.1:\d+)\/bootstrap\.html#token=([A-Za-z0-9_-]+)/);
+    if (m) return { base: m[1], token: m[2] };
     if (out.includes('EADDRINUSE')) throw new Error('port in use');
     await sleep(200);
   }
@@ -158,10 +158,9 @@ async function main() {
   };
 
   try {
-    const token = await waitForBootstrap(getOut);
+    const { token, base } = await waitForBootstrap(getOut);
     await record('server_boot', true, `token_len=${token.length}`);
 
-    const base = `http://${HOST}:${PORT}`;
     const api = makeClient(base);
 
     const exchange = await api.exchange(token);

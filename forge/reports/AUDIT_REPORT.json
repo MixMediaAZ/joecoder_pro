@@ -1,0 +1,36 @@
+{
+  "report_name": "AUDIT_REPORT",
+  "generated_utc": "2026-08-31T02:32:06.007906Z",
+  "system_verdict": "FAIL",
+  "checks": {
+    "manifest_lint": "PASS",
+    "enforcement": "FAIL",
+    "drift": "PASS",
+    "done_gate": "FAIL",
+    "integrity": "PASS",
+    "truth": "FAIL",
+    "deployment_gate": "FAIL"
+  },
+  "report_timestamps": {
+    "manifest_lint": "2026-08-31T02:30:47.969671Z",
+    "enforcement": "2026-08-31T02:32:05.809253Z",
+    "drift": "2026-08-31T02:32:05.821415Z",
+    "done_gate": "2026-08-31T02:32:05.837870Z",
+    "integrity": "2026-08-31T02:32:05.871247Z",
+    "truth": "2026-08-31T02:32:05.879951Z",
+    "deployment_gate": "2026-08-31T02:32:05.837870Z"
+  },
+  "manifest_hashes": {
+    "manifest_lint": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "enforcement": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "drift": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "done_gate": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "integrity": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "truth": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+    "deployment_gate": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5"
+  },
+  "active_override_count": 0,
+  "failure_reasons": [
+    "non-PASS verdicts: enforcement, done_gate, truth, deployment_gate"
+  ]
+}

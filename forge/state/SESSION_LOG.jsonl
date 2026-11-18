@@ -1,0 +1,8 @@
+{"event": "status", "timestamp_utc": "2026-08-31T00:22:09.679089Z", "previous_hash": null}
+{"event": "truth", "verdict": "FAIL", "timestamp_utc": "2026-08-31T00:23:50.800587Z", "previous_hash": "415d8eb6c0c35b5a7e61cc925b449247af96f5d1b6d592b96f34f65902ba49b3"}
+{"event": "status", "timestamp_utc": "2026-08-31T00:25:21.338047Z", "previous_hash": "6fd393c219c895ac02b093ba7e7a9d47302ecb79e8620fd70ebaa705d54fbd3a"}
+{"event": "truth", "verdict": "FAIL", "timestamp_utc": "2026-08-31T00:26:36.961106Z", "previous_hash": "dd132d4dab0fc04a0db832d056a0ba710ef174118ed73657da8b467552be047d"}
+{"event": "status", "timestamp_utc": "2026-08-31T01:38:44.039568Z", "previous_hash": "cc07a4985ef3c774dd64e108cf280daa75e29b5ff036879f41e8f45d6ba36652"}
+{"event": "truth", "verdict": "FAIL", "timestamp_utc": "2026-08-31T01:40:06.681182Z", "previous_hash": "fb61e7b6b2f139acf0cc122e18592afeb6cfbb215be080230fe5c44ff4cb75bf"}
+{"event": "status", "timestamp_utc": "2026-08-31T02:30:47.861745Z", "previous_hash": "cc9d3794e3767acb2295a77b273d45264b1431d81ea47c1018d1ee567a3c0595"}
+{"event": "truth", "verdict": "FAIL", "timestamp_utc": "2026-08-31T02:32:05.890924Z", "previous_hash": "5a14765a8fd4ece12322b4de123557ee03f397de6c96f1b4a9bc4d041a036609"}

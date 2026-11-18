@@ -7,4 +7,5 @@ dist/
 *.tmp
 .DS_Store
 Thumbs.db
-
+.powerrouter.env
+*.powerrouter-backup

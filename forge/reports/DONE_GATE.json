@@ -1,0 +1,22 @@
+{
+  "report_name": "DONE_GATE",
+  "generated_utc": "2026-08-31T02:32:05.837870Z",
+  "manifest_hash": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+  "verdict": "FAIL",
+  "blocking_items": [
+    {
+      "id": "MANIFEST",
+      "message": "Manifest not locked"
+    },
+    {
+      "id": "ENFORCEMENT",
+      "message": "Enforcement failing"
+    }
+  ],
+  "warnings": [],
+  "summary": {
+    "missing_required_proof_count": 0,
+    "enforcement_status": "FAIL",
+    "drift_status": "PASS"
+  }
+}

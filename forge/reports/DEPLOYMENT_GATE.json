@@ -1,0 +1,30 @@
+{
+  "report_name": "DEPLOYMENT_GATE",
+  "generated_utc": "2026-08-31T02:32:05.837870Z",
+  "manifest_hash": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+  "verdict": "FAIL",
+  "blocking_items": [
+    {
+      "id": "DONE_GATE",
+      "message": "Done gate must PASS before deployment gate can pass"
+    },
+    {
+      "id": "FINAL_SNAPSHOT",
+      "message": "Final snapshot is missing"
+    },
+    {
+      "id": "LIVE_PROOF",
+      "message": "At least one PROD runtime proof is required"
+    }
+  ],
+  "warnings": [],
+  "summary": {
+    "project_owner": "",
+    "deadline_utc": "",
+    "system_freeze_mode": false,
+    "deployment_target_count": 0,
+    "latest_prod_proof_id": null,
+    "latest_prod_proof_status": null
+  },
+  "deployment_checks": []
+}

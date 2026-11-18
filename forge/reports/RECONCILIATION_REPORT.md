@@ -1,0 +1,315 @@
+# Reconciliation Report
+
+Generated: 2026-08-31T00:41:43Z
+
+- Intent statements found: 331
+- Code directories detected: src
+- Proposed behaviors: 306
+
+## Proposed behaviors (origin=intent, required=false — CONFIRM before locking)
+- BHV-001: Assessment Remediation (2026-08-02)  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-002: Items addressed  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-003: 1. Model dependency  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-004: 2. Battle testing / live mutation proof  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-005: 3. Synthetic laws (superseded by Amendment 1.3.2)  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-006: 4. Verification soft edge  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-007: 5. Greenfield narrowness  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-008: Fix:** `isNearEmptySurvey` allows package.json + README/gitignore-class only (st  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-009: 6. UI layering debt  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-010: 7. Toolchain  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-011: Commands  _(from From ASSESSMENT_REMEDIATION.md)_
+- BHV-012: Capability Certification — Source Repair  _(from From CAPABILITY_CERTIFICATION.md)_
+- BHV-013: Four Required Controls  _(from From CAPABILITY_CERTIFICATION.md)_
+- BHV-014: Certification Process (executed)  _(from From CAPABILITY_CERTIFICATION.md)_
+- BHV-015: Current State  _(from From CAPABILITY_CERTIFICATION.md)_
+- BHV-016: Stop-Loss  _(from From CAPABILITY_CERTIFICATION.md)_
+- BHV-017: JoeCoder Pro 20.1 — Mandate Compliance Hand-off  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-018: Executive state  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-019: What is complete  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-020: Existing safety foundation  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-021: Current qualification code  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-022: Relevant commits  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-023: Latest InspectorCode evidence  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-024: Candidate and target  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-025: Progress demonstrated by the run  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-026: Exact remaining failure  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-027: Recommended shortest path to repair qualification  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-028: Remaining mandate stages after InspectorCode  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-029: Submit the evidence to the operator. The final compliance verdict is operator-on  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-030: Non-negotiable stop conditions  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-031: Immediate next action  _(from From HANDOFF_MANDATE_CURRENT_STATE.md)_
+- BHV-032: JoeCoder Pro 20 → Expert Coding Machine  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-033: Defensible Handoff Plan v1.0  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-034: 1. Governing Laws (Non-Negotiable)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-035: | L4 | Scope is exact and sealed | Authorization envelope hash must match applie  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-036: | L8 | Windows path + crash recovery proven before enable | Mutation capability   _(from From HANDOFF_PLAN_v1.md)_
+- BHV-037: 2. Current Baseline  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-038: 3. Target State (Minimal Viable Coding Machine)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-039: 4. Simple Flowchart Rules  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-040: 5. Phased Upgrade  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-041: Phase 0 — Clean Baseline (COMPLETE)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-042: Phase 1 — Mutation Certification (COMPLETE 2026-08-02)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-043: Phase 2 — Jailed Verification Runner (COMPLETE 2026-08-02)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-044: Phase 3 — Model Routing for Lesser Models (COMPLETE 2026-08-02)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-045: Phase 4 — UI Honesty + Minimal Controls (COMPLETE 2026-08-02)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-046: Phase 5 — Hardening & Freeze (COMPLETE 2026-08-02)  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-047: 6. Risk & Stop-Loss  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-048: 7. Acceptance for “Coding Machine”  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-049: 8. Status  _(from From HANDOFF_PLAN_v1.md)_
+- BHV-050: JoeCoder Pro 20.1 — Defensible Handoff Plan v2.0  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-051: 0. Why v2 exists  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-052: 1. Governing laws — RETAINED from v1 §1, unchanged  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-053: 2. Superseded sections of v1  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-054: 3. Current architecture (replaces v1 §3 and §4)  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-055: 4. Acceptance for "Coding Machine" (replaces v1 §7)  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-056: 5. Relationship to the controlling finish specification  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-057: 6. Corrections issued with this plan  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-058: 7. Status  _(from From HANDOFF_PLAN_v2.md)_
+- BHV-059: JoeCoder Pro 20.1 — Handoff Plan v3.0  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-060: Causal Repair Core Refactor (binding)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-061: 0. Why v3 exists  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-062: > One ordinary-language request on a real project under a real local model must   _(from From HANDOFF_PLAN_v3.md)_
+- BHV-063: 1. Governing laws — RETAINED from v2 §1  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-064: 2. What is frozen (do not touch unless a job below names it)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-065: 3. Target inner-loop architecture (replaces v2 repair governor assumptions)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-066: → seal exactPaths (must include every evidence target + npm lockfile when instal  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-067: Design invariants (coding law for all jobs below)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-068: One story of truth.** Job runtime state, work-order execution phase, and complet  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-069: 4. Current code truth (do not regress)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-070: These are **partial mitigations**, not the v3 refactor. Jobs below may reshape t  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-071: 5. Verifiable job sequence  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-072: Job J0 — Baseline freeze & inventory (operator/agent, short)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-073: Job J1 — Causal scope sealing (code)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-074: Job J2 — Install invalidation on manifest change (code)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-075: Admission/`npm ci` must see a coherent package.json+lock pair — J1 must have aut  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-076: Correction must not assume prior install still valid  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-077: Job J3 — Remove substantial write-gate; keep mandate accounting (code)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-078: Planning:** Do not reject plans that have fewer than 10 implementation files whe  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-079: Job J4 — Runtime state single story (code, bounded)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-080: When apply+verify+completion run, job `runtimeState` must set `executionComplete  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-081: 6. Gates (operator-visible, verifiable)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-082: Gate G1 — Causal loop ready (no real-model qual yet)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-083: Gate G2 — InspectorCode repair retained (real model)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-084: Gate G3 — Mandate Stage 2 set  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-085: 7. Qualification operating procedure (Windows)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-086: 8. Coding guidance for every implementer (human or model)  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-087: 9. Explicit non-goals for v3 core work  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-088: 10. Relationship to other documents  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-089: 11. Immediate next action  _(from From HANDOFF_PLAN_v3.md)_
+- BHV-090: JoeCoder Pro 20.1 - Foundational Work Summary  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-091: Executive Summary  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-092: 1. PowerRouter Investigation ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-093: Finding  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-094: What PowerRouter IS  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-095: What PowerRouter is NOT  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-096: Integration Decision  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-097: PowerRouter Endpoints  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-098: Sources  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-099: 2. Backend Verification ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-100: Backend Architecture  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-101: API Endpoints (40+ endpoints)  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-102: Session & Authentication  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-103: Projects Management  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-104: Threads & Conversation  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-105: Work Orders (Authorization System)  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-106: Agent Jobs  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-107: Survey System  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-108: System Operations  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-109: Session Management  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-110: Work Order System  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-111: Security Features  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-112: Storage  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-113: 3. Missing Dependencies ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-114: Added Dependencies  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-115: Installation Command  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-116: Compatibility  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-117: 4. Data Models Created ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-118: Files Created (7 TypeScript files)  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-119: 1. `worktreeMetadata.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-120: 2. `permissionSystem.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-121: 3. `skillDefinition.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-122: 4. `automationTrigger.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-123: 5. `automationAction.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-124: 6. `diffReview.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-125: 7. `index.ts`  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-126: 5. Revised Implementation Plan Structure  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-127: Based on Findings:  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-128: Phase 1: Routing System ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-129: Phase 2: Workspace Enhancements ⚠️  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-130: Phase 3: Plan & Permission System ⚠️  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-131: Phase 4: Worktree & Skills System ❌  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-132: Phase 5: Automations System ❌  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-133: Phase 6: Scripts & Polish ✅  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-134: Phase 7: AI & Terminal Integration ⚠️  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-135: 6. Critical Decisions  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-136: PowerRouter  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-137: Backend APIs  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-138: Dependencies  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-139: Data Models  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-140: 7. Next Steps  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-141: 8. Risk Assessment  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-142: Resolved Risks  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-143: Remaining Risks  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-144: Overall Risk Level  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-145: 9. Contact & Resources  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-146: Project Files  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-147: Documentation  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-148: External Resources  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-149: 10. Conclusion  _(from From JC_FOUNDATIONAL_WORK_SUMMARY.md)_
+- BHV-150: JoeCoder Pro UI Refactoring - Implementation Plan  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-151: Overview  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-152: Current State vs Target State  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-153: Current  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-154: Target  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-155: Phase 1: Core Routing Foundation (Priority: HIGH)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-156: Step 1.1: Install PowerRouter  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-157: Step 1.2: Route Structure Setup  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-158: Step 1.3: Navigation Components  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-159: Phase 2: Workspace Enhancement (Priority: HIGH)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-160: Step 2.1: Pane Management System  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-161: Step 2.2: Pane Components  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-162: Step 2.3: Visual Diff Review  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-163: Phase 3: Plan Mode & Permission System (Priority: HIGH)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-164: Step 3.1: Plan Mode Enhancement  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-165: Step 3.2: Permission Modes  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-166: Phase 4: Worktree & Skills (Priority: MEDIUM)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-167: Step 4.1: Worktree Isolation  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-168: Step 4.2: Skills Panel  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-169: Risk:** Medium - Backend API must be ready  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-170: Phase 5: Automations & Integration (Priority: MEDIUM)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-171: Step 5.1: Automations Panel  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-172: Phase 6: Production-Grade Scripts (Priority: HIGH)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-173: Step 6.1: start.bat  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-174: Phase 7: Polish & Testing (Priority: MEDIUM)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-175: Step 7.1: Error Boundaries  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-176: Step 7.2: Loading States  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-177: Phase 8: Real AI Integration (Priority: HIGH)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-178: Step 8.1: AI Chat Integration  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-179: Step 8.2: Terminal Integration  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-180: Risk Mitigation & Dependencies  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-181: High-Risk Items  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-182: Medium-Risk Items  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-183: Low-Risk Items  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-184: Testing Plan  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-185: Unit Tests  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-186: Integration Tests  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-187: E2E Tests  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-188: Acceptance Criteria Checklist  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-189: Must Have (Non-Negotiable)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-190: Should Have (High Priority)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-191: Nice to Have (Medium Priority)  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-192: Estimated Effort  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-193: Phase 1: Routing Foundation  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-194: Phase 2: Workspace Enhancement  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-195: Phase 3: Plan & Permissions  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-196: Phase 4: Worktree & Skills  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-197: Phase 5: Automations  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-198: Phase 6: Production Scripts  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-199: Phase 7: Polish  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-200: Phase 8: AI Integration  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-201: Grand Total  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-202: Next Steps After This Plan  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-203: Success Definition  _(from From JC_UI_REFACTOR_IMPLEMENTATION_PLAN.md)_
+- BHV-204: JoeCoder Pro UI Refactoring - Critical/Skeptical Peer Review  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-205: FACTS (What Is Actually True)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-206: Verified Current State  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-207: What Does NOT Exist  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-208: ASSUMPTIONS (What Plan Assumes Without Evidence)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-209: High-Risk Assumptions  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-210: 1. PowerRouter Integration Success (CRITICAL BLOCKER)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-211: 2. Backend API Compatibility (CRITICAL BLOCKER)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-212: 3. Worktree Git Operations Feasibility (HIGH-RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-213: 4. Real AI Integration (MEDIUM-HIGH RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-214: 5. Terminals Backend Service (MEDIUM-HIGH RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-215: Medium-Risk Assumptions  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-216: 6. Diff Viewer Acceptance/Reject Works (MEDIUM RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-217: 7. Permission Mode Toggle Affects All Components (MEDIUM RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-218: Low-Risk Assumptions  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-219: 8. Pane Persistence in localStorage (LOW RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-220: 9. start.bat Script Works on Windows 10/11 (LOW RISK)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-221: UNKNOWN (What We're Missing)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-222: Critical Unknowns  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-223: 1. Backend Server Architecture  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-224: 2. PowerRouter Documentation  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-225: 3. Data Models for New Features  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-226: 4. Session Persistence Strategy  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-227: Secondary Unknowns  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-228: 5. Error Handling Strategy  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-229: 6. Performance Requirements  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-230: 7. Accessibility Standards  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-231: 8. Security Requirements  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-232: 9. Testing Strategy  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-233: FAILURE MODES (What Could Break and How)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-234: Phase 1: Core Routing Foundation  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-235: Failure Mode 1.1: PowerRouter Installation  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-236: Failure Mode 1.2: Route Structure Breaks Navigation  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-237: Failure Mode 1.3: Navigation Components Introduce New Bugs  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-238: Failure Mode 2.1: Drag-and-Drop Panes Introduce State Corruption  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-239: Failure Mode 2.2: Pane State Lost on Refresh  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-240: Failure Mode 2.3: Diff Viewer Integration Fails  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-241: Phase 3: Plan Mode & Permission System  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-242: Failure Mode 3.1: Plan Mode Enforced Too Strictly  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-243: User cannot proceed without plan (even when plan makes sense)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-244: Failure Mode 3.2: Permission Guard Has Gaps  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-245: Low-permission users can execute privileged actions  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-246: Failure Mode 4.1: Worktree Operations Corrupt Repo  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-247: Failure Mode 4.2: Skills Panel Backend Missing  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-248: Failure Mode 5.1: Automations Backend Missing  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-249: Failure Mode 6.1: start.bat Script Fails on Some Configurations  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-250: Phase 7: Polish & Testing  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-251: Failure Mode 7.1: Error Boundaries Don't Catch All Errors  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-252: Phase 8: Real AI Integration  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-253: Failure Mode 8.1: AI Integration Has High Latency  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-254: Failure Mode 8.2: Terminal Integration Security Issues  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-255: DEPENDENCIES (What Must Exist Before Each Phase)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-256: TECHNICAL FEASIBILITY BY PHASE  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-257: CRITICAL BLOCKERS (Prevents Implementation)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-258: Blocker #1: PowerRouter Documentation Missing (CRITICAL)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-259: Priority**: **P0 - Must Do**  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-260: Blocker #2: Backend Server Not Verified (CRITICAL)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-261: Blocker #3: Diff Viewer Placeholder (CRITICAL)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-262: RECOMMENDATIONS  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-263: Immediate Actions (Before Implementing Plan)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-264: Plan Modifications Required  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-265: Redefine Phases (More Realistic)  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-266: Risk Re-Evaluation  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-267: CONCLUSION  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-268: Cannot proceed with implementation as written.** Must complete foundational work  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-269: APPENDIX: Evidence Files Referenced  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-270: Current State Evidence  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-271: Missing Evidence  _(from From JC_UI_REFACTOR_PEER_REVIEW.md)_
+- BHV-272: JoeCoder Pro 20.1 — autonomous coding agent  _(from From README.md)_
+- BHV-273: Use it  _(from From README.md)_
+- BHV-274: Requirements  _(from From README.md)_
+- BHV-275: Verify the source  _(from From README.md)_
+- BHV-276: JoeCoder Pro 20.1 — Windows operator guide  _(from From README_RUN.md)_
+- BHV-277: Start  _(from From README_RUN.md)_
+- BHV-278: Work  _(from From README_RUN.md)_
+- BHV-279: Full release verification  _(from From README_RUN.md)_
+- BHV-280: The separately provisioned clean-Windows-user installation remains an external q  _(from From README_RUN.md)_
+- BHV-281: JoeCoder Pro 20.1 — Supported Capabilities  _(from From SUPPORTED_CAPABILITIES.md)_
+- BHV-282: Normal workflow  _(from From SUPPORTED_CAPABILITIES.md)_
+- BHV-283: Enforced capabilities  _(from From SUPPORTED_CAPABILITIES.md)_
+- BHV-284: Verified limitations  _(from From SUPPORTED_CAPABILITIES.md)_
+- BHV-285: JoeCoder Pro 20.1 — Architecture Transition Record  _(from From SURVEY_AND_UPGRADES.md)_
+- BHV-286: Current authoritative architecture  _(from From SURVEY_AND_UPGRADES.md)_
+- BHV-287: Ratified limitations  _(from From SURVEY_AND_UPGRADES.md)_
+- BHV-288: Historical record  _(from From SURVEY_AND_UPGRADES.md)_
+- BHV-289: UI test notes — live session  _(from From UI_TEST_NOTES.md)_
+- BHV-290: How to get in  _(from From UI_TEST_NOTES.md)_
+- BHV-291: Found and fixed before you opened it  _(from From UI_TEST_NOTES.md)_
+- BHV-292: Mismatches found, not yet fixed — your call  _(from From UI_TEST_NOTES.md)_
+- BHV-293: Live observations  _(from From UI_TEST_NOTES.md)_
+- BHV-294: A. Contrast — hard fail of Stage 3 item 5, measured in the running app at 1440x9  _(from From UI_TEST_NOTES.md)_
+- BHV-295: B. Rail collapses to 56px but keeps rendering full content — clipped and unreach  _(from From UI_TEST_NOTES.md)_
+- BHV-296: C. Version string was wrong in three places  _(from From UI_TEST_NOTES.md)_
+- BHV-297: D. Cosmetic  _(from From UI_TEST_NOTES.md)_
+- BHV-298: JoeCoder Pro 20.1 — Current Workflow Guide  _(from From WORKFLOW_GUIDE.md)_
+- BHV-299: Operator flow  _(from From WORKFLOW_GUIDE.md)_
+- BHV-300: What Automatic means  _(from From WORKFLOW_GUIDE.md)_
+- BHV-301: Deterministic guardrails  _(from From WORKFLOW_GUIDE.md)_
+- BHV-302: Joe Live  _(from From WORKFLOW_GUIDE.md)_
+- BHV-303: Project Brain  _(from From WORKFLOW_GUIDE.md)_
+- BHV-304: Stop and resume  _(from From WORKFLOW_GUIDE.md)_
+- BHV-305: Evidence labels  _(from From WORKFLOW_GUIDE.md)_
+- BHV-306: Shipped limits  _(from From WORKFLOW_GUIDE.md)_

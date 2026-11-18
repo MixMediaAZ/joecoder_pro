@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "models": [
+    {
+      "name": "Aider + Ollama (local) (llama3)",
+      "kind": "cli",
+      "command": [
+        "aider",
+        "--model",
+        "ollama/llama3",
+        "--yes",
+        "--message"
+      ],
+      "preset_id": "aider-ollama"
+    }
+  ],
+  "selected": "Aider + Ollama (local) (llama3)"
+}

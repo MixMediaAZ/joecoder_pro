@@ -1,0 +1,17 @@
+{
+  "report_name": "DRIFT_REPORT",
+  "generated_utc": "2026-08-31T02:32:05.821415Z",
+  "manifest_hash": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+  "policy_hash": "804c1599cc0ed274a4af507ac53efd042f995d2096e821e2a033879eff8d0fa7",
+  "verdict": "PASS",
+  "blocking_items": [],
+  "warnings": [],
+  "summary": {
+    "declared_manifest_id_count": 306,
+    "required_manifest_id_count": 0,
+    "mapped_manifest_id_count": 1,
+    "undeclared_proof_id_count": 0,
+    "missing_required_proof_count": 0,
+    "stale_proof_count": 0
+  }
+}

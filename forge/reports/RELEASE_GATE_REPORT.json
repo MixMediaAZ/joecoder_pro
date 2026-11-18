@@ -1,0 +1,42 @@
+{
+  "report_name": "RELEASE_GATE_REPORT",
+  "generated_utc": "2026-08-31T02:32:06.154887Z",
+  "verdict": "FAIL",
+  "blocking_items": [
+    {
+      "id": "MANIFEST",
+      "message": "Manifest must be locked for release"
+    },
+    {
+      "id": "AUDIT",
+      "message": "AUDIT_REPORT system_verdict must be PASS"
+    },
+    {
+      "id": "TRUTH",
+      "message": "TRUTH_REPORT verdict must be PASS"
+    },
+    {
+      "id": "DEPLOYMENT_GATE",
+      "message": "DEPLOYMENT_GATE verdict must be PASS"
+    },
+    {
+      "id": "PROSECUTION",
+      "message": "Prosecution A and B results must both be present"
+    },
+    {
+      "id": "PROSECUTION_CMP",
+      "message": "PROSECUTION_COMPARISON verdict must be PASS"
+    },
+    {
+      "id": "FINALIZE",
+      "message": "FINAL_SNAPSHOT.json must exist (finalize succeeded)"
+    },
+    {
+      "id": "LOCK",
+      "message": "forge/final/LOCK must exist"
+    }
+  ],
+  "summary": {
+    "release_allowed": false
+  }
+}

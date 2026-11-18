@@ -81,7 +81,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [SUCCESS] Starting the current verified build...
+echo [SUCCESS] Build finished. Starting JoeCoder...
 echo Server listening on http://127.0.0.1 (dynamic port)
 echo Press Ctrl+C to stop the server.
 echo.

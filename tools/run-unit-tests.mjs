@@ -24,7 +24,13 @@ async function collect(dir) {
   return out;
 }
 
-const tests = await collect(dist);
+const available = await collect(dist);
+const requested = process.argv.slice(2);
+const tests = requested.length ? requested.map(name => {
+  const file = available.find(candidate => path.relative(dist, candidate).replaceAll('\\', '/') === name.replaceAll('\\', '/'));
+  if (!file) throw new Error('Unknown compiled test file: ' + name + '. Run npm run build first.');
+  return file;
+}) : available;
 if (!tests.length) {
   console.error('No test files found under dist/. Run: npm run build');
   process.exit(1);

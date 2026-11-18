@@ -1,0 +1,69 @@
+{
+  "report_name": "TRUTH_REPORT",
+  "generated_utc": "2026-08-31T02:32:05.879951Z",
+  "manifest_hash": "5dd19f593ec7c0e81088900eb32845f427f21a2c9130a424883b44d209ca45a5",
+  "policy_hash": "804c1599cc0ed274a4af507ac53efd042f995d2096e821e2a033879eff8d0fa7",
+  "verdict": "FAIL",
+  "blocking_items": [
+    {
+      "id": "MANIFEST_LOCK",
+      "message": "Manifest must be locked before truth validation"
+    },
+    {
+      "id": "PROSECUTION_A",
+      "message": "Prosecutor A results required"
+    },
+    {
+      "id": "PROSECUTION_B",
+      "message": "Prosecutor B results required"
+    }
+  ],
+  "warnings": [],
+  "summary": {
+    "required_manifest_count": 0,
+    "active_override_count": 0,
+    "beta_tests_run": false,
+    "beta_tests_verdict": "PASS",
+    "determinism_runs_configured": 3,
+    "determinism_runs_executed": 3,
+    "determinism_verdict": "PASS",
+    "determinism_signature_hashes": [
+      {
+        "run": 1,
+        "enforcement_verdict": "FAIL",
+        "drift_verdict": "PASS",
+        "done_gate_verdict": "FAIL",
+        "deployment_gate_verdict": "FAIL",
+        "integrity_verdict": "PASS",
+        "hash": "66b4c0e3e6494712d6c228193f86b61950edbccc0ccfcc6ca0366259a49af5c3"
+      },
+      {
+        "run": 2,
+        "enforcement_verdict": "FAIL",
+        "drift_verdict": "PASS",
+        "done_gate_verdict": "FAIL",
+        "deployment_gate_verdict": "FAIL",
+        "integrity_verdict": "PASS",
+        "hash": "66b4c0e3e6494712d6c228193f86b61950edbccc0ccfcc6ca0366259a49af5c3"
+      },
+      {
+        "run": 3,
+        "enforcement_verdict": "FAIL",
+        "drift_verdict": "PASS",
+        "done_gate_verdict": "FAIL",
+        "deployment_gate_verdict": "FAIL",
+        "integrity_verdict": "PASS",
+        "hash": "66b4c0e3e6494712d6c228193f86b61950edbccc0ccfcc6ca0366259a49af5c3"
+      }
+    ],
+    "determinism_signature": {
+      "state_stage": "DECLARATION",
+      "state_next": "edit_manifest",
+      "enforcement": "FAIL",
+      "drift": "PASS",
+      "done_gate": "FAIL",
+      "deployment_gate": "FAIL",
+      "integrity": "PASS"
+    }
+  }
+}

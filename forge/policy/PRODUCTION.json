@@ -1,0 +1,15 @@
+{
+  "production_enforced": true,
+  "system_freeze_mode": false,
+  "project_owner": "",
+  "completion_deadline_utc": "",
+  "deployment_targets": [],
+  "stale_project_days": 30,
+  "require_live_runtime_proof": true,
+  "require_owner_signoff": false,
+  "min_proof_confidence_level": 1,
+  "require_command_artifact_binding": true,
+  "enforce_determinism": true,
+  "created_utc": "2026-08-31T00:21:52.248475Z",
+  "updated_utc": "2026-08-31T00:21:52.248475Z"
+}

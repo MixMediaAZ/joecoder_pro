@@ -1,0 +1,4 @@
+{"event_type": "truth_run", "actor": "operator", "payload": {"verdict": "FAIL"}, "timestamp_utc": "2026-08-31T00:23:50.800587Z", "previous_hash": null}
+{"event_type": "truth_run", "actor": "operator", "payload": {"verdict": "FAIL"}, "timestamp_utc": "2026-08-31T00:26:36.961106Z", "previous_hash": "63ab4b574cc5dd33aa73165bbeb536cc6d45f8b73e0302903cddff2fdd5d5545"}
+{"event_type": "truth_run", "actor": "operator", "payload": {"verdict": "FAIL"}, "timestamp_utc": "2026-08-31T01:40:06.681182Z", "previous_hash": "d5a4e3cb545bf77e7a6d1a9fba427f1c69e7e2611e83239d29237bd76bd46ec1"}
+{"event_type": "truth_run", "actor": "operator", "payload": {"verdict": "FAIL"}, "timestamp_utc": "2026-08-31T02:32:05.890924Z", "previous_hash": "2c3b31993ffbe911ab80d38649c36cb1bcf73ac68f8140f59bc5dd6c0f9df01e"}
